@@ -1,0 +1,31 @@
+# Capability policy. Evaluated by Aos.Broker; the most specific matching rule wins.
+#
+# verdict: allow | prompt | deny
+# Tiers escalate Read -> Write -> System -> Destructive.
+
+tiers:
+  Read:        { verdict: allow }
+  Write:       { verdict: prompt }
+  System:      { verdict: prompt, dryRunOnly: true }
+  Destructive: { verdict: prompt, dryRunOnly: true }
+
+# Per-capability overrides, keyed by CapabilityDescriptor.Id.
+capabilities:
+  # Trusted read-heavy paths worth auto-allowing to keep routines quiet.
+  aos-files/file.search:      { verdict: allow }
+  aos-windows/ui.tree:        { verdict: allow }
+  aos-windows/window.list:    { verdict: allow }
+
+  # Never, on any machine.
+  aos-shell/exec.raw:         { verdict: deny, reason: "Use a declared capability, not raw shell." }
+
+# Paths the agent may never touch, regardless of tier or verdict.
+denyPaths:
+  - "C:\\Windows\\System32"
+  - "C:\\Program Files"
+  - "%USERPROFILE%\\.ssh"
+  - "%APPDATA%\\Roaming\\Claude"
+
+# Destructive file operations move here instead of deleting. Swept manually.
+trashPath: "%LOCALAPPDATA%\\AgenticOS\\trash"
+auditPath: "%LOCALAPPDATA%\\AgenticOS\\audit"

@@ -1,0 +1,22 @@
+bin/
+obj/
+node_modules/
+dist/
+.vs/
+*.user
+
+# Runtime state — never commit
+audit/
+*.jsonl
+.trash/
+data/*.db
+data/*.db-*
+
+# Secrets
+.env
+*.secrets.json
+provisioning/secrets/
+image/out/
+image/mount/
+*.wim
+*.iso
