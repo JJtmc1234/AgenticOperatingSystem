@@ -1,0 +1,25 @@
+namespace Aos.Broker;
+
+/// <summary>One rule from policy.yaml. All members optional so rules can partially override.</summary>
+public sealed class PolicyRule
+{
+    public string? Verdict { get; set; }
+    public bool? DryRunOnly { get; set; }
+    public string? Reason { get; set; }
+}
+
+/// <summary>Deserialized shape of <c>policy/default.yaml</c>.</summary>
+public sealed class PolicyDocument
+{
+    /// <summary>Keyed by <see cref="Aos.Core.RiskTier"/> name.</summary>
+    public Dictionary<string, PolicyRule> Tiers { get; set; } = new();
+
+    /// <summary>Keyed by capability id. Overrides the tier rule.</summary>
+    public Dictionary<string, PolicyRule> Capabilities { get; set; } = new();
+
+    /// <summary>Paths no capability may touch, whatever the tier says.</summary>
+    public List<string> DenyPaths { get; set; } = new();
+
+    public string? TrashPath { get; set; }
+    public string? AuditPath { get; set; }
+}
