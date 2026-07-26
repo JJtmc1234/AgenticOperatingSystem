@@ -51,4 +51,7 @@ function New-AosPublishStep {
     New-AosPublishStep -ProjectDir 'src\Aos.Mcp.Windows' -ExeName 'aos-mcp-windows.exe'
 
     New-AosPublishStep -ProjectDir 'src\Aos.Mcp.Files'   -ExeName 'aos-mcp-files.exe'
+
+
+    New-AosPublishStep -ProjectDir 'src\Aos.Mcp.Shell'   -ExeName 'aos-mcp-shell.exe'
 )

@@ -26,6 +26,12 @@ public sealed class PolicyDocument
     /// <summary>Paths no capability may touch, whatever the tier says.</summary>
     public List<string> DenyPaths { get; set; } = new();
 
+    /// <summary>
+    /// Executables <c>aos-shell</c> may launch, by bare name. Empty means none, so the shell
+    /// server is inert until the list is populated deliberately.
+    /// </summary>
+    public List<string> AllowedCommands { get; set; } = new();
+
     public string? TrashPath { get; set; }
     public string? AuditPath { get; set; }
 }

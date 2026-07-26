@@ -19,6 +19,19 @@ capabilities:
   # Never, on any machine.
   aos-shell/exec.raw:         { verdict: deny, reason: "Use a declared capability, not raw shell." }
 
+# Executables aos-shell may launch. Arguments are passed as a list and never handed to a
+# shell, so pipes, redirection and && cannot be smuggled in through them. Anything not
+# listed here is refused by name before the risk tier is considered.
+allowedCommands:
+  - git
+  - dotnet
+  - node
+  - npm
+  - npx
+  - python
+  - uv
+  - gh
+
 # Folders the file capabilities may work inside. Anything outside these is refused before
 # a tier is even considered. Leave the list empty to allow the whole filesystem, which is
 # not recommended. Add roots as you need them rather than widening pre-emptively.

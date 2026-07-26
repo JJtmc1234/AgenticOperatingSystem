@@ -60,4 +60,5 @@ function New-AosMcpStep {
 @(
     New-AosMcpStep -ServerKey 'aos-windows' -ExeName 'aos-mcp-windows.exe'
     New-AosMcpStep -ServerKey 'aos-files'   -ExeName 'aos-mcp-files.exe'
+    New-AosMcpStep -ServerKey 'aos-shell'   -ExeName 'aos-mcp-shell.exe'
 )

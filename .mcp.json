@@ -7,6 +7,10 @@
     "aos-files": {
       "command": "${LOCALAPPDATA}\\AgenticOS\\bin\\aos-mcp-files.exe",
       "args": []
+    },
+    "aos-shell": {
+      "command": "${LOCALAPPDATA}\\AgenticOS\\bin\\aos-mcp-shell.exe",
+      "args": []
     }
   }
 }
