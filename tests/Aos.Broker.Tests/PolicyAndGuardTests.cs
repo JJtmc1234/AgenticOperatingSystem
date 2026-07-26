@@ -139,7 +139,7 @@ public class PathGuardTests
     public void DeniesProtectedPaths(string path) => Assert.True(Guard.IsDenied(path));
 
     [Theory]
-    [InlineData(@"C:\Users\pmarc\Documents\notes.md")]
+    [InlineData(@"C:\Users\testuser\Documents\notes.md")]
     [InlineData(@"C:\ProgramData\thing")]      // must not match "C:\Program Files"
     [InlineData(@"C:\Program Filesx\thing")]   // prefix, not a child
     [InlineData(@"C:\Windows\Temp\scratch")]   // sibling of System32

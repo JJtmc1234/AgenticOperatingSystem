@@ -41,7 +41,7 @@ public class ArgumentRedactorTests
         // A whole object under a sensitive key must go, not just scalar leaves.
         var args = new JsonObject
         {
-            ["credentials"] = new JsonObject { ["user"] = "pmarc", ["pat"] = "abc123" },
+            ["credentials"] = new JsonObject { ["user"] = "testuser", ["pat"] = "abc123" },
         };
 
         var redacted = ArgumentRedactor.Redact(args)!;
