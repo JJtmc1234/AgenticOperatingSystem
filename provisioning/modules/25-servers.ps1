@@ -161,7 +161,10 @@ function New-AosServerSmokeStep {
 
     New-AosPublishStep -ProjectDir 'src\Aos.Mcp.Shell'   -ExeName 'aos-mcp-shell.exe'
 
+    New-AosPublishStep -ProjectDir 'src\Aos.Mcp.Apps'    -ExeName 'aos-mcp-apps.exe'
+
     New-AosServerSmokeStep -ExeName 'aos-mcp-windows.exe'
     New-AosServerSmokeStep -ExeName 'aos-mcp-files.exe'
     New-AosServerSmokeStep -ExeName 'aos-mcp-shell.exe'
+    New-AosServerSmokeStep -ExeName 'aos-mcp-apps.exe'
 )

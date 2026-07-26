@@ -11,6 +11,10 @@
     "aos-shell": {
       "command": "${LOCALAPPDATA}\\AgenticOS\\bin\\aos-mcp-shell.exe",
       "args": []
+    },
+    "aos-apps": {
+      "command": "${LOCALAPPDATA}\\AgenticOS\\bin\\aos-mcp-apps.exe",
+      "args": []
     }
   }
 }
