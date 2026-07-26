@@ -1,7 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- Matches the servers under test. Aos.Mcp.Apps is net9.0-windows for DPAPI, and a
+         net9.0 test project cannot reference it. -->
+    <TargetFramework>net9.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -20,6 +22,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aos.Broker\Aos.Broker.csproj" />
+    <!-- The MCP servers are exe projects, but referencing them here is what lets the
+         capability logic be tested directly rather than only through a live stdio server. -->
+    <ProjectReference Include="..\..\src\Aos.Mcp.Files\Aos.Mcp.Files.csproj" />
+    <ProjectReference Include="..\..\src\Aos.Mcp.Apps\Aos.Mcp.Apps.csproj" />
   </ItemGroup>
 
 </Project>

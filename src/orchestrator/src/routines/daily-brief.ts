@@ -27,8 +27,11 @@ export async function gather(): Promise<Brief> {
   const attention = repos
     .map((repo) => ({ repo, reasons: needsAttention(repo) }))
     .filter((entry) => entry.reasons.length > 0)
-    // Most uncommitted work first, since that is what is most at risk of being lost.
-    .sort((a, b) => b.repo.dirtyFiles - a.repo.dirtyFiles);
+    // Most uncommitted work first, since that is what is most at risk of being lost. A repo
+    // whose status never answered sorts to the top: unknown outranks a known count, because
+    // it is the one that still needs a human to look. Subtracting nulls-as-Infinity would
+    // give NaN when two are unchecked, so the ranks are compared explicitly.
+    .sort((a, b) => dirtyRank(b.repo) - dirtyRank(a.repo));
 
   const issues = await collectIssues(repos);
   const downloads = await scanDownloads();
@@ -41,6 +44,11 @@ export async function gather(): Promise<Brief> {
     staleDownloads: downloads.stale,
     downloadsTotal: downloads.total,
   };
+}
+
+/** Unchecked repos outrank every known count; among the known, more dirty files wins. */
+function dirtyRank(repo: RepoState): number {
+  return repo.dirtyFiles === null ? Number.MAX_SAFE_INTEGER : repo.dirtyFiles;
 }
 
 async function collectIssues(repos: RepoState[]): Promise<IssueRef[]> {
@@ -118,7 +126,15 @@ export function render(brief: Brief): string {
   const lines: string[] = [`# daily brief, ${date}`, ''];
 
   if (brief.attention.length === 0) {
-    lines.push('Every repo is clean and pushed. Nothing at risk.', '');
+    // Only claim the all-clear when every repo actually answered. Anything else would be
+    // reassurance the data does not support.
+    const unchecked = brief.repos.filter((r) => r.dirtyFiles === null).length;
+    lines.push(
+      unchecked === 0
+        ? 'Every repo is clean and pushed. Nothing at risk.'
+        : `No problems found, but ${unchecked} repo(s) could not be checked.`,
+      '',
+    );
   } else {
     lines.push(`## ${brief.attention.length} repo(s) need attention`, '');
     for (const { repo, reasons } of brief.attention) {

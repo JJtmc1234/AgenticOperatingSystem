@@ -51,10 +51,13 @@ public sealed class WindowsTools(CapabilityBroker broker)
         [Description("Cap on elements returned. Default 300.")] int maxNodes = 300,
         [Description("Include elements currently scrolled or hidden off screen.")]
         bool includeOffscreen = false,
+        [Description("Wall-clock budget for the walk in milliseconds. Default 15000. Apps that "
+            + "answer UIAutomation slowly return a partial tree rather than hanging.")]
+        int timeoutMs = 15_000,
         CancellationToken cancellationToken = default) =>
         broker.CallAsync("aos-windows/ui.tree",
             JsonArgs.Of(("hwnd", hwnd), ("maxDepth", maxDepth), ("maxNodes", maxNodes),
-                    ("includeOffscreen", includeOffscreen)),
+                    ("includeOffscreen", includeOffscreen), ("timeoutMs", timeoutMs)),
             cancellationToken: cancellationToken);
 
     [McpServerTool(Name = "screen_capture")]

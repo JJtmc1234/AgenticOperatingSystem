@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using System.Windows.Automation;
 using Aos.Core;
@@ -20,6 +21,7 @@ internal static class UiaSurface
 
     private const int DefaultMaxDepth = 6;
     private const int DefaultMaxNodes = 300;
+    private const int DefaultBudgetMs = 15_000;
 
     public static IEnumerable<ICapability> All()
     {
@@ -61,22 +63,49 @@ internal static class UiaSurface
         var root = RootOf(args);
         var maxDepth = Math.Clamp(args.GetInt32("maxDepth", DefaultMaxDepth), 1, 20);
         var maxNodes = Math.Clamp(args.GetInt32("maxNodes", DefaultMaxNodes), 1, 5000);
+        var budgetMs = Math.Clamp(args.GetInt32("timeoutMs", DefaultBudgetMs), 1_000, 60_000);
         var includeOffscreen = args.GetBool("includeOffscreen", false);
 
         var nodes = new JsonArray();
-        var truncated = Walk(root, "0", 0, maxDepth, maxNodes, includeOffscreen, nodes);
+        // Every property read here is a cross-process RPC into the target app, so cost scales
+        // with how cooperative that app is rather than with anything measurable up front. A
+        // browser or game overlay ran past thirty seconds and returned nothing at all, which
+        // to a client is indistinguishable from a hung server. A partial tree plus an honest
+        // note is a usable answer; a hang is not.
+        var deadline = Stopwatch.StartNew();
+        var walk = new WalkLimits(maxDepth, maxNodes, includeOffscreen, deadline, budgetMs);
+
+        var truncated = Walk(root, "0", 0, walk, nodes);
+        var timedOut = deadline.ElapsedMilliseconds >= budgetMs;
 
         return new JsonObject
         {
             ["hwnd"] = args.RequireInt64("hwnd"),
             ["count"] = nodes.Count,
             ["truncated"] = truncated,
+            ["elapsedMs"] = deadline.ElapsedMilliseconds,
             // Surfacing the cap explicitly: a silently trimmed tree reads as a complete one.
-            ["note"] = truncated
-                ? $"Tree was cut off at maxNodes={maxNodes} or maxDepth={maxDepth}. Raise the caps or target a child window."
-                : null,
+            ["note"] = Note(truncated, timedOut, maxNodes, maxDepth, budgetMs),
             ["elements"] = nodes,
         };
+    }
+
+    private static string? Note(bool truncated, bool timedOut, int maxNodes, int maxDepth, int budgetMs)
+    {
+        if (!truncated) { return null; }
+
+        return timedOut
+            ? $"Tree walk ran out of its {budgetMs} ms budget, so this is partial. This app answers "
+              + "UIAutomation slowly. Narrow the walk with maxDepth, or target a child window, "
+              + "rather than simply raising timeoutMs."
+            : $"Tree was cut off at maxNodes={maxNodes} or maxDepth={maxDepth}. Raise the caps or "
+              + "target a child window.";
+    }
+
+    private readonly record struct WalkLimits(
+        int MaxDepth, int MaxNodes, bool IncludeOffscreen, Stopwatch Clock, int BudgetMs)
+    {
+        public bool OutOfTime => Clock.ElapsedMilliseconds >= BudgetMs;
     }
 
     /// <returns>True when the walk hit a limit and the tree is incomplete.</returns>
@@ -84,21 +113,25 @@ internal static class UiaSurface
         AutomationElement element,
         string path,
         int depth,
-        int maxDepth,
-        int maxNodes,
-        bool includeOffscreen,
+        WalkLimits limits,
         JsonArray sink)
     {
-        if (sink.Count >= maxNodes) { return true; }
+        if (sink.Count >= limits.MaxNodes || limits.OutOfTime) { return true; }
 
         try
         {
             var info = element.Current;
-            if (!includeOffscreen && info.IsOffscreen) { return false; }
+            if (!limits.IncludeOffscreen && info.IsOffscreen) { return false; }
 
             sink.Add(Describe(element, info, path, depth));
 
-            if (depth >= maxDepth) { return true; }
+            if (depth >= limits.MaxDepth)
+            {
+                // Only truncated if something was actually cut off. Reporting true for every
+                // leaf that merely sits at maxDepth made any tree of exactly that depth
+                // announce itself as incomplete, sending the model to re-query for nothing.
+                return TreeWalker.ControlViewWalker.GetFirstChild(element) is not null;
+            }
 
             var truncated = false;
             var walker = TreeWalker.ControlViewWalker;
@@ -107,10 +140,9 @@ internal static class UiaSurface
 
             while (child is not null)
             {
-                if (sink.Count >= maxNodes) { return true; }
+                if (sink.Count >= limits.MaxNodes || limits.OutOfTime) { return true; }
 
-                truncated |= Walk(
-                    child, $"{path}.{index}", depth + 1, maxDepth, maxNodes, includeOffscreen, sink);
+                truncated |= Walk(child, $"{path}.{index}", depth + 1, limits, sink);
 
                 child = walker.GetNextSibling(child);
                 index++;

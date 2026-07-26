@@ -30,6 +30,10 @@ public sealed class StoredToken
 /// account: copying it to another machine or another user yields ciphertext they cannot
 /// read. A plaintext token file in %LOCALAPPDATA% would be readable by anything running
 /// as this user, which is a poor trade for a few lines of code.
+///
+/// The project targets net9.0-windows rather than suppressing CA1416 here. DPAPI genuinely
+/// does not exist elsewhere, and the whole server is Windows-only, so the honest fix is for
+/// the target framework to say so.
 /// </summary>
 public sealed class GoogleAuth(string dataDirectory)
 {
@@ -51,6 +55,7 @@ public sealed class GoogleAuth(string dataDirectory)
     private readonly string _secretsPath = Path.Combine(dataDirectory, "google-client.json");
     private readonly string _tokenPath = Path.Combine(dataDirectory, "google-token.dat");
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("AgenticOS.GoogleToken.v1");
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     public string SecretsPath => _secretsPath;
     public string TokenPath => _tokenPath;
@@ -79,18 +84,24 @@ public sealed class GoogleAuth(string dataDirectory)
         Directory.CreateDirectory(dataDirectory);
         var plaintext = JsonSerializer.SerializeToUtf8Bytes(token);
         var encrypted = ProtectedData.Protect(plaintext, Entropy, DataProtectionScope.CurrentUser);
-        File.WriteAllBytes(_tokenPath, encrypted);
+
+        // Written to a temporary file and moved into place. WriteAllBytes truncates first,
+        // so a crash or a second writer mid-write left a partial blob, and losing this file
+        // means losing the refresh token and re-consenting at Google.
+        var temporary = _tokenPath + ".tmp";
+        File.WriteAllBytes(temporary, encrypted);
+        File.Move(temporary, _tokenPath, overwrite: true);
     }
 
     private StoredToken? LoadToken()
     {
         if (!HasToken) { return null; }
 
+        byte[] plaintext;
         try
         {
-            var plaintext = ProtectedData.Unprotect(
+            plaintext = ProtectedData.Unprotect(
                 File.ReadAllBytes(_tokenPath), Entropy, DataProtectionScope.CurrentUser);
-            return JsonSerializer.Deserialize<StoredToken>(plaintext);
         }
         catch (CryptographicException)
         {
@@ -99,6 +110,19 @@ public sealed class GoogleAuth(string dataDirectory)
             throw new InvalidOperationException(
                 $"'{_tokenPath}' cannot be decrypted by this Windows account. Delete it and "
                 + "run the login again.");
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<StoredToken>(plaintext);
+        }
+        catch (JsonException)
+        {
+            // A blob that decrypts but does not parse is a torn write from before the
+            // atomic save above. Previously this escaped as an unhandled JsonException.
+            throw new InvalidOperationException(
+                $"'{_tokenPath}' decrypted but is not valid JSON, so it was written "
+                + "incompletely. Delete it and run the login again.");
         }
     }
 
@@ -190,39 +214,57 @@ public sealed class GoogleAuth(string dataDirectory)
         return "Authorized. The refresh token is encrypted for this Windows account only.";
     }
 
-    /// <summary>Returns a valid access token, refreshing it when it is close to expiry.</summary>
+    /// <summary>
+    /// Returns a valid access token, refreshing it when it is close to expiry.
+    ///
+    /// Serialized on a semaphore. The MCP server answers several tool calls concurrently, so
+    /// an expired token had every in-flight call refresh at once. With refresh token rotation
+    /// on, the first response invalidates the token the others are still presenting, and the
+    /// losers get invalid_grant and overwrite the good token with nothing. Recovering from
+    /// that means consenting at Google again.
+    /// </summary>
     public async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken)
     {
-        var token = LoadToken()
-            ?? throw new InvalidOperationException(
-                "Not authorized with Google yet. Run 'aos-mcp-apps.exe --login' once.");
-
-        if (!string.IsNullOrEmpty(token.AccessToken) && token.ExpiresAt > DateTimeOffset.UtcNow)
+        await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
+            var token = LoadToken()
+                ?? throw new InvalidOperationException(
+                    "Not authorized with Google yet. Run 'aos-mcp-apps.exe --login' once.");
+
+            // Re-read inside the lock, so a caller that queued behind a refresh picks up the
+            // fresh token instead of doing a second, redundant one.
+            if (!string.IsNullOrEmpty(token.AccessToken) && token.ExpiresAt > DateTimeOffset.UtcNow)
+            {
+                return token.AccessToken;
+            }
+
+            var secrets = LoadClientSecrets();
+            using var http = new HttpClient();
+            var response = await http.PostAsync(TokenEndpoint, new FormUrlEncodedContent(
+                new Dictionary<string, string>
+                {
+                    ["client_id"] = secrets.ClientId,
+                    ["client_secret"] = secrets.ClientSecret,
+                    ["refresh_token"] = token.RefreshToken,
+                    ["grant_type"] = "refresh_token",
+                }), cancellationToken).ConfigureAwait(false);
+
+            var payload = await ReadTokenResponseAsync(response, cancellationToken).ConfigureAwait(false);
+
+            token.AccessToken = payload.AccessToken
+                ?? throw new InvalidOperationException("Refresh returned no access token.");
+            token.ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(payload.ExpiresIn - 60);
+            // Google may rotate the refresh token; keep the new one when it does.
+            if (!string.IsNullOrEmpty(payload.RefreshToken)) { token.RefreshToken = payload.RefreshToken; }
+            SaveToken(token);
+
             return token.AccessToken;
         }
-
-        var secrets = LoadClientSecrets();
-        using var http = new HttpClient();
-        var response = await http.PostAsync(TokenEndpoint, new FormUrlEncodedContent(
-            new Dictionary<string, string>
-            {
-                ["client_id"] = secrets.ClientId,
-                ["client_secret"] = secrets.ClientSecret,
-                ["refresh_token"] = token.RefreshToken,
-                ["grant_type"] = "refresh_token",
-            }), cancellationToken).ConfigureAwait(false);
-
-        var payload = await ReadTokenResponseAsync(response, cancellationToken).ConfigureAwait(false);
-
-        token.AccessToken = payload.AccessToken
-            ?? throw new InvalidOperationException("Refresh returned no access token.");
-        token.ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(payload.ExpiresIn - 60);
-        // Google may rotate the refresh token; keep the new one when it does.
-        if (!string.IsNullOrEmpty(payload.RefreshToken)) { token.RefreshToken = payload.RefreshToken; }
-        SaveToken(token);
-
-        return token.AccessToken;
+        finally
+        {
+            _refreshLock.Release();
+        }
     }
 
     private static async Task<TokenResponse> ReadTokenResponseAsync(

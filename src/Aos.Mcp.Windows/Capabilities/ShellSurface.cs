@@ -111,7 +111,14 @@ internal static class ShellSurface
 
     private static string ProcessName(uint pid)
     {
-        try { return Process.GetProcessById((int)pid).ProcessName; }
+        // Disposed explicitly. This runs once per window inside the EnumWindows callback,
+        // and window.list is auto-allowed, so an agent polling it leaked a native handle
+        // per window per call in a long-lived server.
+        try
+        {
+            using var process = Process.GetProcessById((int)pid);
+            return process.ProcessName;
+        }
         catch (ArgumentException) { return "<exited>"; }
         catch (InvalidOperationException) { return "<exited>"; }
     }
@@ -119,36 +126,50 @@ internal static class ShellSurface
     private static JsonNode? ListProcesses(JsonObject args)
     {
         var nameFilter = args.GetString("nameContains");
-        var top = args.GetInt32("top", 50);
+        // Clamped like every sibling capability. Unclamped, a negative top produced
+        // Take(-1), an empty list, and a count of zero, which reads as "no processes are
+        // running" rather than as a bad argument.
+        var top = Math.Clamp(args.GetInt32("top", 50), 1, 500);
 
-        var rows = Process.GetProcesses()
-            .Where(p => nameFilter is null ||
-                        p.ProcessName.Contains(nameFilter, StringComparison.OrdinalIgnoreCase))
-            .Select(p =>
+        var rows = new List<JsonObject>();
+
+        // Process.GetProcesses hands back live objects holding native handles. Each one is
+        // disposed, including the ones filtered out, since reading Responding opens further
+        // handles of its own.
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
             {
-                // A process can exit between enumeration and property reads.
                 try
                 {
-                    return new JsonObject
+                    if (nameFilter is not null &&
+                        !process.ProcessName.Contains(nameFilter, StringComparison.OrdinalIgnoreCase))
                     {
-                        ["pid"] = p.Id,
-                        ["name"] = p.ProcessName,
-                        ["workingSetMb"] = Math.Round(p.WorkingSet64 / 1024d / 1024d, 1),
-                        ["responding"] = p.Responding,
-                    };
+                        continue;
+                    }
+
+                    rows.Add(new JsonObject
+                    {
+                        ["pid"] = process.Id,
+                        ["name"] = process.ProcessName,
+                        ["workingSetMb"] = Math.Round(process.WorkingSet64 / 1024d / 1024d, 1),
+                        ["responding"] = process.Responding,
+                    });
                 }
                 catch (Exception)
                 {
-                    return null;
+                    // Exited between enumeration and the property reads.
                 }
-            })
-            .Where(o => o is not null)
-            .OrderByDescending(o => o!["workingSetMb"]!.GetValue<double>())
-            .Take(top)
-            .ToArray();
+            }
+        }
 
         var array = new JsonArray();
-        foreach (var row in rows) { array.Add(row); }
+        foreach (var row in rows
+                     .OrderByDescending(o => o["workingSetMb"]!.GetValue<double>())
+                     .Take(top))
+        {
+            array.Add(row);
+        }
 
         return new JsonObject { ["count"] = array.Count, ["processes"] = array };
     }
@@ -167,6 +188,18 @@ internal static class ShellSurface
                 throw new ArgumentException($"No window with handle {handle.ToInt64()}.");
             }
 
+            // Refuse rather than capture. A minimized window's rectangle sits around
+            // -32000 with a plausible width and height, so the size guard below never
+            // fired: CopyFromScreen read off-screen coordinates and returned a black PNG
+            // as a success. An agent would then feed that into a vision step and reason
+            // over nothing at all.
+            if (User32.IsIconic(handle))
+            {
+                throw new InvalidOperationException(
+                    $"Window {handle.ToInt64()} is minimized, so there is nothing on screen to "
+                    + "capture. Call window.focus first, or capture the whole screen.");
+            }
+
             User32.GetWindowRect(handle, out var rect);
             area = new Rectangle(rect.Left, rect.Top, rect.Width, rect.Height);
         }
@@ -178,7 +211,7 @@ internal static class ShellSurface
         if (area.Width <= 0 || area.Height <= 0)
         {
             throw new InvalidOperationException(
-                "Capture area has zero size (the window may be minimized).");
+                $"Capture area has no size ({area.Width}x{area.Height}).");
         }
 
         var path = Path.Combine(

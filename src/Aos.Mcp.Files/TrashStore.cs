@@ -48,10 +48,7 @@ public sealed class TrashStore(string root, PathGuard guard)
 
         var size = isDirectory ? DirectorySize(sourcePath) : new FileInfo(sourcePath).Length;
 
-        // Move, not copy then delete: a move is atomic within a volume, so an interrupted
-        // trash operation cannot leave the file in both places or neither.
-        if (isDirectory) { Directory.Move(sourcePath, stored); }
-        else { File.Move(sourcePath, stored); }
+        Relocate(sourcePath, stored, isDirectory);
 
         var entry = new TrashEntry
         {
@@ -118,10 +115,81 @@ public sealed class TrashStore(string root, PathGuard guard)
         var parent = Path.GetDirectoryName(entry.OriginalPath);
         if (!string.IsNullOrEmpty(parent)) { Directory.CreateDirectory(parent); }
 
-        if (Directory.Exists(entry.StoredPath)) { Directory.Move(entry.StoredPath, entry.OriginalPath); }
-        else { File.Move(entry.StoredPath, entry.OriginalPath); }
+        Relocate(entry.StoredPath, entry.OriginalPath, Directory.Exists(entry.StoredPath));
 
         return entry;
+    }
+
+    /// <summary>
+    /// Moves a file or directory, falling back to copy then delete when the two paths sit on
+    /// different volumes.
+    ///
+    /// The trash lives under LOCALAPPDATA on C:, and plenty of real files do not. Directory.Move
+    /// throws a flat "source and destination must have the same root" IOException across
+    /// volumes, so trashing or restoring a folder from a second drive failed outright. File.Move
+    /// does handle it, but by copying, so the atomicity the original comment here claimed was
+    /// only ever true within one volume.
+    ///
+    /// Ordering is what keeps a cross-volume move safe: the source is deleted only after the
+    /// copy has fully succeeded, and a failed copy takes its own partial output with it. An
+    /// interruption can therefore leave the item in both places, never in neither.
+    /// </summary>
+    private static void Relocate(string source, string destination, bool isDirectory)
+    {
+        if (!isDirectory)
+        {
+            File.Move(source, destination);
+            return;
+        }
+
+        if (string.Equals(
+                Path.GetPathRoot(Path.GetFullPath(source)),
+                Path.GetPathRoot(Path.GetFullPath(destination)),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            Directory.Move(source, destination);
+            return;
+        }
+
+        try
+        {
+            CopyTree(source, destination);
+        }
+        catch (Exception)
+        {
+            // Leave no half-copied folder behind pretending to be a complete one.
+            try { Directory.Delete(destination, recursive: true); } catch (Exception) { }
+            throw;
+        }
+
+        Directory.Delete(source, recursive: true);
+    }
+
+    private static void CopyTree(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+
+        foreach (var file in Directory.EnumerateFiles(source))
+        {
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: false);
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(source))
+        {
+            // Refused rather than skipped. Copying through a junction would duplicate its
+            // target instead of the link, and a self-referential one would never terminate,
+            // but skipping it silently is worse: the recursive delete below would then remove
+            // the link from the source, and the trash could no longer restore what it took.
+            if (new DirectoryInfo(directory).Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new IOException(
+                    $"'{directory}' is a junction or symlink, and this move crosses volumes, so "
+                    + "it cannot be relocated without either following the link or losing it. "
+                    + "Move the folder within its own drive, or remove the link first.");
+            }
+
+            CopyTree(directory, Path.Combine(destination, Path.GetFileName(directory)));
+        }
     }
 
     private static long DirectorySize(string path)

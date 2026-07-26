@@ -99,9 +99,11 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
     private static string? VerifyMove(JsonObject args, JsonNode? result)
     {
         var destination = result?["destination"]?.GetValue<string>();
-        if (destination is null) { return "Result carried no destination path."; }
+        if (result is null || destination is null) { return "Result carried no destination path."; }
 
-        var source = result["source"]!.GetValue<string>();
+        var source = result["source"]?.GetValue<string>();
+        if (source is null) { return "Result carried no source path."; }
+
         var arrived = File.Exists(destination) || Directory.Exists(destination);
         var departed = !File.Exists(source) && !Directory.Exists(source);
 
@@ -114,9 +116,11 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
     private string? VerifyTrash(JsonObject args, JsonNode? result)
     {
         var id = result?["id"]?.GetValue<string>();
-        if (id is null) { return "Result carried no trash id."; }
+        if (result is null || id is null) { return "Result carried no trash id."; }
 
-        var original = result["originalPath"]!.GetValue<string>();
+        var original = result["originalPath"]?.GetValue<string>();
+        if (original is null) { return "Result carried no original path."; }
+
         if (File.Exists(original) || Directory.Exists(original))
         {
             return $"'{original}' still exists, so it was not moved out of the way.";

@@ -6,10 +6,19 @@ export interface RepoState {
   name: string;
   path: string;
   branch: string;
-  dirtyFiles: number;
+  /**
+   * Null when git could not answer, which is different from zero.
+   *
+   * This used to collapse any failure to 0, so a timeout, a locked index or a buffer
+   * overflow rendered as a clean repo and the brief announced "nothing at risk". A tool
+   * whose entire job is surfacing unpushed work must not report the reassuring answer when
+   * it does not know.
+   */
+  dirtyFiles: number | null;
   ahead: number;
   behind: number;
-  hasUpstream: boolean;
+  /** Null when the upstream query itself failed, rather than there being no upstream. */
+  hasUpstream: boolean | null;
   lastCommitRelative: string;
   lastCommitSubject: string;
   lastCommitAgeDays: number;
@@ -52,19 +61,27 @@ export async function readRepo(path: string): Promise<RepoState> {
   const status = await run('git', ['status', '--porcelain'], { cwd: path });
   const dirtyFiles = status.ok
     ? status.stdout.split('\n').filter((line) => line.trim().length > 0).length
-    : 0;
+    : null;
 
-  // Fails when there is no upstream, which is itself worth reporting rather than hiding.
+  // rev-list fails both when there is genuinely no upstream and when git could not run at
+  // all. Those mean opposite things to a reader, so they are distinguished: exit code 128
+  // with an upstream complaint is the real "no upstream", anything else is unknown.
   const counts = await run('git', ['rev-list', '--left-right', '--count', '@{u}...HEAD'], {
     cwd: path,
   });
   let ahead = 0;
   let behind = 0;
-  const hasUpstream = counts.ok;
-  if (hasUpstream) {
+  let hasUpstream: boolean | null;
+
+  if (counts.ok) {
+    hasUpstream = true;
     const [behindRaw, aheadRaw] = counts.stdout.trim().split(/\s+/);
     behind = Number(behindRaw ?? 0) || 0;
     ahead = Number(aheadRaw ?? 0) || 0;
+  } else if (/no upstream|unknown revision|ambiguous argument/i.test(counts.stderr)) {
+    hasUpstream = false;
+  } else {
+    hasUpstream = null;
   }
 
   // %x1f is a literal unit separator. A commit subject can contain anything printable,
@@ -107,14 +124,29 @@ export function parseGitHubSlug(remote: string): string | null {
   return match ? `${match[1]}/${match[2]}` : null;
 }
 
-/** Things worth putting in front of a person, in rough order of urgency. */
+/**
+ * Things worth putting in front of a person, in rough order of urgency.
+ *
+ * An unanswerable query is itself worth reporting. Saying nothing would let a repo whose
+ * state is unknown be counted among the clean ones.
+ */
 export function needsAttention(repo: RepoState): string[] {
   const reasons: string[] = [];
-  if (repo.dirtyFiles > 0) reasons.push(`${repo.dirtyFiles} uncommitted file(s)`);
+
+  if (repo.dirtyFiles === null) {
+    reasons.push('git status did not answer, so this repo is unchecked');
+  } else if (repo.dirtyFiles > 0) {
+    reasons.push(`${repo.dirtyFiles} uncommitted file(s)`);
+  }
+
   if (repo.ahead > 0) reasons.push(`${repo.ahead} commit(s) not pushed`);
   if (repo.behind > 0) reasons.push(`${repo.behind} commit(s) behind origin`);
-  if (!repo.hasUpstream && repo.lastCommitSubject !== 'no commits yet') {
+
+  if (repo.hasUpstream === null) {
+    reasons.push('could not determine whether it has an upstream');
+  } else if (!repo.hasUpstream && repo.lastCommitSubject !== 'no commits yet') {
     reasons.push('no upstream branch, so nothing is backed up');
   }
+
   return reasons;
 }

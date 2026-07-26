@@ -68,6 +68,24 @@ public sealed class GoogleClient(GoogleAuth auth)
     public static string CalendarUrl(string path, params (string Key, string? Value)[] query) =>
         BuildUrl($"{Calendar}{path}", query);
 
+    /// <summary>
+    /// Escapes an id for use as a single URL path segment.
+    ///
+    /// Gmail ids are hex today, but they arrive as a tool argument and a model can be talked
+    /// into passing anything. Interpolated raw, an id of "x/../../settings/forwarding" walks
+    /// the API path to an endpoint the caller never named and the plan never described. The
+    /// escape keeps a bad id a 404 instead.
+    /// </summary>
+    public static string Segment(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("An empty id cannot address a Google resource.");
+        }
+
+        return Uri.EscapeDataString(value);
+    }
+
     private static string BuildUrl(string baseUrl, (string Key, string? Value)[] query)
     {
         var parts = query

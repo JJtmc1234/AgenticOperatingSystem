@@ -17,6 +17,18 @@
 # So: one timestamp for the newest source anywhere under src, compared against every exe.
 # A shared-dependency change now republishes the whole set.
 #
+# THE COMPARISON IS AGAINST A STAMP FILE, NOT THE EXE'S OWN TIMESTAMP.
+#
+# The first version compared the published exe's LastWriteTime to the newest source. That
+# looks right and cannot work: dotnet publish is content-incremental, and the copy into bin
+# preserves the source file's timestamp. An exe whose own project genuinely did not change
+# is therefore never re-stamped, so the Test stayed false no matter how many times Set ran,
+# and the converge reported "Set ran but Test still false" forever. A step that can never
+# reach its own definition of done is a broken step, not a stale binary.
+#
+# Each publish now writes a stamp recording the newest-source time it published against.
+# That records what actually happened rather than inferring it from a side effect.
+#
 # Offline image builds (Phase 6) ship the published output instead of running dotnet,
 # since the SDK is not present in a WIM.
 
@@ -44,6 +56,7 @@ function New-AosPublishStep {
 
     $project    = Join-Path $RepoRoot $ProjectDir
     $exe        = Join-Path $binDir $ExeName
+    $stamp      = Join-Path $binDir ".$ExeName.published"
     $target     = $binDir
     $sourceRoot = Join-Path $RepoRoot 'src'
 
@@ -53,15 +66,34 @@ function New-AosPublishStep {
             # Nothing to build from (offline image build); a staged exe is acceptable.
             return $true
         }
+        if (-not (Test-Path -LiteralPath $stamp)) { return $false }
 
-        (Get-Item -LiteralPath $exe).LastWriteTimeUtc -ge (Get-AosNewestSourceUtc -SourceRoot $sourceRoot)
+        $publishedAgainst = 0L
+        if (-not [long]::TryParse((Get-Content -LiteralPath $stamp -Raw).Trim(), [ref] $publishedAgainst)) {
+            return $false
+        }
+
+        $publishedAgainst -ge (Get-AosNewestSourceUtc -SourceRoot $sourceRoot).Ticks
     }.GetNewClosure() -Set {
         if (-not (Test-Path -LiteralPath $project)) {
             throw "Cannot publish: project '$project' is missing and no prebuilt exe was staged."
         }
         New-Item -ItemType Directory -Force -Path $target | Out-Null
+
+        # Sampled before the publish, deliberately. Publishing can take a while, and a source
+        # edit landing mid-run must leave the stamp behind so the next converge republishes.
+        $publishedAgainst = (Get-AosNewestSourceUtc -SourceRoot $sourceRoot).Ticks
+
         $output = & dotnet publish $project -c Release -o $target --nologo
         if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed:`n$($output -join "`n")" }
+
+        if (-not (Test-Path -LiteralPath $exe)) {
+            throw "dotnet publish reported success but '$exe' is not there. Check AssemblyName."
+        }
+
+        # Written only after the publish succeeded, so a failed build never leaves a stamp
+        # claiming the bin directory is current.
+        [IO.File]::WriteAllText($stamp, "$publishedAgainst", (New-Object Text.UTF8Encoding($false)))
     }.GetNewClosure()
 }
 

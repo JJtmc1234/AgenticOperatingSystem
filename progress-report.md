@@ -61,8 +61,13 @@ Checks that passed on live servers over real JSON RPC, not mocks.
 | shell allowlist | unlisted exe, path form, and bad working directory all refused |
 | shell injection | a chained command passed as an argument stayed literal text |
 | post-condition checks | move, trash, and restore all report verified success |
-| test suite | 133 passing |
-| provisioning | 26 ok, 0 changed on re apply |
+| negative `top` on process list | clamps to 1 instead of reporting no processes at all |
+| capture of a minimized window | refused with a reason, rather than a black PNG called success |
+| screen capture on a 150 percent display | 2400 by 1600, the true pixels, not 1600 by 1067 |
+| control tree completeness flag | false on a tree that fits, true only when something was cut |
+| control tree on a slow app | partial result plus a note at 15 seconds, rather than no answer |
+| test suite | 146 passing |
+| provisioning | 29 ok, 0 changed on re apply |
 
 ## deadlines
 
@@ -103,10 +108,32 @@ The harness rule is that a bug is finished when a guard exists that would have c
 | address fields could inject mail headers | control characters refused in to and cc |
 | module 30 wrote a BOM and broke Claude Desktop | written with an explicit no BOM encoder |
 | benign stderr aborted provisioning steps | stderr redirection removed from native calls |
+| a git failure read as a clean repo | dirty count is nullable, and the all clear names unchecked repos |
+| a timeout came back as exit code 1 | `failureKind` separates killed from genuinely failed |
+| a minimized window captured as a black PNG | refused, since the size guard could never catch it |
+| process handles leaked once per call | every enumerated process disposed, filtered ones included |
+| a negative `top` looked like an empty machine | clamped, as every sibling capability already was |
+| a complete tree announced itself as truncated | the flag asks whether a child was actually cut off |
+| a slow app hung the control tree read | a wall clock budget returns a partial tree and says so |
+| coordinates disagreed between capture and UIA | per monitor DPI awareness declared before the first call |
+| a torn token write lost the refresh token | written to a temporary file and moved into place |
+| concurrent refreshes raced each other out | serialized, with the token re read inside the lock |
+| a message id was interpolated into a URL path | escaped to one segment, and blank ids refused |
+| trashing across drives threw a flat IO error | copy then delete, with the source removed only after |
+| the dependency check probed one package | npm's own install marker compared against the manifests |
+| a disabled or retimed task still read as ok | the test checks the trigger and the state, not existence |
+| a publish step could never satisfy its own test | publish records a stamp instead of trusting timestamps |
 
-The lower fourteen came from a deep quality check by three parallel review agents pointed at
+The middle fourteen came from a deep quality check by three parallel review agents pointed at
 the broker, the servers, and the provisioning and TypeScript code. Several invalidated claims
 this project had been making confidently, which is the point of running the check at all.
+
+The last of them is the sharpest example of the rule working. The solution wide staleness
+check was itself a fix for an earlier bug, and it was wrong: `dotnet publish` is content
+incremental and the copy into bin preserves the source timestamp, so an executable whose own
+project genuinely did not change was never re stamped and its test could never become true.
+The converge reported three failures in a row that no amount of republishing would clear. A
+step that cannot reach its own definition of done is a broken step, not a stale binary.
 
 Two earlier ones were found only by driving the live server, and both passed every unit test
 while broken. That is the argument for JJtorio issue 6 in one line.
@@ -115,6 +142,11 @@ One verification of mine was itself flawed and had to be redone. The first proce
 used `Start-Process notepad`, which returns a stub process id on Windows 11 because Notepad
 is a Store application, and the liveness check reported alive for a process that never
 existed. It would have passed while proving nothing.
+
+Driving live servers is now a script rather than a habit. `provisioning\Invoke-AosTool.ps1`
+speaks MCP to a published server and calls one tool, which is how the five behaviour changes
+in the table above were confirmed against real windows rather than against my expectations.
+Four of them would have passed every unit test while broken.
 
 ## next
 

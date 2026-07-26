@@ -104,7 +104,7 @@ internal sealed class AppsSurface(GoogleAuth auth, GoogleClient google)
 
                 // metadata format keeps this cheap: headers and snippet, no bodies.
                 var message = await google.GetAsync(
-                    GoogleClient.GmailUrl($"/messages/{id}",
+                    GoogleClient.GmailUrl($"/messages/{GoogleClient.Segment(id)}",
                         ("format", "metadata"),
                         ("metadataHeaders", "From"),
                         ("metadataHeaders", "Subject"),
@@ -141,7 +141,7 @@ internal sealed class AppsSurface(GoogleAuth auth, GoogleClient google)
     {
         var id = args.RequireString("id");
         var message = await google.GetAsync(
-            GoogleClient.GmailUrl($"/messages/{id}", ("format", "full")),
+            GoogleClient.GmailUrl($"/messages/{GoogleClient.Segment(id)}", ("format", "full")),
             cancellationToken).ConfigureAwait(false);
 
         var body = GoogleClient.ExtractPlainBody(message["payload"]) ?? string.Empty;
@@ -213,7 +213,7 @@ internal sealed class AppsSurface(GoogleAuth auth, GoogleClient google)
 
         var now = DateTimeOffset.UtcNow;
         var result = await google.GetAsync(
-            GoogleClient.CalendarUrl($"/calendars/{Uri.EscapeDataString(calendarId)}/events",
+            GoogleClient.CalendarUrl($"/calendars/{GoogleClient.Segment(calendarId)}/events",
                 ("timeMin", now.ToString("o")),
                 ("timeMax", now.AddDays(days).ToString("o")),
                 ("singleEvents", "true"),
@@ -280,7 +280,7 @@ internal sealed class AppsSurface(GoogleAuth auth, GoogleClient google)
         }
 
         var created = await google.PostAsync(
-            GoogleClient.CalendarUrl($"/calendars/{Uri.EscapeDataString(calendarId)}/events"),
+            GoogleClient.CalendarUrl($"/calendars/{GoogleClient.Segment(calendarId)}/events"),
             body, cancellationToken).ConfigureAwait(false);
 
         return new JsonObject

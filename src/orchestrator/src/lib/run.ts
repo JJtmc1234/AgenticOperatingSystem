@@ -5,6 +5,15 @@ export interface RunResult {
   stdout: string;
   stderr: string;
   code: number | null;
+  /**
+   * Set when the command did not simply exit non-zero: it was killed for exceeding the
+   * timeout, or its output overflowed the buffer.
+   *
+   * Both used to collapse into `code: 1`, indistinguishable from a command that ran fine
+   * and reported failure. That matters because the caller decides "unknown" versus "no",
+   * and those are not the same answer.
+   */
+  failureKind?: 'timeout' | 'output-overflow' | 'spawn-error';
 }
 
 /**
@@ -30,18 +39,25 @@ export function run(
         maxBuffer: 8 * 1024 * 1024,
       },
       (error, stdout, stderr) => {
-        const code =
-          error && typeof (error as { code?: unknown }).code === 'number'
-            ? ((error as { code: number }).code)
-            : error
-              ? 1
-              : 0;
+        // Node reports an exit status as a numeric `code`, but uses a STRING code for its
+        // own failures (ERR_CHILD_PROCESS_STDIO_MAXBUFFER), and signals a timeout kill via
+        // `killed` with no useful code at all.
+        const raw = error as (Error & { code?: unknown; killed?: boolean }) | null;
+        const numericCode = typeof raw?.code === 'number' ? raw.code : null;
+
+        let failureKind: RunResult['failureKind'];
+        if (raw) {
+          if (raw.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') { failureKind = 'output-overflow'; }
+          else if (raw.killed) { failureKind = 'timeout'; }
+          else if (numericCode === null) { failureKind = 'spawn-error'; }
+        }
 
         resolve({
           ok: !error,
           stdout: stdout?.toString() ?? '',
           stderr: stderr?.toString() ?? '',
-          code,
+          code: numericCode,
+          failureKind,
         });
       },
     );
