@@ -24,6 +24,24 @@ public static class JsonArgs
         return obj;
     }
 
+    /// <summary>
+    /// Wraps a string array as a JsonArray, or returns null so <see cref="Of"/> omits the key.
+    /// Empty is treated as absent, because an empty filter list almost always means the caller
+    /// did not want to filter rather than that nothing should match.
+    /// </summary>
+    public static JsonArray? ArrayOf(IEnumerable<string>? values)
+    {
+        if (values is null) { return null; }
+
+        var array = new JsonArray();
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) { array.Add(value); }
+        }
+
+        return array.Count > 0 ? array : null;
+    }
+
     public static bool TryGetInt64(this JsonObject args, string name, out long value)
     {
         value = 0;

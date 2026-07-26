@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Aos.Broker;
 using Aos.Core;
+using Aos.Mcp.Shared;
 using ModelContextProtocol.Server;
 
 namespace Aos.Mcp.Windows;
@@ -119,21 +120,5 @@ public sealed class WindowsTools(CapabilityBroker broker)
     [McpServerTool(Name = "aos_capabilities")]
     [Description("List every registered capability with its risk tier and whether it needs "
         + "a commit handshake or a restore point. Useful for understanding what is gated.")]
-    public string Capabilities()
-    {
-        var rows = broker.Descriptors
-            .OrderBy(d => d.Id, StringComparer.Ordinal)
-            .Select(d => new
-            {
-                id = d.Id,
-                tier = d.Tier.ToString(),
-                requiresCommit = d.RequiresCommit,
-                snapshotBeforeExecute = d.ShouldSnapshot,
-                description = d.Description,
-            });
-
-        return System.Text.Json.JsonSerializer.Serialize(
-            new { halted = broker.IsHalted, capabilities = rows },
-            Aos.Core.AosJson.Options);
-    }
+    public string Capabilities() => broker.DescribeCapabilities();
 }

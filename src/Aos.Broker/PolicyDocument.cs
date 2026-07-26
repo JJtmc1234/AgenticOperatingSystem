@@ -17,6 +17,12 @@ public sealed class PolicyDocument
     /// <summary>Keyed by capability id. Overrides the tier rule.</summary>
     public Dictionary<string, PolicyRule> Capabilities { get; set; } = new();
 
+    /// <summary>
+    /// Folders the file capabilities may work inside. Empty means the whole filesystem,
+    /// minus <see cref="DenyPaths"/>.
+    /// </summary>
+    public List<string> AllowedRoots { get; set; } = new();
+
     /// <summary>Paths no capability may touch, whatever the tier says.</summary>
     public List<string> DenyPaths { get; set; } = new();
 

@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using System.Windows.Automation;
 using Aos.Core;
+using Aos.Mcp.Shared;
 using Aos.Mcp.Windows.Native;
 
 namespace Aos.Mcp.Windows.Capabilities;
@@ -15,25 +16,27 @@ namespace Aos.Mcp.Windows.Capabilities;
 /// </summary>
 internal static class UiaSurface
 {
+    private static readonly CapabilitySet Set = new("aos-windows");
+
     private const int DefaultMaxDepth = 6;
     private const int DefaultMaxNodes = 300;
 
     public static IEnumerable<ICapability> All()
     {
-        yield return DelegateCapability.Read(
+        yield return Set.Read(
             "aos-windows/ui.tree",
             "Read the UIAutomation control tree of a window. Returns each element with a "
             + "'ref' path to pass to ui.invoke or ui.setText.",
             ReadTree);
 
-        yield return DelegateCapability.Mutating(
+        yield return Set.Mutating(
             "aos-windows/ui.invoke",
             RiskTier.Write,
             "Invoke, toggle or select a control identified by its ref path from ui.tree.",
             args => $"Invoke '{Describe(args)}' in window {args.RequireInt64("hwnd")}.",
             Invoke);
 
-        yield return DelegateCapability.Mutating(
+        yield return Set.Mutating(
             "aos-windows/ui.setText",
             RiskTier.Write,
             "Replace the text of an editable control identified by its ref path.",

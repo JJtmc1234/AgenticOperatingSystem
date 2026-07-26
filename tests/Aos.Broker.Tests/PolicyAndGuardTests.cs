@@ -156,4 +156,58 @@ public class PathGuardTests
     public void EnsureAllowed_ThrowsOnDeniedPath() =>
         Assert.Throws<UnauthorizedAccessException>(
             () => Guard.EnsureAllowed(@"C:\Windows\System32\cmd.exe"));
+
+    [Fact]
+    public void NoAllowedRoots_MeansWholeFilesystemMinusDenied()
+    {
+        Assert.True(Guard.IsInAllowedRoot(@"C:\anywhere\at\all"));
+        Assert.True(Guard.IsAllowed(@"C:\anywhere\at\all"));
+        Assert.False(Guard.IsAllowed(@"C:\Windows\System32\cmd.exe"));
+    }
+}
+
+public class PathGuardAllowedRootTests
+{
+    private static readonly PathGuard Guard = new(
+        deniedPaths: [@"C:\sandbox\secrets"],
+        allowedRoots: [@"C:\sandbox", @"C:\other"]);
+
+    [Theory]
+    [InlineData(@"C:\sandbox")]
+    [InlineData(@"C:\sandbox\notes.md")]
+    [InlineData(@"C:\sandbox\deep\nested\file.pdf")]
+    [InlineData(@"C:\other\thing")]
+    public void AllowsInsideRoots(string path) => Assert.True(Guard.IsAllowed(path));
+
+    [Theory]
+    [InlineData(@"C:\elsewhere\file.md")]
+    [InlineData(@"C:\Users\public\thing")]
+    [InlineData(@"C:\sandboxed\file.md")]   // prefix, not a child
+    public void RefusesOutsideRoots(string path)
+    {
+        Assert.False(Guard.IsInAllowedRoot(path));
+        Assert.False(Guard.IsAllowed(path));
+    }
+
+    [Fact]
+    public void DeniedPathWinsInsideAnAllowedRoot()
+    {
+        Assert.True(Guard.IsInAllowedRoot(@"C:\sandbox\secrets\key.txt"));
+        Assert.True(Guard.IsDenied(@"C:\sandbox\secrets\key.txt"));
+        Assert.False(Guard.IsAllowed(@"C:\sandbox\secrets\key.txt"));
+    }
+
+    [Fact]
+    public void TraversalOutOfAnAllowedRootIsRefused() =>
+        Assert.False(Guard.IsAllowed(@"C:\sandbox\..\elsewhere\file.md"));
+
+    [Fact]
+    public void EnsureAllowed_NamesTheRootsWhenOutside()
+    {
+        var ex = Assert.Throws<UnauthorizedAccessException>(
+            () => Guard.EnsureAllowed(@"C:\elsewhere\file.md"));
+
+        Assert.Contains("outside every allowed root", ex.Message);
+        Assert.Contains(@"C:\sandbox", ex.Message);
+    }
 }

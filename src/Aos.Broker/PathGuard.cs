@@ -7,14 +7,29 @@ namespace Aos.Broker;
 public sealed class PathGuard
 {
     private readonly string[] _deniedRoots;
+    private readonly string[] _allowedRoots;
 
-    public PathGuard(IEnumerable<string> deniedPaths)
+    /// <param name="deniedPaths">Paths that are off limits even inside an allowed root.</param>
+    /// <param name="allowedRoots">
+    /// If non-empty, a path must sit inside one of these to be touchable at all. This is the
+    /// difference between "the agent cannot delete System32" and "the agent only ever works
+    /// in the handful of folders I named", which is the boundary worth having.
+    /// An empty list means the whole filesystem except the denied paths.
+    /// </param>
+    public PathGuard(IEnumerable<string> deniedPaths, IEnumerable<string>? allowedRoots = null)
     {
         _deniedRoots = deniedPaths
             .Select(Expand)
             .Where(p => p.Length > 0)
             .ToArray();
+
+        _allowedRoots = (allowedRoots ?? [])
+            .Select(Expand)
+            .Where(p => p.Length > 0)
+            .ToArray();
     }
+
+    public IReadOnlyList<string> AllowedRoots => _allowedRoots;
 
     private static string Expand(string path)
     {
@@ -41,28 +56,45 @@ public sealed class PathGuard
         var full = Expand(candidate);
         if (full.Length == 0) { return true; }
 
-        foreach (var root in _deniedRoots)
-        {
-            if (full.Equals(root, StringComparison.OrdinalIgnoreCase)) { return true; }
+        return _deniedRoots.Any(root => IsSelfOrUnder(full, root));
+    }
 
-            // Compare with a separator appended so "C:\ProgramData" is not treated as
-            // being inside "C:\Program".
-            if (full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
+    /// <summary>True when no allowed roots are configured, or the path sits inside one.</summary>
+    public bool IsInAllowedRoot(string candidate)
+    {
+        if (_allowedRoots.Length == 0) { return true; }
 
-        return false;
+        var full = Expand(candidate);
+        if (full.Length == 0) { return false; }
+
+        return _allowedRoots.Any(root => IsSelfOrUnder(full, root));
+    }
+
+    public bool IsAllowed(string candidate) =>
+        IsInAllowedRoot(candidate) && !IsDenied(candidate);
+
+    private static bool IsSelfOrUnder(string full, string root)
+    {
+        if (full.Equals(root, StringComparison.OrdinalIgnoreCase)) { return true; }
+
+        // Compare with a separator appended so "C:\ProgramData" is not treated as being
+        // inside "C:\Program".
+        return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Throws when the path is off limits. Use at the top of a file capability.</summary>
     public void EnsureAllowed(string candidate)
     {
-        if (IsDenied(candidate))
+        if (!IsInAllowedRoot(candidate))
         {
             throw new UnauthorizedAccessException(
-                $"Policy denies access to '{candidate}'.");
+                $"'{candidate}' is outside every allowed root. Allowed: "
+                + string.Join(", ", _allowedRoots));
+        }
+
+        if (IsDenied(candidate))
+        {
+            throw new UnauthorizedAccessException($"Policy denies access to '{candidate}'.");
         }
     }
 }

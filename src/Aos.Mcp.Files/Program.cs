@@ -1,7 +1,5 @@
-using System.IO;
+using Aos.Mcp.Files;
 using Aos.Mcp.Shared;
-using Aos.Mcp.Windows;
-using Aos.Mcp.Windows.Capabilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -14,15 +12,15 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
 
 var policy = AosPaths.LoadPolicy();
-var capabilities = ShellSurface
-    .All(Path.Combine(AosPaths.DataDirectory, "screens"))
-    .Concat(UiaSurface.All());
+var guard = AosPaths.GuardFrom(policy);
+Directory.CreateDirectory(AosPaths.TrashDirectory);
+var surface = new FileSurface(guard, new TrashStore(AosPaths.TrashDirectory));
 
-builder.Services.AddSingleton(AosPaths.BuildBroker(capabilities, policy));
+builder.Services.AddSingleton(AosPaths.BuildBroker(surface.All(), policy));
 
 builder.Services
     .AddMcpServer()
     .WithStdioServerTransport()
-    .WithTools<WindowsTools>();
+    .WithTools<FilesTools>();
 
 await builder.Build().RunAsync();

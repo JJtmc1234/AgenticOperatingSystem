@@ -3,6 +3,10 @@
     "aos-windows": {
       "command": "${LOCALAPPDATA}\\AgenticOS\\bin\\aos-mcp-windows.exe",
       "args": []
+    },
+    "aos-files": {
+      "command": "${LOCALAPPDATA}\\AgenticOS\\bin\\aos-mcp-files.exe",
+      "args": []
     }
   }
 }

@@ -49,4 +49,6 @@ function New-AosPublishStep {
     }.GetNewClosure()
 
     New-AosPublishStep -ProjectDir 'src\Aos.Mcp.Windows' -ExeName 'aos-mcp-windows.exe'
+
+    New-AosPublishStep -ProjectDir 'src\Aos.Mcp.Files'   -ExeName 'aos-mcp-files.exe'
 )

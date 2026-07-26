@@ -4,6 +4,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Text.Json.Nodes;
 using Aos.Core;
+using Aos.Mcp.Shared;
 using Aos.Mcp.Windows.Native;
 
 namespace Aos.Mcp.Windows.Capabilities;
@@ -11,31 +12,33 @@ namespace Aos.Mcp.Windows.Capabilities;
 /// <summary>Windows, processes, and screen capture. No UIAutomation dependency.</summary>
 internal static class ShellSurface
 {
+    private static readonly CapabilitySet Set = new("aos-windows");
+
     public static IEnumerable<ICapability> All(string screenshotDirectory)
     {
-        yield return DelegateCapability.Read(
+        yield return Set.Read(
             "aos-windows/window.list",
             "List top-level visible windows with handle, title, owning process and bounds.",
             ListWindows);
 
-        yield return DelegateCapability.Read(
+        yield return Set.Read(
             "aos-windows/process.list",
             "List running processes with pid, name, working set and start time.",
             ListProcesses);
 
-        yield return DelegateCapability.Read(
+        yield return Set.Read(
             "aos-windows/screen.capture",
             "Capture the virtual screen (or one window) to a PNG and return its path.",
             args => Capture(args, screenshotDirectory));
 
-        yield return DelegateCapability.Mutating(
+        yield return Set.Mutating(
             "aos-windows/window.focus",
             RiskTier.Write,
             "Restore and bring a window to the foreground.",
             args => $"Focus window {args.RequireInt64("hwnd")} ('{TitleOf(args.RequireInt64("hwnd"))}').",
             FocusWindow);
 
-        yield return DelegateCapability.Mutating(
+        yield return Set.Mutating(
             "aos-windows/process.stop",
             RiskTier.System,
             "Terminate a process by pid. Unsaved work in that process is lost.",
@@ -74,7 +77,7 @@ internal static class ShellSurface
             }
 
             User32.GetWindowThreadProcessId(hWnd, out var pid);
-            User32.GetWindowRect(hWnd, out var rect);
+            var (rect, restored) = User32.GetUsableBounds(hWnd);
 
             windows.Add(new JsonObject
             {
@@ -90,6 +93,9 @@ internal static class ShellSurface
                     ["width"] = rect.Width,
                     ["height"] = rect.Height,
                 },
+                // Says so explicitly, because otherwise a minimized window's restored size
+                // is indistinguishable from its current on-screen size.
+                ["boundsAreRestoredPosition"] = restored ? JsonValue.Create(true) : null,
             });
 
             return true;

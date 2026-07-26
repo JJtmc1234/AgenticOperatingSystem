@@ -19,6 +19,18 @@ capabilities:
   # Never, on any machine.
   aos-shell/exec.raw:         { verdict: deny, reason: "Use a declared capability, not raw shell." }
 
+# Folders the file capabilities may work inside. Anything outside these is refused before
+# a tier is even considered. Leave the list empty to allow the whole filesystem, which is
+# not recommended. Add roots as you need them rather than widening pre-emptively.
+allowedRoots:
+  - "%USERPROFILE%\\Desktop"
+  - "%USERPROFILE%\\Documents"
+  - "%USERPROFILE%\\Downloads"
+  - "%USERPROFILE%\\Pictures"
+  - "%USERPROFILE%\\OneDrive\\Desktop"
+  - "%USERPROFILE%\\OneDrive\\Documents"
+  - "%LOCALAPPDATA%\\AgenticOS"
+
 # Paths the agent may never touch, regardless of tier or verdict.
 denyPaths:
   - "C:\\Windows\\System32"

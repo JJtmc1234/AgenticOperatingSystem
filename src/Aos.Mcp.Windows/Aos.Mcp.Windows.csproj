@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Aos.Broker\Aos.Broker.csproj" />
+    <ProjectReference Include="..\Aos.Mcp.Shared\Aos.Mcp.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
