@@ -60,7 +60,7 @@ function New-AosPublishStep {
             throw "Cannot publish: project '$project' is missing and no prebuilt exe was staged."
         }
         New-Item -ItemType Directory -Force -Path $target | Out-Null
-        $output = & dotnet publish $project -c Release -o $target --nologo 2>&1
+        $output = & dotnet publish $project -c Release -o $target --nologo
         if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed:`n$($output -join "`n")" }
     }.GetNewClosure()
 }
@@ -89,6 +89,12 @@ function New-AosServerSmokeStep {
         $proc = $null
         try {
             $proc = [Diagnostics.Process]::Start($psi)
+
+            # stderr must be drained. It is redirected, so a server that logs more than the
+            # pipe buffer holds would block writing to it, never answer on stdout, and burn
+            # both timeouts below on an otherwise healthy build.
+            $stderrTask = $proc.StandardError.ReadToEndAsync()
+
             $proc.StandardInput.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"aos-smoke","version":"1"}}}')
             $proc.StandardInput.Flush()
 
@@ -100,11 +106,24 @@ function New-AosServerSmokeStep {
             $proc.StandardInput.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
             $proc.StandardInput.Flush()
 
-            $listTask = $proc.StandardOutput.ReadLineAsync()
-            if (-not $listTask.Wait(20000)) { return $false }
+            # Read until the tools/list reply arrives. A server may interleave log
+            # notifications, and matching a regex against one arbitrary line would accept
+            # any of them, or even the serverInfo name from the initialize reply. That would
+            # pass a server listing zero tools, which is the exact failure this step exists
+            # to catch, so the reply is parsed and the tool count actually checked.
+            for ($attempt = 0; $attempt -lt 10; $attempt++) {
+                $lineTask = $proc.StandardOutput.ReadLineAsync()
+                if (-not $lineTask.Wait(20000)) { return $false }
+                $line = $lineTask.Result
+                if (-not $line) { return $false }
 
-            # A healthy server reports at least one tool.
-            [bool]($listTask.Result -match '"name"\s*:')
+                try { $parsed = $line | ConvertFrom-Json } catch { continue }
+                if ($parsed.id -ne 2) { continue }
+
+                return [bool]($parsed.result -and $parsed.result.tools -and @($parsed.result.tools).Count -gt 0)
+            }
+
+            return $false
         }
         catch {
             return $false
@@ -112,7 +131,15 @@ function New-AosServerSmokeStep {
         finally {
             if ($proc) {
                 try { $proc.StandardInput.Close() } catch { }
-                try { if (-not $proc.WaitForExit(5000)) { $proc.Kill() } } catch { }
+                try {
+                    if (-not $proc.WaitForExit(5000)) {
+                        # Kill the tree: aos-shell can have children of its own, and killing
+                        # only the parent orphans them holding the published DLLs, which then
+                        # blocks the next publish.
+                        $proc.Kill($true)
+                        $proc.WaitForExit(2000) | Out-Null
+                    }
+                } catch { }
                 $proc.Dispose()
             }
         }

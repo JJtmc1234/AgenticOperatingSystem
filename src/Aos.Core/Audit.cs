@@ -24,8 +24,18 @@ public sealed record AuditEntry
     /// <summary>Arguments after redaction. Never write raw secrets here.</summary>
     public JsonObject? Arguments { get; init; }
 
+    /// <summary>Caller-supplied justification, redacted and truncated like any other free text.</summary>
     public string? Reason { get; init; }
+
+    /// <summary>Outcome message, redacted and truncated. Capability exception text lands here.</summary>
     public string? Message { get; init; }
+
+    /// <summary>
+    /// Whether a post-condition check ran and what it said. Null means the capability
+    /// declares no verifier at all, which is different from "verified fine" and must not
+    /// look the same in the log.
+    /// </summary>
+    public bool? Verified { get; init; }
 
     /// <summary>VSS shadow copy id, when one was taken before committing.</summary>
     public string? SnapshotId { get; init; }

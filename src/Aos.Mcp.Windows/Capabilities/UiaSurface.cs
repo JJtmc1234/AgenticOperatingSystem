@@ -181,6 +181,49 @@ internal static class UiaSurface
         catch (ElementNotAvailableException) { return false; }
     }
 
+    /// <summary>
+    /// Resolves a ref, then refuses unless the element still matches what the caller expected.
+    ///
+    /// A ref is positional, and plan and commit are two separate broker calls that each
+    /// re-resolve from scratch. Resolve only fails when a level has too FEW children, so a
+    /// toast, a menu, or an async-loaded row appearing between the two calls shifts the
+    /// indices and the same ref quietly lands on a different control. The plan would say
+    /// Button 'Cancel' and the commit would press Button 'Delete'.
+    ///
+    /// Passing the expected name or automation id from ui.tree turns that silent misfire into
+    /// a refusal. It is optional so a read-only caller need not supply it, but every mutating
+    /// capability here does.
+    /// </summary>
+    private static AutomationElement ResolveExpected(JsonObject args)
+    {
+        var refPath = args.RequireString("ref");
+        var element = Resolve(RootOf(args), refPath);
+
+        var expectedName = args.GetString("expectName");
+        var expectedId = args.GetString("expectAutomationId");
+        if (expectedName is null && expectedId is null) { return element; }
+
+        var info = element.Current;
+
+        if (expectedId is not null && info.AutomationId != expectedId)
+        {
+            throw new InvalidOperationException(
+                $"Ref '{refPath}' now resolves to automationId '{info.AutomationId}', not the "
+                + $"expected '{expectedId}'. The UI changed since ui.tree was read. Re-read the "
+                + "tree rather than acting on a stale ref.");
+        }
+
+        if (expectedName is not null && info.Name != expectedName)
+        {
+            throw new InvalidOperationException(
+                $"Ref '{refPath}' now resolves to '{info.Name}', not the expected "
+                + $"'{expectedName}'. The UI changed since ui.tree was read. Re-read the tree "
+                + "rather than acting on a stale ref.");
+        }
+
+        return element;
+    }
+
     /// <summary>Resolves a ref path like "0.3.1" against a window root.</summary>
     private static AutomationElement Resolve(AutomationElement root, string refPath)
     {
@@ -224,7 +267,7 @@ internal static class UiaSurface
         // Used by the dry-run planner, so it must not mutate anything.
         try
         {
-            var element = Resolve(RootOf(args), args.RequireString("ref"));
+            var element = ResolveExpected(args);
             var info = element.Current;
             var name = string.IsNullOrWhiteSpace(info.Name) ? info.AutomationId : info.Name;
             var type = info.ControlType?.ProgrammaticName?.Replace("ControlType.", string.Empty);
@@ -238,7 +281,7 @@ internal static class UiaSurface
 
     private static JsonNode? Invoke(JsonObject args)
     {
-        var element = Resolve(RootOf(args), args.RequireString("ref"));
+        var element = ResolveExpected(args);
         var info = element.Current;
 
         if (!info.IsEnabled)
@@ -293,7 +336,7 @@ internal static class UiaSurface
 
     private static JsonNode? SetText(JsonObject args)
     {
-        var element = Resolve(RootOf(args), args.RequireString("ref"));
+        var element = ResolveExpected(args);
         var text = args.RequireString("text");
         var info = element.Current;
 

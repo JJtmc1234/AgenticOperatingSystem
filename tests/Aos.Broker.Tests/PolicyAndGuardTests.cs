@@ -14,7 +14,7 @@ public class PolicyEvaluatorTests
 
     [Theory]
     [InlineData(RiskTier.Read, PolicyVerdict.Allow, false)]
-    [InlineData(RiskTier.Write, PolicyVerdict.Prompt, false)]
+    [InlineData(RiskTier.Write, PolicyVerdict.Prompt, true)]
     [InlineData(RiskTier.System, PolicyVerdict.Prompt, true)]
     [InlineData(RiskTier.Destructive, PolicyVerdict.Prompt, true)]
     public void TierRules_MapToExpectedVerdicts(

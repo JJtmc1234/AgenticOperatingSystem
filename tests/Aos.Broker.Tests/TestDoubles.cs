@@ -21,7 +21,12 @@ public sealed class SpyCapability(CapabilityDescriptor descriptor) : ICapability
         if (dryRun) { DryRunCount++; } else { CommitCount++; }
         if (Throw is not null) { throw Throw; }
 
-        return Task.FromResult(CapabilityOutcome.Ok(JsonValue.Create("done")));
+        // Honours dryRun, like a real capability must. It previously returned Succeeded in
+        // both modes, which the broker now treats as a harness violation rather than
+        // quietly relabelling it as a plan.
+        return Task.FromResult(dryRun
+            ? CapabilityOutcome.Planned(JsonValue.Create("would do the thing"), "Dry run.")
+            : CapabilityOutcome.Ok(JsonValue.Create("done")));
     }
 
     public static SpyCapability ForTier(RiskTier tier, string? id = null) =>

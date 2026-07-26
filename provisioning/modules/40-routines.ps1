@@ -16,7 +16,7 @@ $taskName     = 'AgenticOS daily brief'
         # environment, turning "install" into "pm".
         Push-Location $orchestrator
         try {
-            $output = & npm.cmd install --no-fund --no-audit 2>&1
+            $output = & npm.cmd install --no-fund --no-audit
             if ($LASTEXITCODE -ne 0) { throw "npm install failed:`n$($output -join "`n")" }
         }
         finally { Pop-Location }
@@ -33,7 +33,7 @@ $taskName     = 'AgenticOS daily brief'
     }.GetNewClosure() -Set {
         Push-Location $orchestrator
         try {
-            $output = & node 'node_modules\typescript\bin\tsc' 2>&1
+            $output = & node 'node_modules\typescript\bin\tsc'
             if ($LASTEXITCODE -ne 0) { throw "tsc failed:`n$($output -join "`n")" }
         }
         finally { Pop-Location }

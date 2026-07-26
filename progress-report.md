@@ -61,8 +61,8 @@ Checks that passed on live servers over real JSON RPC, not mocks.
 | shell allowlist | unlisted exe, path form, and bad working directory all refused |
 | shell injection | a chained command passed as an argument stayed literal text |
 | post-condition checks | move, trash, and restore all report verified success |
-| test suite | 98 passing |
-| provisioning | 15 ok, 0 changed on re apply |
+| test suite | 133 passing |
+| provisioning | 26 ok, 0 changed on re apply |
 
 ## deadlines
 
@@ -90,9 +90,26 @@ The harness rule is that a bug is finished when a guard exists that would have c
 | agent app hung on piped stdin | readline EOF ends the loop rather than being swallowed |
 | closure read an inherited variable and saw null | authoring rule now names the inherited case, not just the module local one |
 | shortcut hotkey compared by spelling | compared by normalised parts, since Windows rewrites the string |
+| plan then commit was really one call | a plan ledger, so a commit must redeem a plan actually shown |
+| cancelled calls wrote no audit entry at all | audited before rethrowing, and written with a token that cannot be cancelled |
+| malformed policy verdict failed open | Enum.IsDefined plus default deny on anything not Allow or Prompt |
+| Write tier handshake came from policy, not the tier | RequiresCommit derives from Write upward |
+| extended length paths skipped canonicalisation | those forms refused, and reparse points resolved |
+| Reason and Message reached the log verbatim | both scrubbed and truncated, plus value pattern matching |
+| batch shims let cmd.exe re-parse arguments | .bat and .cmd refused, PATHEXT ignored |
+| interpreters in the allowlist meant arbitrary code | removed from defaults, plus per command argument patterns |
+| trash restore never consulted the path guard | guard injected into the trash store |
+| a UIA ref could resolve to a different control | mutations pin an expected name or automation id |
+| address fields could inject mail headers | control characters refused in to and cc |
+| module 30 wrote a BOM and broke Claude Desktop | written with an explicit no BOM encoder |
+| benign stderr aborted provisioning steps | stderr redirection removed from native calls |
 
-Two were found only by driving the live server, and both passed every unit test while
-broken. That is the argument for JJtorio issue 6 in one line.
+The lower fourteen came from a deep quality check by three parallel review agents pointed at
+the broker, the servers, and the provisioning and TypeScript code. Several invalidated claims
+this project had been making confidently, which is the point of running the check at all.
+
+Two earlier ones were found only by driving the live server, and both passed every unit test
+while broken. That is the argument for JJtorio issue 6 in one line.
 
 One verification of mine was itself flawed and had to be redone. The first process kill test
 used `Start-Process notepad`, which returns a stub process id on Windows 11 because Notepad

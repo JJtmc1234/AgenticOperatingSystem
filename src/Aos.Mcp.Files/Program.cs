@@ -14,7 +14,9 @@ builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogL
 var policy = AosPaths.LoadPolicy();
 var guard = AosPaths.GuardFrom(policy);
 Directory.CreateDirectory(AosPaths.TrashDirectory);
-var surface = new FileSurface(guard, new TrashStore(AosPaths.TrashDirectory));
+// The trash store takes the guard too: restore writes to a path read out of the manifest,
+// which is data rather than authority and has to be re-checked at restore time.
+var surface = new FileSurface(guard, new TrashStore(AosPaths.TrashDirectory, guard));
 
 builder.Services.AddSingleton(AosPaths.BuildBroker(surface.All(), policy));
 

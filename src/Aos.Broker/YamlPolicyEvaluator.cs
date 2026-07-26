@@ -21,7 +21,11 @@ public sealed class YamlPolicyEvaluator : IPolicyEvaluator
 
         foreach (var (name, rule) in document.Tiers)
         {
-            if (Enum.TryParse<RiskTier>(name, ignoreCase: true, out var tier))
+            // Enum.TryParse also accepts numeric text, so "9" would parse to (RiskTier)9 and
+            // slip past this check as a tier that is never consulted. IsDefined is what makes
+            // the load-time rejection actually cover unknown tiers.
+            if (Enum.TryParse<RiskTier>(name, ignoreCase: true, out var tier)
+                && Enum.IsDefined(tier))
             {
                 _tiers[tier] = rule;
             }
@@ -75,7 +79,13 @@ public sealed class YamlPolicyEvaluator : IPolicyEvaluator
     {
         var reason = rule.Reason ?? source;
 
-        if (!Enum.TryParse<PolicyVerdict>(rule.Verdict, ignoreCase: true, out var verdict))
+        // IsDefined matters as much as TryParse. Enum.TryParse happily accepts numeric and
+        // comma-separated flag text, so 'verdict: 4' parsed to (PolicyVerdict)4 and
+        // 'verdict: "deny, prompt"' to 3. Neither equals Deny or Prompt, so both used to be
+        // treated as Allow: a malformed verdict failed open, which is the opposite of the
+        // guarantee this method exists to provide.
+        if (!Enum.TryParse<PolicyVerdict>(rule.Verdict, ignoreCase: true, out var verdict)
+            || !Enum.IsDefined(verdict))
         {
             return PolicyDecision.Denied(
                 $"Malformed verdict '{rule.Verdict}' in {source}; denying by default.");

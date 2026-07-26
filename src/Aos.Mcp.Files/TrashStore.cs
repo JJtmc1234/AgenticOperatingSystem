@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Aos.Broker;
 using Aos.Core;
 
 namespace Aos.Mcp.Files;
@@ -24,7 +25,7 @@ public sealed record TrashEntry
 /// Each entry gets its own folder named by id, which removes the whole class of bugs where
 /// two files with the same name collide in the trash.
 /// </summary>
-public sealed class TrashStore(string root)
+public sealed class TrashStore(string root, PathGuard guard)
 {
     private readonly string _manifestPath = Path.Combine(root, "manifest.jsonl");
 
@@ -38,7 +39,7 @@ public sealed class TrashStore(string root)
             throw new FileNotFoundException($"Nothing to trash at '{sourcePath}'.");
         }
 
-        var id = $"{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():n}"[..24];
+        var id = $"{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():n}";
         var slot = Path.Combine(Root, id);
         Directory.CreateDirectory(slot);
 
@@ -93,6 +94,15 @@ public sealed class TrashStore(string root)
         var entry = List().LastOrDefault(e => e.Id == id)
             ?? throw new FileNotFoundException($"No trash entry with id '{id}'.");
 
+        // The manifest is data, not authority. It lives inside an allowed root, so anything
+        // that can write a file could append a line naming any OriginalPath it liked and turn
+        // this restore into "place a file wherever I want" -- laundered through a tool whose
+        // description promises it only puts things back. Re-checking both paths against the
+        // guard is what stops that, and it also catches the honest case where allowedRoots
+        // was narrowed after the item was trashed.
+        guard.EnsureAllowed(entry.OriginalPath);
+        guard.EnsureAllowed(entry.StoredPath);
+
         if (!entry.StillStored)
         {
             throw new FileNotFoundException(
@@ -123,6 +133,10 @@ public sealed class TrashStore(string root)
                 {
                     RecurseSubdirectories = true,
                     IgnoreInaccessible = true,
+                    // Junctions carry neither Hidden nor System, so the default skip list
+                    // lets the walk descend into them, and .NET has no loop detection. A
+                    // trashed folder containing a self-junction would spin here.
+                    AttributesToSkip = FileAttributes.System | FileAttributes.ReparsePoint,
                 })
                 .Sum(f => f.Length);
         }

@@ -13,7 +13,7 @@ builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogL
 
 var policy = AosPaths.LoadPolicy();
 var guard = AosPaths.GuardFrom(policy);
-var runner = new CommandRunner(policy.Document.AllowedCommands);
+var runner = new CommandRunner(policy.Document.AllowedCommands, policy.Document.DeniedArguments);
 var surface = new ShellSurface(guard, runner);
 
 builder.Services.AddSingleton(AosPaths.BuildBroker(surface.All(), policy));

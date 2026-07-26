@@ -60,6 +60,7 @@ public class BrokerTests
         var cap = SpyCapability.ForTier(RiskTier.Read, "test/blocked.op");
         var (broker, audit) = Build(cap);
 
+        // A deny verdict is evaluated before the handshake, so no plan call is needed.
         var outcome = await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id, commit: true));
 
         Assert.Equal(OutcomeStatus.Denied, outcome.Status);
@@ -84,6 +85,7 @@ public class BrokerTests
         var cap = SpyCapability.ForTier(RiskTier.System);
         var (broker, _) = Build(cap, UnavailableSnapshotter.Instance, new StubApprovals(true));
 
+        await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id));   // show the plan
         var outcome = await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id, commit: true));
 
         Assert.Equal(OutcomeStatus.Denied, outcome.Status);
@@ -109,6 +111,7 @@ public class BrokerTests
         var approvals = new StubApprovals(approve: false);
         var (broker, _) = Build(cap, approvals: approvals);
 
+        await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id));   // show the plan
         var outcome = await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id, commit: true));
 
         Assert.Equal(OutcomeStatus.Denied, outcome.Status);

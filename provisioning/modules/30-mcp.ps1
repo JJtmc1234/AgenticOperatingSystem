@@ -53,7 +53,17 @@ function New-AosMcpStep {
             $json.mcpServers | Add-Member -NotePropertyName $key -NotePropertyValue $entry
         }
 
-        $json | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $config -Encoding utf8
+        # WriteAllText with an explicit no-BOM encoder, NOT Set-Content -Encoding utf8.
+        #
+        # On PowerShell 5.1, -Encoding utf8 emits a byte order mark. Claude Desktop is
+        # Electron, and Node's JSON.parse rejects a leading BOM outright, so the first
+        # successful run of this module silently disabled every MCP server in the user's
+        # config, including ones we did not add. Provisioning could not see it either:
+        # Get-Content -Raw strips the BOM on read, so the Test kept passing while the file
+        # on disk was unparseable. A Test that is true while the desired state is false is
+        # the worst kind.
+        $text = $json | ConvertTo-Json -Depth 12
+        [IO.File]::WriteAllText($config, $text, (New-Object Text.UTF8Encoding($false)))
     }.GetNewClosure()
 }
 

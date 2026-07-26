@@ -12,7 +12,7 @@ public sealed class CapabilitySet(string serverName)
     /// <summary>Read tier: never mutates, so it ignores the dry-run flag.</summary>
     public ICapability Read(
         string id, string description, Func<JsonObject, JsonNode?> handler) =>
-        new DelegateCapability(
+        DelegateCapability.Create(
             new CapabilityDescriptor(id, serverName, RiskTier.Read, description),
             (args, _, _) => Task.FromResult(CapabilityOutcome.Ok(handler(args))));
 
@@ -31,7 +31,7 @@ public sealed class CapabilitySet(string serverName)
     /// </summary>
     public ICapability ReadAsync(
         string id, string description, Func<JsonObject, CancellationToken, Task<JsonNode?>> handler) =>
-        new DelegateCapability(
+        DelegateCapability.Create(
             new CapabilityDescriptor(id, serverName, RiskTier.Read, description),
             async (args, _, cancellationToken) =>
                 CapabilityOutcome.Ok(await handler(args, cancellationToken).ConfigureAwait(false)));
@@ -43,14 +43,16 @@ public sealed class CapabilitySet(string serverName)
         string description,
         Func<JsonObject, CancellationToken, Task<string>> plan,
         Func<JsonObject, CancellationToken, Task<JsonNode?>> apply,
-        bool? snapshot = null) =>
-        new DelegateCapability(
+        bool? snapshot = null,
+        Func<JsonObject, JsonNode?, string?>? verify = null) =>
+        DelegateCapability.Create(
             new CapabilityDescriptor(id, serverName, tier, description, snapshot),
             async (args, dryRun, cancellationToken) => dryRun
                 ? CapabilityOutcome.Planned(
                     JsonValue.Create(await plan(args, cancellationToken).ConfigureAwait(false)),
                     "Dry run: nothing changed. Re-invoke with commit=true to apply.")
-                : CapabilityOutcome.Ok(await apply(args, cancellationToken).ConfigureAwait(false)));
+                : CapabilityOutcome.Ok(await apply(args, cancellationToken).ConfigureAwait(false)),
+            verify);
 
     /// <param name="verify">
     /// Post-condition check, run only after a committed change succeeded. Return null when
@@ -65,7 +67,7 @@ public sealed class CapabilitySet(string serverName)
         Func<JsonObject, JsonNode?> apply,
         bool? snapshot = null,
         Func<JsonObject, JsonNode?, string?>? verify = null) =>
-        new DelegateCapability(
+        DelegateCapability.Create(
             new CapabilityDescriptor(id, serverName, tier, description, snapshot),
             (args, dryRun, _) => Task.FromResult(
                 dryRun
@@ -75,11 +77,16 @@ public sealed class CapabilitySet(string serverName)
             verify);
 }
 
-internal sealed class DelegateCapability(
+/// <summary>
+/// A capability with no post-condition check. Deliberately does NOT implement
+/// <see cref="IVerifiableCapability"/>: when every delegate capability implemented it and
+/// simply returned null for the ones without a verifier, the broker's interface test always
+/// passed and "verified fine" was indistinguishable in the audit log from "never checked".
+/// Only <see cref="VerifiedDelegateCapability"/> advertises verification.
+/// </summary>
+internal class DelegateCapability(
     CapabilityDescriptor descriptor,
-    Func<JsonObject, bool, CancellationToken, Task<CapabilityOutcome>> handler,
-    Func<JsonObject, JsonNode?, string?>? verify = null)
-    : ICapability, IVerifiableCapability
+    Func<JsonObject, bool, CancellationToken, Task<CapabilityOutcome>> handler) : ICapability
 {
     public CapabilityDescriptor Descriptor { get; } = descriptor;
 
@@ -87,7 +94,22 @@ internal sealed class DelegateCapability(
         CapabilityRequest request, bool dryRun, CancellationToken cancellationToken) =>
         handler(request.Arguments, dryRun, cancellationToken);
 
+    internal static ICapability Create(
+        CapabilityDescriptor descriptor,
+        Func<JsonObject, bool, CancellationToken, Task<CapabilityOutcome>> handler,
+        Func<JsonObject, JsonNode?, string?>? verify = null) =>
+        verify is null
+            ? new DelegateCapability(descriptor, handler)
+            : new VerifiedDelegateCapability(descriptor, handler, verify);
+}
+
+internal sealed class VerifiedDelegateCapability(
+    CapabilityDescriptor descriptor,
+    Func<JsonObject, bool, CancellationToken, Task<CapabilityOutcome>> handler,
+    Func<JsonObject, JsonNode?, string?> verify)
+    : DelegateCapability(descriptor, handler), IVerifiableCapability
+{
     public Task<string?> VerifyAsync(
         CapabilityRequest request, CapabilityOutcome outcome, CancellationToken cancellationToken) =>
-        Task.FromResult(verify?.Invoke(request.Arguments, outcome.Payload));
+        Task.FromResult(verify(request.Arguments, outcome.Payload));
 }

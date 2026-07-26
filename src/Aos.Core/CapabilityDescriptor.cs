@@ -21,9 +21,15 @@ public sealed record CapabilityDescriptor(
 {
     /// <summary>
     /// Whether a caller must pass <see cref="CapabilityRequest.Commit"/> to move past a
-    /// dry run. Anything that can lose data or change the OS requires the second call.
+    /// dry run. Anything that mutates requires the second call.
+    ///
+    /// Covers <see cref="RiskTier.Write"/> deliberately. When this started at
+    /// <see cref="RiskTier.System"/>, a Write capability's handshake existed only because
+    /// the shipped policy happened to say prompt, so a one-line policy edit removed it
+    /// entirely. Deriving it from the tier is what makes the guarantee structural rather
+    /// than a property of the current config file.
     /// </summary>
-    public bool RequiresCommit => Tier >= RiskTier.System;
+    public bool RequiresCommit => Tier >= RiskTier.Write;
 
     public bool ShouldSnapshot => SnapshotBeforeExecute ?? Tier >= RiskTier.System;
 }

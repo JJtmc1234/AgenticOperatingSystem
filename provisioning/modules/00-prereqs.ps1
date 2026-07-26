@@ -21,7 +21,15 @@
 
     New-AosStep -Name 'Python 3.11+ present (ML sidecars)' -Test {
         if (-not (Test-AosCommand 'python')) { return $false }
-        $parts = ((& python --version 2>&1) -replace '[^0-9\.]', '').Split('.')
+
+        # 2>&1 on a native command wraps each stderr line in an ErrorRecord, and the runner
+        # sets $ErrorActionPreference to Stop, so anything a launcher writes to stderr made
+        # this Test THROW instead of returning false. The Windows Store python stub does
+        # exactly that. Relaxing the preference for this one call keeps a missing or stubbed
+        # interpreter reported as "not present" rather than as a provisioning failure.
+        $ErrorActionPreference = 'Continue'
+        $parts = ((& python --version 2>&1 | Out-String) -replace '[^0-9\.]', '').Split('.')
+
         if ($parts.Count -lt 2) { return $false }
         ([int]$parts[0] -gt 3) -or ([int]$parts[0] -eq 3 -and [int]$parts[1] -ge 11)
     }

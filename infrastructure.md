@@ -77,7 +77,7 @@ custom Windows image (phase 6)
   provisioning modules applied offline to a mounted WIM
 
   heads up display (phase 3)
-    C sharp WebView2 host: overlay, tray, global hotkeys
+    C sharp tray app: overlay, RegisterHotKey listener, one resident session
         |
         |  local WebSocket, JSON
         v
@@ -128,7 +128,7 @@ Every tool returns the same shape, so denials and plans are data the model can r
 than errors it has to guess at.
 
 ```json
-{ "status": "Succeeded | DryRun | Denied | Failed", "message": "...", "result": { } }
+{ "status": "Succeeded | DryRun | Denied | Failed | AppliedButUnverified", "message": "...", "result": { } }
 ```
 
 ## repository layout
@@ -168,14 +168,23 @@ rather than trusting each capability to opt in.
 | tier | meaning | default policy |
 |---|---|---|
 | `Read` | observes only | auto allow |
-| `Write` | recoverable change to user data | plan, then commit |
+| `Write` | recoverable change to user data | plan, then commit, derived from the tier |
 | `System` | machine or OS state | plan, then commit, restore point first |
 | `Destructive` | data loss or hard to reverse | plan, then commit, restore point first |
 
 Properties enforced structurally:
 
-1. Plan then commit. Anything not plainly allowed returns a plan and changes nothing.
-   Applying needs an explicit second call with `commit` set true.
+1. Plan then commit, checked against plans actually shown. Anything not plainly allowed
+   returns a plan and changes nothing, and a commit must redeem a plan this process issued
+   for the same capability and the same arguments. One plan authorises one commit, and it
+   expires after ten minutes.
+
+   This was wrong for a long time. The broker computed the dry-run flag purely from the
+   commit flag and nothing remembered whether a plan had ever been produced, so a first-ever
+   call with commit set true applied immediately. The default approver made it circular by
+   answering yes whenever that same flag was set. The handshake was one call wearing the
+   costume of two, and it is now a property of the harness rather than a convention the
+   caller may follow.
 2. Fails closed. A missing tier rule, a malformed verdict, or an unknown capability id all
    deny. An unknown tier name in policy throws at load, so a typo cannot leave a tier
    unpoliced.

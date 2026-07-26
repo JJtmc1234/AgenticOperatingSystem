@@ -28,8 +28,8 @@ is the primitive that turns a demo into something trustworthy.
 | 0 | foundation, contracts, provisioning runner | 1 session | done |
 | 1 | capability broker and four MCP servers | 1 to 2 weeks | in progress |
 | 1v | verification: post-conditions and harness invariants | 2 days | done |
-| 2 | TypeScript orchestrator, routines, memory | 1 to 2 weeks | not started |
-| 3 | heads up display, hotkey, tray, approvals | 1 week | not started |
+| 2 | TypeScript orchestrator, routines, memory | 1 to 2 weeks | in progress |
+| 3 | tray app, hotkey, resident session | 1 week | in progress |
 | 4 | sensors and proactivity as a Windows service | 1 to 2 weeks | not started |
 | 5 | computer use vision fallback | 3 to 5 days | not started |
 | 6 | the custom Windows image | 1 to 2 weeks | not started |

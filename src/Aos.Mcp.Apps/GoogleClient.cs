@@ -84,9 +84,19 @@ public sealed class GoogleClient(GoogleAuth auth)
     /// </summary>
     public static string BuildRawMessage(string to, string subject, string body, string? cc)
     {
+        // A CRLF in an address field would end the header line and let the caller add
+        // headers of its own -- a Bcc to somewhere else, or a blank line that terminates the
+        // header block and replaces the entire body. Either makes the plan the human approved
+        // stop describing what is actually sent, and the address can arrive from an untrusted
+        // email that mail.read pulled in, so this is a prompt-injection path rather than a
+        // theoretical one. Subject is safe already because it is RFC 2047 encoded, and body
+        // sits after the separator, so addresses are the only vector.
+        var recipient = RequireHeaderSafe(to, nameof(to));
+        var copyTo = string.IsNullOrWhiteSpace(cc) ? null : RequireHeaderSafe(cc, nameof(cc));
+
         var builder = new StringBuilder();
-        builder.Append("To: ").Append(to).Append("\r\n");
-        if (!string.IsNullOrWhiteSpace(cc)) { builder.Append("Cc: ").Append(cc).Append("\r\n"); }
+        builder.Append("To: ").Append(recipient).Append("\r\n");
+        if (copyTo is not null) { builder.Append("Cc: ").Append(copyTo).Append("\r\n"); }
         // Encoded-word form, so a non-ASCII subject does not corrupt the header.
         builder.Append("Subject: =?utf-8?B?")
             .Append(Convert.ToBase64String(Encoding.UTF8.GetBytes(subject)))
@@ -97,6 +107,23 @@ public sealed class GoogleClient(GoogleAuth auth)
 
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(builder.ToString()))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    /// <summary>
+    /// Rejects anything that could break out of a single header line. Control characters are
+    /// refused wholesale rather than stripped, because silently rewriting an address changes
+    /// who receives the mail without telling anyone.
+    /// </summary>
+    private static string RequireHeaderSafe(string value, string field)
+    {
+        if (value.Any(c => c is '\r' or '\n' or '\0' || char.IsControl(c)))
+        {
+            throw new ArgumentException(
+                $"'{field}' contains a control character, so it cannot be used as an email "
+                + "header. This is how a message body or an extra recipient gets smuggled in.");
+        }
+
+        return value.Trim();
     }
 
     /// <summary>Pulls a header value out of a Gmail message payload, case-insensitively.</summary>

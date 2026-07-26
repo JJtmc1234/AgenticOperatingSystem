@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Aos.Mcp.Shell;
 
@@ -16,18 +17,69 @@ public sealed record CommandResult(
 /// <summary>
 /// Launches an allowlisted executable directly, never through a shell.
 ///
-/// This is the whole safety argument for the server. A gated "run this PowerShell string"
-/// capability is close to impossible to make safe, because the shell itself provides
-/// pipes, redirection, command chaining and expression evaluation, so any allowlist of
-/// commands can be walked straight around. Passing an argument list to CreateProcess with
-/// no shell means the arguments are inert data. There is nothing for "; rm -rf" to be
-/// interpreted by.
+/// A gated "run this PowerShell string" capability is close to impossible to make safe: the
+/// shell supplies pipes, redirection, chaining and expression evaluation, so any command
+/// allowlist can be walked straight around. Passing an argument list to CreateProcess with
+/// UseShellExecute false avoids that.
+///
+/// Two limits on that guarantee, both learned the hard way and both now enforced rather than
+/// assumed. This class previously claimed arguments were simply "inert data", which was
+/// wrong on both counts:
+///
+/// 1. It only holds for real executables. CreateProcess rewrites a .bat or .cmd target into
+///    "cmd.exe /c ...", and cmd then re-parses the argument text, so an argument of
+///    "&amp;whoami" executes. Batch targets are therefore refused outright, and PATHEXT is
+///    ignored in favour of a fixed .exe/.com list.
+/// 2. It bounds which binary starts, not what that binary then does. Any interpreter takes
+///    code on its own argument vector (node -e, python -c, git -c alias.x='!...'), so
+///    listing one grants arbitrary code execution as the user. Interpreters are out of the
+///    default allowlist, and per-command argument patterns block the remaining escape
+///    hatches on the tools that stay.
 /// </summary>
-public sealed class CommandRunner(IReadOnlyCollection<string> allowedCommands)
+public sealed class CommandRunner
 {
     private const int MaxOutputChars = 20_000;
 
-    public IReadOnlyCollection<string> AllowedCommands { get; } = allowedCommands;
+    private readonly Dictionary<string, Regex[]> _deniedArguments;
+
+    public CommandRunner(
+        IReadOnlyCollection<string> allowedCommands,
+        IReadOnlyDictionary<string, List<string>>? deniedArguments = null)
+    {
+        AllowedCommands = allowedCommands;
+
+        _deniedArguments = (deniedArguments ?? new Dictionary<string, List<string>>())
+            .ToDictionary(
+                entry => entry.Key,
+                entry => entry.Value
+                    .Select(pattern => new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                    .ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IReadOnlyCollection<string> AllowedCommands { get; }
+
+    /// <summary>
+    /// Rejects arguments that would turn an allowlisted tool into an arbitrary-code runner,
+    /// such as <c>git -c alias.x='!sh -c ...'</c>. The allowlist bounds which binary starts;
+    /// this bounds what it is asked to do.
+    /// </summary>
+    public void EnsureArgumentsAllowed(string command, IReadOnlyList<string> arguments)
+    {
+        if (!_deniedArguments.TryGetValue(command, out var patterns)) { return; }
+
+        foreach (var argument in arguments)
+        {
+            var blocked = patterns.FirstOrDefault(p => p.IsMatch(argument));
+            if (blocked is not null)
+            {
+                throw new ArgumentException(
+                    $"Argument '{argument}' is refused for '{command}' by policy "
+                    + $"(deniedArguments pattern '{blocked}'). It would let the command run "
+                    + "code of its own choosing, which the allowlist cannot bound.");
+            }
+        }
+    }
 
     /// <summary>Resolves a bare command name to a real executable, or explains why not.</summary>
     public string Resolve(string command)
@@ -51,15 +103,45 @@ public sealed class CommandRunner(IReadOnlyCollection<string> allowedCommands)
 
         var resolved = FindOnPath(command)
             ?? throw new FileNotFoundException(
-                $"'{command}' is allowed by policy but was not found on PATH.");
+                $"'{command}' is allowed by policy but no .exe or .com for it was found on "
+                + "PATH. Batch shims (.cmd, .bat) are refused on purpose: Windows runs them "
+                + "through cmd.exe, which re-parses the arguments and would make injection "
+                + "possible. Point the allowlist at a real executable instead.");
+
+        // Belt and braces. Even if the search list were widened later, a batch target must
+        // never reach CreateProcess through this path.
+        var extension = Path.GetExtension(resolved);
+        if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to run '{resolved}': batch files are interpreted by cmd.exe, which "
+                + "would re-parse the argument list.");
+        }
 
         return resolved;
     }
 
+    /// <summary>
+    /// Executable extensions we are willing to launch.
+    ///
+    /// Deliberately excludes .bat and .cmd, and does NOT honour PATHEXT. CreateProcess
+    /// silently rewrites a batch target into "cmd.exe /c &lt;command line&gt;", so cmd re-parses
+    /// the argument text and the whole no-shell guarantee collapses: an argument of
+    /// "&amp;whoami" is appended unquoted by .NET's argument encoder, cmd sees the ampersand as
+    /// a command separator, and it runs. Verified on this machine, and it is the
+    /// CVE-2024-24576 class of bug, which .NET addressed with documentation rather than a
+    /// behaviour change.
+    ///
+    /// The practical cost is that .cmd shims are unreachable, which on Windows means npm and
+    /// npx. That is the correct trade: an allowlist that can be walked around is worse than a
+    /// smaller one that holds.
+    /// </summary>
+    private static readonly string[] LaunchableExtensions = [".EXE", ".COM"];
+
     private static string? FindOnPath(string command)
     {
-        var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT")
-            .Split(';', StringSplitOptions.RemoveEmptyEntries);
+        var extensions = LaunchableExtensions;
 
         foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
                  .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
@@ -88,6 +170,7 @@ public sealed class CommandRunner(IReadOnlyCollection<string> allowedCommands)
         int timeoutSeconds)
     {
         var executable = Resolve(command);
+        EnsureArgumentsAllowed(command, arguments);
 
         var info = new ProcessStartInfo
         {

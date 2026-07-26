@@ -32,6 +32,16 @@ public sealed class PolicyDocument
     /// </summary>
     public List<string> AllowedCommands { get; set; } = new();
 
+    /// <summary>
+    /// Argument patterns refused per command, keyed by bare command name. Regexes, matched
+    /// case-insensitively against each individual argument.
+    ///
+    /// Needed because an allowlist only bounds which binary starts, not what it will do once
+    /// started. Several otherwise reasonable tools take a "now run this" argument, so the
+    /// command name alone is not a sufficient boundary.
+    /// </summary>
+    public Dictionary<string, List<string>> DeniedArguments { get; set; } = new();
+
     public string? TrashPath { get; set; }
     public string? AuditPath { get; set; }
 }

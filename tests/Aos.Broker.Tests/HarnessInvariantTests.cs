@@ -92,7 +92,9 @@ public class HarnessInvariantTests
         cap.Throw = new InvalidOperationException("boom");
         var (broker, audit) = Build(cap);
 
-        await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id, commit: true));
+        // A throwing capability throws on the dry run too, so there is no plan to
+        // commit against. The point of the test is that the failure is audited.
+        await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id));
 
         Assert.Single(audit.Entries);
         Assert.Equal(OutcomeStatus.Failed, audit.Entries[0].Status);
@@ -109,6 +111,7 @@ public class HarnessInvariantTests
         var (broker, _) = Build(cap);
         broker.Halt();
 
+        await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id));   // show the plan
         var outcome = await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id, commit: true));
 
         Assert.Equal(OutcomeStatus.Denied, outcome.Status);
@@ -155,12 +158,14 @@ public class HarnessInvariantTests
             problem: "destination is empty");
         var (broker, audit) = Build(cap);
 
+        await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id));   // show the plan
         var outcome = await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id, commit: true));
 
         Assert.Equal(OutcomeStatus.AppliedButUnverified, outcome.Status);
         Assert.Contains("destination is empty", outcome.Message);
         Assert.Contains("Do not retry blindly", outcome.Message);
-        Assert.Equal(OutcomeStatus.AppliedButUnverified, audit.Entries[0].Status);
+        // Entry 0 is the plan; the commit is the most recent one.
+        Assert.Equal(OutcomeStatus.AppliedButUnverified, audit.Entries[^1].Status);
     }
 
     [Fact]
@@ -170,6 +175,7 @@ public class HarnessInvariantTests
             SpyCapability.ForTier(RiskTier.Write).Descriptor, problem: null);
         var (broker, _) = Build(cap);
 
+        await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id));   // show the plan
         var outcome = await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id, commit: true));
 
         Assert.Equal(OutcomeStatus.Succeeded, outcome.Status);
@@ -198,6 +204,7 @@ public class HarnessInvariantTests
             verifyThrows: new InvalidOperationException("verifier bug"));
         var (broker, _) = Build(cap);
 
+        await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id));   // show the plan
         var outcome = await broker.InvokeAsync(TestPolicy.Request(cap.Descriptor.Id, commit: true));
 
         Assert.Equal(OutcomeStatus.AppliedButUnverified, outcome.Status);
@@ -216,7 +223,9 @@ public sealed class VerifyingCapability(
 
     public Task<CapabilityOutcome> ExecuteAsync(
         CapabilityRequest request, bool dryRun, CancellationToken cancellationToken) =>
-        Task.FromResult(CapabilityOutcome.Ok(JsonValue.Create("applied")));
+        Task.FromResult(dryRun
+            ? CapabilityOutcome.Planned(JsonValue.Create("would apply"), "Dry run.")
+            : CapabilityOutcome.Ok(JsonValue.Create("applied")));
 
     public Task<string?> VerifyAsync(
         CapabilityRequest request, CapabilityOutcome outcome, CancellationToken cancellationToken)

@@ -84,31 +84,48 @@ function buildServers(): Record<string, McpServerConfig> {
  * Everything else, including the SDK's own Bash and Write, gets asked about, because
  * nothing of ours is standing behind those.
  */
-function makePermissionHandler(rl: ReturnType<typeof createInterface>): CanUseTool {
-  const alwaysAllow = new Set<string>();
+/**
+ * Built-in SDK tools that only read. Safe to allow without asking, and allowing them keeps
+ * the agent useful without handing it an ungated write path.
+ */
+const READ_ONLY_BUILTINS = new Set(['Read', 'Glob', 'Grep', 'TodoWrite', 'WebFetch', 'WebSearch']);
+
+/**
+ * Decides tool permissions without ever blocking on a prompt.
+ *
+ * An interactive question was the original design, but it deadlocks the moment the agent
+ * runs anywhere the user cannot answer: piped stdin, the tray window, a scheduled routine.
+ * A gate nobody can answer is a hang, not a safeguard.
+ *
+ * So the rule is decided up front. Our own capabilities are allowed because the broker
+ * already gates them, with risk tiers, the two-call handshake, and an audit entry per call.
+ * Read-only built-ins are allowed because they cannot change anything. Everything else is
+ * refused with a message telling the agent which gated capability to use instead, which
+ * keeps every mutation on this machine behind the broker rather than behind a prompt.
+ */
+function makePermissionHandler(allowedServers: readonly string[]): CanUseTool {
+  // Exact server names, not a prefix test. `toolName.startsWith('mcp__aos-')` was spoofable:
+  // any MCP server named aos-something would have produced matching tool names and won
+  // silent auto-approval with no broker behind it.
+  const gatedPrefixes = allowedServers.map((name) => `mcp__${name}__`);
 
   return async (toolName, input): Promise<PermissionResult> => {
-    if (toolName.startsWith('mcp__aos-')) {
+    if (gatedPrefixes.some((prefix) => toolName.startsWith(prefix))) {
       return { behavior: 'allow', updatedInput: input };
     }
 
-    if (alwaysAllow.has(toolName)) {
+    if (READ_ONLY_BUILTINS.has(toolName)) {
       return { behavior: 'allow', updatedInput: input };
     }
 
-    const summary = JSON.stringify(input).slice(0, 200);
-    console.log(`\n  permission needed: ${toolName}`);
-    console.log(`  input: ${summary}`);
-    const answer = (await rl.question('  allow? [y]es / [n]o / [a]lways: ')).trim().toLowerCase();
-
-    if (answer === 'a' || answer === 'always') {
-      alwaysAllow.add(toolName);
-      return { behavior: 'allow', updatedInput: input };
-    }
-
-    return answer === 'y' || answer === 'yes'
-      ? { behavior: 'allow', updatedInput: input }
-      : { behavior: 'deny', message: 'The user declined this tool call.' };
+    return {
+      behavior: 'deny',
+      message:
+        `${toolName} is not available in AgenticOS. Only the aos capability servers may ` +
+        'change anything on this machine, because they are the ones behind the safety ' +
+        'broker. Use the equivalent aos tool: files_move or files_trash for filesystem ' +
+        'changes, shell_run for commands, ui_invoke or window_focus for the desktop.',
+    };
   };
 }
 
@@ -180,8 +197,17 @@ async function main(): Promise<number> {
       mcpServers: servers,
       systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM_APPEND },
       permissionMode: 'default',
-      canUseTool: makePermissionHandler(rl),
+      canUseTool: makePermissionHandler(Object.keys(servers)),
       cwd: process.cwd(),
+      // Only the servers passed above. Without this the SDK also loads project .mcp.json,
+      // user settings and plugins, which had two consequences: every server started twice
+      // (our .mcp.json names the same three), and a stray .mcp.json in the working directory
+      // could introduce servers this app never vetted.
+      strictMcpConfig: true,
+      // No filesystem settings either. Loaded settings carry permissions.allow rules that
+      // short-circuit ahead of canUseTool, so leaving them on would let an on-disk file
+      // quietly widen what the agent may do.
+      settingSources: [],
     },
   });
 
@@ -217,10 +243,14 @@ async function main(): Promise<number> {
     }
   } catch (error) {
     console.error('\nSession ended:', error instanceof Error ? error.message : error);
+  } finally {
+    // Closing the interface here rejects the reader's pending question and lets it finish.
+    // Without it, a session error left the process sitting at a live prompt with a dead
+    // session, queueing input nobody would ever drain.
+    rl.close();
   }
 
-  await reader;
-  rl.close();
+  await reader.catch(() => { /* the reader's own failure must not mask a session error */ });
   return 0;
 }
 
