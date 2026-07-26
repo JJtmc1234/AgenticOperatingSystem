@@ -3,11 +3,23 @@
 Idea broken into executable chunks. Effort assumes part time solo work. Dates are targets,
 not commitments.
 
-## principle that orders the phases
+## principles that order the phases
 
 Build every capability as an idempotent provisioning module, install it on the live
 machine, use it daily. The custom image consumes those modules at the end. This is why
 phase 6 is cheap and why value arrives in phase 1.
+
+This is a harness, so it is built to harness engineering rules. See the framing section in
+[infrastructure.md](infrastructure.md) for the full mapping. Two rules change the plan.
+
+The model never calls a tool directly. Every call goes through the broker, which validates,
+checks permissions, executes, and injects the result back. Already true, and it is why the
+foundation phases came first.
+
+Any time the agent makes a mistake, engineer a solution so it can never make that mistake
+again. A bug is not finished when it is fixed, it is finished when a permanent guard exists
+that would have caught it. This promoted verification from absent to first class, since it
+is the primitive that turns a demo into something trustworthy.
 
 ## phases
 
@@ -15,6 +27,7 @@ phase 6 is cheap and why value arrives in phase 1.
 |---|---|---|---|
 | 0 | foundation, contracts, provisioning runner | 1 session | done |
 | 1 | capability broker and four MCP servers | 1 to 2 weeks | in progress |
+| 1v | verification: post-conditions and harness invariants | 2 days | done |
 | 2 | TypeScript orchestrator, routines, memory | 1 to 2 weeks | not started |
 | 3 | heads up display, hotkey, tray, approvals | 1 week | not started |
 | 4 | sensors and proactivity as a Windows service | 1 to 2 weeks | not started |
@@ -44,6 +57,22 @@ Broker first, then the servers on top of it.
 Done when a request like "find every PDF I touched this week and file them by project"
 works from Claude Code, with the audit log showing each gated call. Also triaging tomorrow
 calendar and drafting replies to unread mail.
+
+## phase 1v, verification
+
+Two mechanisms, both borrowed from what already worked in provisioning.
+
+Post-condition checks. A mutating capability confirms the world looks the way it claimed
+after a committed change, exactly as the provisioning runner re-tests a step after setting
+it. A failed check reports `AppliedButUnverified` rather than `Failed`, because a failure
+reads as nothing happened and invites a retry that applies the change twice.
+
+Harness invariants. A suite asserts properties for every capability that will ever be
+written rather than for the ones that exist now: a dry run never commits, `System` and
+above always require a commit, every call writes exactly one audit entry, secrets are always
+redacted, the kill switch stops every tier.
+
+Done when both hold and the invariant suite fails if a new capability breaks a guarantee.
 
 ## phase 2, orchestrator
 

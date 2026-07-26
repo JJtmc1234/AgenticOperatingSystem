@@ -68,7 +68,8 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
             "Move or rename a file or folder. Both source and destination must be inside an "
             + "allowed root. Never overwrites an existing destination.",
             PlanMove,
-            Move);
+            Move,
+            verify: VerifyMove);
 
         yield return Set.Mutating(
             "aos-files/file.trash",
@@ -79,14 +80,70 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
             Trash,
             // A VSS shadow copy adds nothing here: the trash store is itself the undo
             // mechanism, and the original is preserved rather than destroyed.
-            snapshot: false);
+            snapshot: false,
+            verify: VerifyTrash);
 
         yield return Set.Mutating(
             "aos-files/trash.restore",
             RiskTier.Write,
             "Restore a staged-trash entry to where it came from, by its id from trash.list.",
             args => $"Restore trash entry '{args.RequireString("id")}' to its original path.",
-            RestoreTrash);
+            RestoreTrash,
+            verify: VerifyRestore);
+    }
+
+    // --- post-condition checks -------------------------------------------------------
+    // Each confirms the world actually looks the way the mutation claimed. A returned
+    // message becomes AppliedButUnverified rather than Failed, since the change did land.
+
+    private static string? VerifyMove(JsonObject args, JsonNode? result)
+    {
+        var destination = result?["destination"]?.GetValue<string>();
+        if (destination is null) { return "Result carried no destination path."; }
+
+        var source = result["source"]!.GetValue<string>();
+        var arrived = File.Exists(destination) || Directory.Exists(destination);
+        var departed = !File.Exists(source) && !Directory.Exists(source);
+
+        if (!arrived) { return $"Nothing is present at the destination '{destination}'."; }
+        if (!departed) { return $"The source '{source}' still exists, so this was a copy."; }
+
+        return null;
+    }
+
+    private string? VerifyTrash(JsonObject args, JsonNode? result)
+    {
+        var id = result?["id"]?.GetValue<string>();
+        if (id is null) { return "Result carried no trash id."; }
+
+        var original = result["originalPath"]!.GetValue<string>();
+        if (File.Exists(original) || Directory.Exists(original))
+        {
+            return $"'{original}' still exists, so it was not moved out of the way.";
+        }
+
+        // The point of staged trash is that the item is recoverable. If the manifest entry
+        // or the stored copy is missing then it was effectively a real delete, which is the
+        // one thing this capability promises never to do.
+        var entry = trash.List().LastOrDefault(e => e.Id == id);
+        if (entry is null) { return $"No manifest entry was written for id '{id}'."; }
+        if (!entry.StillStored)
+        {
+            return $"Manifest entry '{id}' exists but the stored copy is missing, so the "
+                + "item is not recoverable.";
+        }
+
+        return null;
+    }
+
+    private static string? VerifyRestore(JsonObject args, JsonNode? result)
+    {
+        var restoredTo = result?["restoredTo"]?.GetValue<string>();
+        if (restoredTo is null) { return "Result carried no restored path."; }
+
+        return File.Exists(restoredTo) || Directory.Exists(restoredTo)
+            ? null
+            : $"Nothing is present at '{restoredTo}' after the restore.";
     }
 
     // --- reads -----------------------------------------------------------------------

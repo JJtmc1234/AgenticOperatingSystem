@@ -31,6 +31,15 @@ public enum OutcomeStatus
 
     /// <summary>Reached the capability and threw.</summary>
     Failed = 3,
+
+    /// <summary>
+    /// The change was applied, but its post-condition check did not pass, so the harness
+    /// cannot confirm the world looks the way the capability claimed it would.
+    ///
+    /// Deliberately distinct from <see cref="Failed"/>. Reporting a failure here would read
+    /// as "nothing happened" and invite a retry that applies the change a second time.
+    /// </summary>
+    AppliedButUnverified = 4,
 }
 
 public sealed record CapabilityOutcome(
@@ -42,6 +51,31 @@ public sealed record CapabilityOutcome(
     public static CapabilityOutcome Planned(JsonNode? plan, string message) => new(OutcomeStatus.DryRun, plan, message);
     public static CapabilityOutcome Denied(string message) => new(OutcomeStatus.Denied, null, message);
     public static CapabilityOutcome Failed(string message) => new(OutcomeStatus.Failed, null, message);
+
+    public static CapabilityOutcome Unverified(JsonNode? payload, string message) =>
+        new(OutcomeStatus.AppliedButUnverified, payload, message);
+}
+
+/// <summary>
+/// A capability that can confirm its own effect after a committed change.
+///
+/// This is the provisioning runner's converge check applied to capabilities: it re-tests
+/// the desired state after acting rather than trusting that acting worked. That check
+/// caught a real bug in provisioning, which is the argument for having it here.
+/// </summary>
+public interface IVerifiableCapability
+{
+    /// <summary>
+    /// Runs after a committed, successful execution. Return null when the post-condition
+    /// holds, or a message explaining what does not look right.
+    ///
+    /// Must not mutate anything, and must not throw. A thrown exception is treated as a
+    /// failed verification.
+    /// </summary>
+    Task<string?> VerifyAsync(
+        CapabilityRequest request,
+        CapabilityOutcome outcome,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>

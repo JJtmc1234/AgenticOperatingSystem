@@ -2,6 +2,73 @@
 
 Holistic view of the system. Components, how they talk, and what moves between them.
 
+## framing: this is a harness
+
+AgenticOS is an agent harness in the harness engineering sense. The model reasons, the
+harness acts, and the harness is what decides whether the thing is reliable. The central
+tenet is already the shape of this codebase: the model never calls a tool directly. It
+emits a structured call, and the harness validates the schema, checks permissions,
+executes, and injects the result back. That is `CapabilityBroker`.
+
+Mapping the twelve harness primitives against what exists tells us honestly where we are.
+
+| primitive | state | where |
+|---|---|---|
+| tool design | done | one MCP tool per capability, typed schemas, explicit truncation flags |
+| skills and MCP | done | three stdio servers, reused by Claude Code and Claude Desktop |
+| permissions and authorization | done | risk tiers, allowed roots, command allowlist, all structured rather than prose |
+| human in the loop | done | plan then commit handshake, kill switch |
+| observability and tracing | done | append only JSONL, one entry per call including denials |
+| verification | partial | post-condition checks on mutations, harness invariant suite |
+| debugging and developer experience | partial | audit log, capability introspection tool |
+| agent loop | missing | phase 2 |
+| planning and task decomposition | missing | phase 2 |
+| context delivery and compaction | missing | phase 2 |
+| memory and state | missing | phase 2 |
+| orchestration | missing | phase 2 |
+
+The five that are done are the foundation ones, which is the right order. The gaps cluster
+almost entirely in phase 2, with one exception. Verification was absent from the original
+plan and is now first class, because it is the primitive that turns a demo into something
+trustworthy.
+
+### the rule we now build to
+
+Mitchell Hashimoto's definition is the operating principle: any time the agent makes a
+mistake, engineer a solution so it can never make that mistake again. Applied here, a bug
+is not finished when it is fixed. It is finished when a permanent guard exists that would
+have caught it.
+
+Every bug found so far has been converted this way, which is why the list is worth keeping
+in [progress-report.md](progress-report.md) rather than just in git history.
+
+| mistake found | permanent guard now in place |
+|---|---|
+| int argument unreadable as long | `JsonArgs` coercion plus regression tests on both call paths |
+| installed policy silently stale | module 20 syncs on hash, not on existence |
+| server published under the wrong name | converge check in the provisioning runner |
+| child process inherited the protocol pipe | stdin redirected and closed in `CommandRunner` |
+| unbounded wait hung past the timeout | bounded drain wait |
+| provisioning closure scoping | authoring rule documented at the runner top |
+
+### verification, concretely
+
+Two mechanisms, both borrowed from what already worked.
+
+First, post-condition checks. The provisioning runner re-runs a step's `Test` after its
+`Set` and fails when the state did not actually converge. That caught a real bug. Mutating
+capabilities now do the same: after a committed change, the capability confirms the world
+looks the way it claimed it would.
+
+A failed check does not report `Failed`, because that would read as "nothing happened" and
+invite a blind retry that applies the change twice. It reports `AppliedButUnverified`,
+which tells the agent the mutation landed and the result needs checking by a human.
+
+Second, harness invariants. A test suite asserts properties that must hold for every
+capability that will ever be written, rather than for the ones that exist today. A dry run
+never mutates. `System` and above always require a commit. Every call writes exactly one
+audit entry. New capabilities are held to these without anyone remembering to add a test.
+
 ## component map
 
 ```

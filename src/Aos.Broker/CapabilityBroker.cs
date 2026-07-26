@@ -162,6 +162,35 @@ public sealed class CapabilityBroker
                 outcome.Message ?? "Dry run: nothing changed. Re-invoke with commit=true to apply.");
         }
 
+        // Post-condition check. Only meaningful after a committed change actually succeeded.
+        if (!dryRun
+            && outcome.Status == OutcomeStatus.Succeeded
+            && capability is IVerifiableCapability verifiable)
+        {
+            string? problem;
+            try
+            {
+                problem = await verifiable
+                    .VerifyAsync(request, outcome, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                problem = $"Verification threw {ex.GetType().Name}: {ex.Message}";
+            }
+
+            if (problem is not null)
+            {
+                outcome = CapabilityOutcome.Unverified(
+                    outcome.Payload,
+                    $"The change was applied but could not be verified: {problem} "
+                    + "Do not retry blindly, since the change may already be in effect.");
+            }
+        }
+
         return await FinishAsync(
             descriptor, request, correlationId, decision.Verdict, dryRun,
             outcome, snapshotId, stopwatch, cancellationToken).ConfigureAwait(false);

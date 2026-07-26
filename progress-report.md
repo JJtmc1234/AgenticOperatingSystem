@@ -1,71 +1,87 @@
 # progress report
 
-Where the plan stands. Updated 2026 07 25.
+Where the plan stands. Updated 2026 07 26.
 
 ## summary
 
-Phase 0 complete. Phase 1 is roughly one third done. Three commits. On schedule.
+Phase 0 complete. Three of four phase 1 servers done. Verification added as a new phase and
+complete. Published to GitHub as a private repo.
 
 | phase | target | status | note |
 |---|---|---|---|
 | 0 | 1 session | done | both acceptance criteria verified |
-| 1 | 1 to 2 weeks | in progress | broker plus 1 of 4 servers |
+| 1 | 1 to 2 weeks | in progress | 3 of 4 servers, aos-apps blocked on Google credentials |
+| 1v | 2 days | done | post-conditions and harness invariants |
 | 2 to 7 | see planning.md | not started | |
+
+## reframe
+
+The project is now built to harness engineering rules, which the framing section in
+[infrastructure.md](infrastructure.md) maps out. This was a refinement rather than a
+rewrite, because the central tenet, that the model never calls a tool directly and the
+harness validates and executes on its behalf, was already the shape of the codebase.
+
+Five of the twelve harness primitives are done and they are the foundation ones. The gaps
+sit almost entirely in phase 2, with verification the one genuine omission, now closed.
 
 ## what is verified working
 
-`aos-windows` is published to `%LOCALAPPDATA%\AgenticOS\bin` and registered in Claude Code
-through `.mcp.json` and in Claude Desktop through provisioning module 30. Nine tools over
-eight brokered capabilities.
+Three servers published to `%LOCALAPPDATA%\AgenticOS\bin` and registered in Claude Code
+through `.mcp.json` and in Claude Desktop through provisioning module 30.
 
-Verified against a live server over real JSON RPC on stdio, not mocks.
+| server | tools | exercised against |
+|---|---|---|
+| aos-windows | 9 | real windows, real control trees, a real process kill |
+| aos-files | 9 | real Downloads contents, 172 files scanned by grep |
+| aos-shell | 3 | real git commands, four refused boundary attempts |
+
+Checks that passed on live servers over real JSON RPC, not mocks.
 
 | check | result |
 |---|---|
-| `window_list` | returned the real editor window with correct handle and pid |
-| `ui_tree` | walked the real control tree with ref paths and per element actions |
-| `screen_capture` | wrote a 2.3 MB PNG |
-| System tier kill | dry run named the process and left it alive, commit killed it |
-| audit log | both calls recorded with arguments and reason |
-| test suite | 63 passing |
-| provisioning | 14 ok, 0 changed on re apply |
+| window and control tree reads | correct handles, pids, ref paths |
+| System tier process kill | dry run left it alive, commit killed it |
+| trash and restore round trip | file gone, then back, contents intact |
+| allowed root boundary | System32 refused, message names the roots |
+| shell allowlist | unlisted exe, path form, and bad working directory all refused |
+| shell injection | a chained command passed as an argument stayed literal text |
+| post-condition checks | move, trash, and restore all report verified success |
+| test suite | 98 passing |
+| provisioning | 15 ok, 0 changed on re apply |
 
 ## deadlines
 
-Phase 1 is on track. No dates need to change yet.
+Phase 1 is on track. `aos-apps` needs a Google Cloud OAuth client, which only the account
+owner can create, so it is the one item that cannot be finished unattended.
 
-Phase 6 has an unfunded prerequisite. The Windows ADK is not installed, and Windows 11 Home
-has no Hyper V, so a third party virtual machine host is needed. Neither blocks phases 1
-through 5, but both should be set up before phase 6 starts so the estimate holds.
+Phase 6 prerequisites are half met. VMware Workstation is installed. Windows Hypervisor
+Platform still needs enabling from an elevated shell, because WSL2 and Docker already hold
+the hypervisor. The Windows ADK is still not installed. None of this blocks phases 1 to 5.
 
-## what was learned
+## mistakes and their permanent guards
 
-Two real bugs, both found by driving the live server rather than trusting unit tests.
+The harness rule is that a bug is finished when a guard exists that would have caught it.
 
-1. `JsonValue.GetValue<long>()` requires an exact type match for nodes built in process, so
-   a value constructed from an `int` throws, while the same argument arriving over the wire
-   is JsonElement backed and converts freely. This would have broken every `int` typed tool
-   parameter. Coercion now lives in `Aos.Core.JsonArgs`, shared by all servers, with
-   regression tests for both paths.
-2. A scoping conflict in provisioning. `GetNewClosure` fixes variable capture but snapshots
-   the module scope, so runner scope functions stop resolving inside closures. Shared
-   helpers are now global and removed on exit. Both rules are documented at the top of
-   `Install-Aos.ps1`, because getting either wrong fails at step execution time rather than
-   parse time.
+| mistake | permanent guard |
+|---|---|
+| int argument unreadable as long | `JsonArgs` coercion, regression tests on both call paths |
+| installed policy silently stale | module 20 syncs on hash rather than existence |
+| server published under the wrong name | converge check in the provisioning runner |
+| child inherited the MCP protocol pipe | stdin redirected and closed in `CommandRunner` |
+| unbounded wait hung past the timeout | bounded drain wait |
+| provisioning closure scoping | authoring rule at the top of the runner |
+| user name in test data | pre publish scan, now part of the release routine |
 
-One flawed verification, caught and redone. The first process kill test used
-`Start-Process notepad`, which returns a stub process id on Windows 11 because Notepad is a
-Store application, and the liveness check reported alive for a process that did not exist.
-Redone with a process under full control.
+Two were found only by driving the live server, and both passed every unit test while
+broken. That is the argument for JJtorio issue 6 in one line.
 
-One design call worth repeating. `process.stop` opts out of the restore point requirement
-with a stated reason, because a shadow copy cannot un kill a process and demanding one would
-block the capability for no safety gain. The commit handshake still applies. Future
-capabilities should opt out with a reason rather than weakening the tier.
+One verification of mine was itself flawed and had to be redone. The first process kill test
+used `Start-Process notepad`, which returns a stub process id on Windows 11 because Notepad
+is a Store application, and the liveness check reported alive for a process that never
+existed. It would have passed while proving nothing.
 
 ## next
 
-1. `aos-files`. Content search, USN journal recent activity, safe organize into staged
-   trash. This is the server that makes filing work.
-2. `aos-apps`. Gmail and Google Calendar over OAuth2.
-3. `aos-shell`. Policy gated PowerShell, with raw shell staying denied.
+1. `aos-apps`. Gmail and Google Calendar over OAuth2. Needs a Google Cloud client id.
+2. Phase 2 orchestrator, which is where the remaining harness primitives live: the agent
+   loop, planning, context compaction, memory, and orchestration.
