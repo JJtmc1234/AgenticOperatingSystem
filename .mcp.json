@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "aos-windows": {
+      "command": "${LOCALAPPDATA}\\AgenticOS\\bin\\aos-mcp-windows.exe",
+      "args": []
+    }
+  }
+}

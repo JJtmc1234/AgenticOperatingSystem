@@ -35,16 +35,21 @@ $ErrorActionPreference = 'Stop'
 # Set:  scriptblock that establishes it. Never called when Test is already $true.
 #
 # MODULE AUTHORING RULE
-# Steps are collected from a module, then invoked after that module's script scope is
-# already gone. A scriptblock does not keep its defining scope alive, so any module-local
-# variable a step references MUST be captured with .GetNewClosure() at build time:
+# Steps are collected from a module, then invoked after that module's script scope is gone.
+# A scriptblock does not keep its defining scope alive, so any module-local variable a step
+# references MUST be captured with .GetNewClosure() at build time:
 #
 #     $p = $path
 #     New-AosStep -Name '...' -Test { Test-Path $p }.GetNewClosure()
 #
-# Shared helper *functions* need no closure -- they resolve against this runner's scope at
-# invocation time, which is why they live here rather than in individual modules.
-function New-AosStep {
+# The catch: GetNewClosure snapshots the module scope, and that closed-over scope chain does
+# not reach this runner's script scope. So a helper *function* called from inside a closure
+# would not resolve either. Helpers are therefore defined in the global scope, which is
+# visible from every scope including closures. They are removed again on exit.
+$script:AosHelpers = @(
+    'New-AosStep', 'Get-AosPath', 'Test-AosCommand', 'Test-AosProperty', 'Test-AosAdmin')
+
+function global:New-AosStep {
     param(
         [Parameter(Mandatory)][string]        $Name,
         [Parameter(Mandatory)][scriptblock]   $Test,
@@ -59,17 +64,28 @@ function New-AosStep {
     }
 }
 
-function Get-AosPath {
+function global:Get-AosPath {
     param([Parameter(Mandatory)][string] $Path)
     [Environment]::ExpandEnvironmentVariables($Path)
 }
 
-function Test-AosCommand {
+function global:Test-AosCommand {
     param([Parameter(Mandatory)][string] $Name)
     [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-function Test-AosAdmin {
+# Null-safe property probe. $obj.PSObject.Properties.Name returns $null for an object with
+# no properties, so calling .Contains() on it throws.
+function global:Test-AosProperty {
+    param(
+        [Parameter(Mandatory)] $InputObject,
+        [Parameter(Mandatory)][string] $Name
+    )
+    if ($null -eq $InputObject) { return $false }
+    $null -ne $InputObject.PSObject.Properties[$Name]
+}
+
+function global:Test-AosAdmin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     (New-Object Security.Principal.WindowsPrincipal $id).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -161,6 +177,15 @@ Write-Host ("-- ok {0}  changed {1}  would {2}  skipped {3}  failed {4}" -f `
 
 if (-not $isAdmin -and $tally.Skipped -gt 0) {
     Write-Host "   Re-run elevated to apply the skipped steps." -ForegroundColor DarkYellow
+}
+
+# Do not leave the global helpers behind in an interactive session. The Function: drive is
+# session-wide, so "Function:\Name" is the path that actually removes a global function --
+# "function:global:Name" is not a valid provider path and fails silently.
+foreach ($helper in $script:AosHelpers) {
+    if (Test-Path -LiteralPath "Function:\$helper") {
+        Remove-Item -LiteralPath "Function:\$helper" -Force
+    }
 }
 
 if ($tally.Failed -gt 0) { exit 1 }
