@@ -50,6 +50,7 @@ in [progress-report.md](progress-report.md) rather than just in git history.
 | child process inherited the protocol pipe | stdin redirected and closed in `CommandRunner` |
 | unbounded wait hung past the timeout | bounded drain wait |
 | provisioning closure scoping | authoring rule documented at the runner top |
+| stale exe against a newer shared DLL | staleness is now solution wide, plus a per server smoke test |
 
 ### verification, concretely
 

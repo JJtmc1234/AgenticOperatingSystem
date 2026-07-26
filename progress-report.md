@@ -71,6 +71,8 @@ The harness rule is that a bug is finished when a guard exists that would have c
 | unbounded wait hung past the timeout | bounded drain wait |
 | provisioning closure scoping | authoring rule at the top of the runner |
 | user name in test data | pre publish scan, now part of the release routine |
+| stale exe against a newer shared DLL | staleness is solution wide, plus a smoke test per server |
+| agent app hung on piped stdin | readline EOF ends the loop rather than being swallowed |
 
 Two were found only by driving the live server, and both passed every unit test while
 broken. That is the argument for JJtorio issue 6 in one line.

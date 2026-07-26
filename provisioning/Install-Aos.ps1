@@ -47,7 +47,9 @@ $ErrorActionPreference = 'Stop'
 # would not resolve either. Helpers are therefore defined in the global scope, which is
 # visible from every scope including closures. They are removed again on exit.
 $script:AosHelpers = @(
-    'New-AosStep', 'Get-AosPath', 'Test-AosCommand', 'Test-AosProperty', 'Test-AosAdmin')
+    'New-AosStep', 'Get-AosPath', 'Test-AosCommand', 'Test-AosProperty', 'Test-AosAdmin',
+    # Defined by modules rather than here, but still global and still worth cleaning up.
+    'Get-AosNewestSourceUtc')
 
 function global:New-AosStep {
     param(
