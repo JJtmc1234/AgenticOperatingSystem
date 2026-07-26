@@ -22,7 +22,12 @@
     <Nullable>enable</Nullable>
     <AssemblyName>aos-mcp-windows</AssemblyName>
     <RootNamespace>Aos.Mcp.Windows</RootNamespace>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Precompiled to native code at publish time. These are short-lived stdio processes
+         spawned per agent session, so JIT warm-up is paid on every launch and never
+         amortized. ReadyToRun trades a larger bin directory for a faster cold start. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
 </Project>

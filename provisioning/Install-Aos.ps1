@@ -46,10 +46,19 @@ $ErrorActionPreference = 'Stop'
 # not reach this runner's script scope. So a helper *function* called from inside a closure
 # would not resolve either. Helpers are therefore defined in the global scope, which is
 # visible from every scope including closures. They are removed again on exit.
+#
+# Second catch, subtler: GetNewClosure captures only variables that exist in the module's
+# OWN scope. $RepoRoot and $AosRoot are inherited from here, so a closure that reads either
+# one directly captures nothing and sees $null at execution time. Using them at module load
+# time works fine (that is a normal dynamic lookup), which is what makes the failure look
+# arbitrary. Copy what a closure needs into a module-local first:
+#
+#     $repoRoot = $RepoRoot
+#     New-AosStep -Name '...' -Test { Use-It $repoRoot }.GetNewClosure()
 $script:AosHelpers = @(
     'New-AosStep', 'Get-AosPath', 'Test-AosCommand', 'Test-AosProperty', 'Test-AosAdmin',
     # Defined by modules rather than here, but still global and still worth cleaning up.
-    'Get-AosNewestSourceUtc')
+    'Get-AosNewestSourceUtc', 'Test-AosHotkeyMatch')
 
 function global:New-AosStep {
     param(

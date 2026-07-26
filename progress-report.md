@@ -35,6 +35,21 @@ through `.mcp.json` and in Claude Desktop through provisioning module 30.
 | aos-files | 9 | real Downloads contents, 172 files scanned by grep |
 | aos-shell | 3 | real git commands, four refused boundary attempts |
 
+An agent app ships as `aos.cmd`, built on the Claude Agent SDK against those servers over
+stdio. Verified end to end: it listed the real open windows with correct focus in 7.9
+seconds. `Ctrl+Alt+A` launches it from anywhere, through a Start Menu shortcut hotkey.
+
+ReadyToRun cut server cold start, most sharply for the one that loads WPF.
+
+| server | before | after |
+|---|---|---|
+| aos-windows | 2637 ms | 864 ms |
+| aos-shell | 1559 ms | 891 ms |
+| aos-files | 1348 ms | 1196 ms |
+
+The before figures were single runs and the after figures are best of three, so treat the
+direction as solid and the exact numbers as indicative. Cost is a 11.7 MB bin directory.
+
 Checks that passed on live servers over real JSON RPC, not mocks.
 
 | check | result |
@@ -73,6 +88,8 @@ The harness rule is that a bug is finished when a guard exists that would have c
 | user name in test data | pre publish scan, now part of the release routine |
 | stale exe against a newer shared DLL | staleness is solution wide, plus a smoke test per server |
 | agent app hung on piped stdin | readline EOF ends the loop rather than being swallowed |
+| closure read an inherited variable and saw null | authoring rule now names the inherited case, not just the module local one |
+| shortcut hotkey compared by spelling | compared by normalised parts, since Windows rewrites the string |
 
 Two were found only by driving the live server, and both passed every unit test while
 broken. That is the argument for JJtorio issue 6 in one line.

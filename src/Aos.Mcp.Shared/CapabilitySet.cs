@@ -24,6 +24,34 @@ public sealed class CapabilitySet(string serverName)
     /// Override the tier default for requiring a restore point. Pass false only where a
     /// shadow copy could not undo the action anyway, and say why at the call site.
     /// </param>
+    /// <summary>
+    /// Async read tier, for capabilities backed by network calls. Blocking on a task inside
+    /// a stdio server would stall the whole protocol stream, so anything doing I/O over the
+    /// wire uses this rather than <see cref="Read"/>.
+    /// </summary>
+    public ICapability ReadAsync(
+        string id, string description, Func<JsonObject, CancellationToken, Task<JsonNode?>> handler) =>
+        new DelegateCapability(
+            new CapabilityDescriptor(id, serverName, RiskTier.Read, description),
+            async (args, _, cancellationToken) =>
+                CapabilityOutcome.Ok(await handler(args, cancellationToken).ConfigureAwait(false)));
+
+    /// <summary>Async mutating capability. Same plan-then-commit contract as <see cref="Mutating"/>.</summary>
+    public ICapability MutatingAsync(
+        string id,
+        RiskTier tier,
+        string description,
+        Func<JsonObject, CancellationToken, Task<string>> plan,
+        Func<JsonObject, CancellationToken, Task<JsonNode?>> apply,
+        bool? snapshot = null) =>
+        new DelegateCapability(
+            new CapabilityDescriptor(id, serverName, tier, description, snapshot),
+            async (args, dryRun, cancellationToken) => dryRun
+                ? CapabilityOutcome.Planned(
+                    JsonValue.Create(await plan(args, cancellationToken).ConfigureAwait(false)),
+                    "Dry run: nothing changed. Re-invoke with commit=true to apply.")
+                : CapabilityOutcome.Ok(await apply(args, cancellationToken).ConfigureAwait(false)));
+
     /// <param name="verify">
     /// Post-condition check, run only after a committed change succeeded. Return null when
     /// the world looks right, or a message describing what does not. Supply this wherever a
