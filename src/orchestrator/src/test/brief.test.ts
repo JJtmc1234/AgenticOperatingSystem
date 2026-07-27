@@ -97,5 +97,9 @@ test('the downloads section states what could be reclaimed and promises no delet
 
   assert.match(rendered, /135 files/);
   assert.match(rendered, /9394 MB in old clutter/);
-  assert.match(rendered, /Nothing is deleted, only staged/);
+  // The no-deletion promise has to survive rewording. A brief that reports clutter without
+  // saying the remedy is reversible is one a person will not act on.
+  assert.match(rendered, /nothing is ever permanently deleted/i);
+  // And it must name the routine that acts, or the report is a dead end.
+  assert.match(rendered, /aos tidy-downloads/);
 });

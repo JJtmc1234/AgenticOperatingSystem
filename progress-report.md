@@ -70,12 +70,25 @@ Checks that passed on live servers over real JSON RPC, not mocks.
 | a wrong `expectName` on a real process kill | refused at commit, Notepad still running afterwards |
 | the same kill with the right name | plan, then commit, then the pid is genuinely gone |
 | the daily brief, end to end | real repos, real issues, real Downloads, 9.8 seconds |
-| test suite | 156 C# and 11 TypeScript passing |
+| tidy downloads, dry run | 90 of 135 files, 42 to trash, 6 GB, on real Downloads |
+| tidy downloads, commit | real files trashed and filed, names and extensions intact |
+| staged trash round trip | a trashed installer restored byte for byte to where it came from |
+| test suite | 156 C# and 21 TypeScript passing |
 | provisioning | 30 ok, 0 changed on re apply |
 
 The brief is the first part of this that pays for itself without being asked. This morning it
 found 22 uncommitted files in one project, six branches with no upstream at all, a repo with
 real work and no commits in it, and 14 GB of Downloads clutter going back 563 days.
+
+`aos tidy-downloads` is the first part that acts. It reports 42 spent installers and archives
+worth 6 GB, and files 48 keepers by kind. It refuses to touch folders, partial downloads, or
+anything it does not recognise, and it leaves the 9.4 GB Factorio archive alone because at 46
+days it is under the threshold. Nothing runs without `--commit`, and everything it trashes
+comes back with one call.
+
+The commit path was proved against a scratch folder of backdated fixtures, not against real
+Downloads. That was the point: the first run had a bug that renamed files, and finding that
+out on 90 of your own files would have been a poor way to learn it.
 
 ## deadlines
 
@@ -136,6 +149,8 @@ The harness rule is that a bug is finished when a guard exists that would have c
 | a recycled pid could redirect a kill | optional `expectName`, and the plan says what to pass |
 | the TypeScript side had no tests at all | `node --test`, run by the converge, no new dependency |
 | a query that was never meaningful read as a failure | repos with no commits skip the upstream check |
+| a move renamed files and reported success | the caller checks the name, since the broker cannot |
+| the brief named a command the launcher did not have | `aos.cmd` dispatches routines, and a test asserts the pointer |
 
 The middle fourteen came from a deep quality check by three parallel review agents pointed at
 the broker, the servers, and the provisioning and TypeScript code. Several invalidated claims
@@ -167,7 +182,20 @@ can never match, and my first attempt at testing the pid guard only ever reached
 refusal. Testing a mutating capability one call per process proves nothing about the
 capability.
 
-The worst find in this round was a guard that could not fire. `UiaSurface` read `expectName`
+The newest routine had a bug on its very first commit run, and it is a good illustration of
+why a post-condition in the broker is not the same as a post-condition in the caller.
+`files_move` moves an item into a destination only when that destination is an existing
+folder; otherwise the destination becomes the item's new path. Passing the bare bucket folder
+therefore turned `report.pdf` into a file named `documents` with no extension, and the broker's
+own check passed, because it asks whether something arrived at the destination and something
+had. Only the caller knew the file was supposed to keep its name. The guard now lives there,
+and it refuses the move rather than reporting a rename as a success.
+
+Had that run against the real Downloads folder instead of a scratch folder of backdated
+fixtures, it would have mangled the first document of each kind and failed the other 46 on
+collision, all under the heading "applied cleanly".
+
+The worst find in the previous round was a guard that could not fire. `UiaSurface` read `expectName`
 and `expectAutomationId`, the comment explained exactly which attack they stopped, and no tool
 method exposed either parameter, so nothing could ever supply one. The code read as protected
 and was not. The permanent guard is a test that reflects over the real tool signatures, and it
@@ -175,6 +203,9 @@ immediately caught a second case I had missed while writing it.
 
 ## next
 
-1. `aos-apps`. Gmail and Google Calendar over OAuth2. Needs a Google Cloud client id.
-2. Phase 2 orchestrator, which is where the remaining harness primitives live: the agent
-   loop, planning, context compaction, memory, and orchestration.
+1. Decide whether to run `aos tidy-downloads --commit` on the real Downloads folder. It is
+   staged and reversible, but it moves 90 files, so it waits for a yes.
+2. `aos-apps`. Gmail and Google Calendar over OAuth2. Needs a Google Cloud client id.
+3. The six JJtorio employee branches with no upstream. The brief flags them every morning and
+   nothing yet pushes them, which is the next routine worth writing.
+4. Phase 2 proper: memory, model routing, and a scheduler for more than one routine.

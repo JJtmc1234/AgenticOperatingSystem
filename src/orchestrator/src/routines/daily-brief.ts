@@ -187,7 +187,15 @@ export function render(brief: Brief): string {
     for (const file of brief.staleDownloads) {
       lines.push(`- ${file.name}, ${file.sizeMb} MB, ${file.ageDays} days old`);
     }
-    lines.push('', 'Ask to file or trash these. Nothing is deleted, only staged.', '');
+    // Names the routine that acts on this, because a report that identifies a problem and
+    // then leaves you to work out the remedy is how tidying tools get ignored.
+    lines.push(
+      '',
+      'Run `aos tidy-downloads` to see exactly what would move, then add `--commit`.',
+      'Old installers and archives go to staged trash, keepers are filed by kind, and',
+      'nothing is ever permanently deleted.',
+      '',
+    );
   }
 
   lines.push('---', `${brief.repos.length} repos scanned.`);
