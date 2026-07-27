@@ -35,7 +35,7 @@ internal static class ShellSurface
             "aos-windows/window.focus",
             RiskTier.Write,
             "Restore and bring a window to the foreground.",
-            args => $"Focus window {args.RequireInt64("hwnd")} ('{TitleOf(args.RequireInt64("hwnd"))}').",
+            args => $"Focus window {args.RequireInt64("hwnd")} ('{WindowHandle.Describe(args)}').",
             FocusWindow);
 
         yield return Set.Mutating(
@@ -48,12 +48,6 @@ internal static class ShellSurface
             // block the capability outright for no safety gain. The commit handshake is the
             // real guard: System tier still needs an explicit second call.
             snapshot: false);
-    }
-
-    private static string TitleOf(long hwnd)
-    {
-        var handle = new IntPtr(hwnd);
-        return User32.IsWindow(handle) ? User32.GetTitle(handle) : "<no such window>";
     }
 
     private static JsonNode? ListWindows(JsonObject args)
@@ -182,11 +176,7 @@ internal static class ShellSurface
         var hwndArg = args["hwnd"];
         if (hwndArg is not null)
         {
-            var handle = new IntPtr(args.RequireInt64("hwnd"));
-            if (!User32.IsWindow(handle))
-            {
-                throw new ArgumentException($"No window with handle {handle.ToInt64()}.");
-            }
+            var handle = WindowHandle.Require(args);
 
             // Refuse rather than capture. A minimized window's rectangle sits around
             // -32000 with a plausible width and height, so the size guard below never
@@ -234,11 +224,7 @@ internal static class ShellSurface
 
     private static JsonNode? FocusWindow(JsonObject args)
     {
-        var handle = new IntPtr(args.RequireInt64("hwnd"));
-        if (!User32.IsWindow(handle))
-        {
-            throw new ArgumentException($"No window with handle {handle.ToInt64()}.");
-        }
+        var handle = WindowHandle.Require(args);
 
         if (User32.IsIconic(handle)) { User32.ShowWindow(handle, User32.SwRestore); }
 
@@ -263,8 +249,10 @@ internal static class ShellSurface
         var pid = args.RequireInt32("pid");
         try
         {
-            var process = Process.GetProcessById(pid);
-            return $"Terminate '{process.ProcessName}' (pid {pid}). Unsaved work is lost.";
+            using var process = Process.GetProcessById(pid);
+            return $"Terminate '{process.ProcessName}' (pid {pid}). Unsaved work is lost. "
+                + $"Pass expectName='{process.ProcessName}' on the commit so a recycled pid "
+                + "cannot redirect the kill.";
         }
         catch (ArgumentException)
         {
@@ -275,8 +263,23 @@ internal static class ShellSurface
     private static JsonNode? StopProcess(JsonObject args)
     {
         var pid = args.RequireInt32("pid");
-        var process = Process.GetProcessById(pid);
+        using var process = Process.GetProcessById(pid);
         var name = process.ProcessName;
+
+        // Process ids are recycled, and aggressively so on Windows: the plan and the commit
+        // are two separate calls, and if the target exits in between, the kernel can hand the
+        // same number to something started since. The plan would name Notepad and the commit
+        // would terminate whatever inherited the id. Naming the expected process turns that
+        // into a refusal. Optional, because a caller may legitimately only have a pid, but the
+        // plan line above tells the model exactly what to pass.
+        var expectedName = args.GetString("expectName");
+        if (expectedName is not null &&
+            !string.Equals(name, expectedName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Pid {pid} is now '{name}', not the expected '{expectedName}'. The original "
+                + "process exited and the id was reused. Re-read process.list.");
+        }
 
         process.Kill(entireProcessTree: args.GetBool("entireProcessTree", false));
         process.WaitForExit(5000);

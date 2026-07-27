@@ -66,7 +66,10 @@ Checks that passed on live servers over real JSON RPC, not mocks.
 | screen capture on a 150 percent display | 2400 by 1600, the true pixels, not 1600 by 1067 |
 | control tree completeness flag | false on a tree that fits, true only when something was cut |
 | control tree on a slow app | partial result plus a note at 15 seconds, rather than no answer |
-| test suite | 146 passing |
+| a wrong `expectTitle` on a real window | refused, and the message names both titles |
+| a wrong `expectName` on a real process kill | refused at commit, Notepad still running afterwards |
+| the same kill with the right name | plan, then commit, then the pid is genuinely gone |
+| test suite | 156 passing |
 | provisioning | 29 ok, 0 changed on re apply |
 
 ## deadlines
@@ -123,6 +126,9 @@ The harness rule is that a bug is finished when a guard exists that would have c
 | the dependency check probed one package | npm's own install marker compared against the manifests |
 | a disabled or retimed task still read as ok | the test checks the trigger and the state, not existence |
 | a publish step could never satisfy its own test | publish records a stamp instead of trusting timestamps |
+| the ref guard existed and no tool could reach it | a reflection test reads the real signatures |
+| a recycled handle could redirect an approved action | optional `expectTitle` on every hwnd taking tool |
+| a recycled pid could redirect a kill | optional `expectName`, and the plan says what to pass |
 
 The middle fourteen came from a deep quality check by three parallel review agents pointed at
 the broker, the servers, and the provisioning and TypeScript code. Several invalidated claims
@@ -144,9 +150,21 @@ is a Store application, and the liveness check reported alive for a process that
 existed. It would have passed while proving nothing.
 
 Driving live servers is now a script rather than a habit. `provisioning\Invoke-AosTool.ps1`
-speaks MCP to a published server and calls one tool, which is how the five behaviour changes
-in the table above were confirmed against real windows rather than against my expectations.
-Four of them would have passed every unit test while broken.
+speaks MCP to a published server and calls one tool, which is how the behaviour changes in
+the table above were confirmed against real windows rather than against my expectations.
+Most of them would have passed every unit test while broken.
+
+It also does plan then commit over one connection, which is not a convenience. The plan
+ledger lives in the server process, so a plan and a commit issued as two separate probe runs
+can never match, and my first attempt at testing the pid guard only ever reached the ledger's
+refusal. Testing a mutating capability one call per process proves nothing about the
+capability.
+
+The worst find in this round was a guard that could not fire. `UiaSurface` read `expectName`
+and `expectAutomationId`, the comment explained exactly which attack they stopped, and no tool
+method exposed either parameter, so nothing could ever supply one. The code read as protected
+and was not. The permanent guard is a test that reflects over the real tool signatures, and it
+immediately caught a second case I had missed while writing it.
 
 ## next
 

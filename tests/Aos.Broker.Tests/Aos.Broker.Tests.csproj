@@ -26,6 +26,7 @@
          capability logic be tested directly rather than only through a live stdio server. -->
     <ProjectReference Include="..\..\src\Aos.Mcp.Files\Aos.Mcp.Files.csproj" />
     <ProjectReference Include="..\..\src\Aos.Mcp.Apps\Aos.Mcp.Apps.csproj" />
+    <ProjectReference Include="..\..\src\Aos.Mcp.Windows\Aos.Mcp.Windows.csproj" />
   </ItemGroup>
 
 </Project>

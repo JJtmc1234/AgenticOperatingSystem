@@ -5,14 +5,23 @@
 # handler that throws only against live Windows state, or a server that starts and lists
 # nothing. Every fix to a capability gets driven through here before it is called done.
 #
-#   .\Invoke-AosTool.ps1 -Server aos-mcp-windows.exe -Tool aos_windows_process_list `
+#   .\Invoke-AosTool.ps1 -Server aos-mcp-windows.exe -Tool process_list `
 #       -Arguments @{ top = -5 }
+#
+# -PlanThenCommit sends the same call twice, without commit and then with it, over ONE
+# connection. That is not a convenience. The broker's plan ledger lives in the server
+# process, so a plan and a commit issued from two separate probe runs can never match, and
+# testing a mutating capability one call per process only ever exercises the refusal.
+#
+#   .\Invoke-AosTool.ps1 -Server aos-mcp-windows.exe -Tool process_stop `
+#       -Arguments @{ pid = 1234; expectName = 'Notepad' } -PlanThenCommit
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string] $Server,
     [Parameter(Mandatory)][string] $Tool,
     [hashtable] $Arguments = @{},
+    [switch] $PlanThenCommit,
     [int] $TimeoutMs = 30000
 )
 
@@ -42,36 +51,59 @@ try {
 
     $proc.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
 
-    $call = @{
-        jsonrpc = '2.0'
-        id      = 2
-        method  = 'tools/call'
-        params  = @{ name = $Tool; arguments = $Arguments }
-    } | ConvertTo-Json -Depth 12 -Compress
+    function Send-Call {
+        param([int] $Id, [hashtable] $CallArguments)
 
-    $proc.StandardInput.WriteLine($call)
-    $proc.StandardInput.Flush()
+        $call = @{
+            jsonrpc = '2.0'
+            id      = $Id
+            method  = 'tools/call'
+            params  = @{ name = $Tool; arguments = $CallArguments }
+        } | ConvertTo-Json -Depth 12 -Compress
 
-    # Log notifications can interleave, so the reply is matched by id rather than by
-    # taking whatever line arrives first.
-    for ($attempt = 0; $attempt -lt 20; $attempt++) {
-        $lineTask = $proc.StandardOutput.ReadLineAsync()
-        if (-not $lineTask.Wait($TimeoutMs)) { throw 'Timed out waiting for the tool result.' }
-        $line = $lineTask.Result
-        if (-not $line) { throw 'Server closed stdout before replying.' }
+        $proc.StandardInput.WriteLine($call)
+        $proc.StandardInput.Flush()
 
-        try { $parsed = $line | ConvertFrom-Json } catch { continue }
-        if ($parsed.id -ne 2) { continue }
+        # Log notifications can interleave, so the reply is matched by id rather than by
+        # taking whatever line arrives first.
+        for ($attempt = 0; $attempt -lt 20; $attempt++) {
+            $lineTask = $proc.StandardOutput.ReadLineAsync()
+            if (-not $lineTask.Wait($TimeoutMs)) { throw 'Timed out waiting for the tool result.' }
+            $line = $lineTask.Result
+            if (-not $line) { throw 'Server closed stdout before replying.' }
 
-        if ($parsed.error) { throw "Server returned an error: $($parsed.error | ConvertTo-Json -Depth 6)" }
+            try { $parsed = $line | ConvertFrom-Json } catch { continue }
+            if ($parsed.id -ne $Id) { continue }
 
-        foreach ($item in @($parsed.result.content)) {
-            if ($item.type -eq 'text') { Write-Output $item.text }
+            if ($parsed.error) { throw "Server returned an error: $($parsed.error | ConvertTo-Json -Depth 6)" }
+
+            foreach ($item in @($parsed.result.content)) {
+                if ($item.type -eq 'text') { return $item.text }
+            }
+            return $null
         }
+
+        throw 'No reply with the expected id arrived.'
+    }
+
+    if (-not $PlanThenCommit) {
+        Write-Output (Send-Call -Id 2 -CallArguments $Arguments)
         return
     }
 
-    throw 'No reply with the expected id arrived.'
+    # The plan and the commit must carry identical arguments apart from the flag, or the
+    # ledger fingerprint will not match and the refusal tells you nothing about the
+    # capability under test.
+    $planArgs = @{} + $Arguments
+    $planArgs.Remove('commit')
+
+    $commitArgs = @{} + $planArgs
+    $commitArgs['commit'] = $true
+
+    Write-Output "--- plan ---"
+    Write-Output (Send-Call -Id 2 -CallArguments $planArgs)
+    Write-Output "--- commit ---"
+    Write-Output (Send-Call -Id 3 -CallArguments $commitArgs)
 }
 finally {
     try { $proc.StandardInput.Close() } catch { }

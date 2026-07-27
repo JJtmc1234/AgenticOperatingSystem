@@ -48,11 +48,7 @@ internal static class UiaSurface
 
     private static AutomationElement RootOf(JsonObject args)
     {
-        var handle = new IntPtr(args.RequireInt64("hwnd"));
-        if (!User32.IsWindow(handle))
-        {
-            throw new ArgumentException($"No window with handle {handle.ToInt64()}.");
-        }
+        var handle = WindowHandle.Require(args);
 
         return AutomationElement.FromHandle(handle)
             ?? throw new InvalidOperationException("Window exposes no UIAutomation root.");
