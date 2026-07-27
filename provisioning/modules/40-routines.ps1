@@ -55,6 +55,26 @@ $briefTime    = '07:30'
         finally { Pop-Location }
     }.GetNewClosure()
 
+    # Same shape as the server smoke tests: converge verifies that what it installed works,
+    # not merely that it exists. A routine that fires at 07:30 has no one watching it, so a
+    # broken brief would be discovered by not receiving one.
+    New-AosStep -Name 'orchestrator routine tests pass' -Test {
+        Push-Location $orchestrator
+        try {
+            $output = & node --test 'dist/test/*.test.js' 2>&1
+            $LASTEXITCODE -eq 0
+        }
+        catch { $false }
+        finally { Pop-Location }
+    }.GetNewClosure() -Set {
+        Push-Location $orchestrator
+        try {
+            $output = & node --test 'dist/test/*.test.js' 2>&1
+            throw "orchestrator tests failed:`n$($output -join "`n")"
+        }
+        finally { Pop-Location }
+    }.GetNewClosure()
+
     New-AosStep -Name "scheduled task: $taskName (daily $briefTime)" -Test {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if (-not $task) { return $false }

@@ -69,8 +69,13 @@ Checks that passed on live servers over real JSON RPC, not mocks.
 | a wrong `expectTitle` on a real window | refused, and the message names both titles |
 | a wrong `expectName` on a real process kill | refused at commit, Notepad still running afterwards |
 | the same kill with the right name | plan, then commit, then the pid is genuinely gone |
-| test suite | 156 passing |
-| provisioning | 29 ok, 0 changed on re apply |
+| the daily brief, end to end | real repos, real issues, real Downloads, 9.8 seconds |
+| test suite | 156 C# and 11 TypeScript passing |
+| provisioning | 30 ok, 0 changed on re apply |
+
+The brief is the first part of this that pays for itself without being asked. This morning it
+found 22 uncommitted files in one project, six branches with no upstream at all, a repo with
+real work and no commits in it, and 14 GB of Downloads clutter going back 563 days.
 
 ## deadlines
 
@@ -129,6 +134,8 @@ The harness rule is that a bug is finished when a guard exists that would have c
 | the ref guard existed and no tool could reach it | a reflection test reads the real signatures |
 | a recycled handle could redirect an approved action | optional `expectTitle` on every hwnd taking tool |
 | a recycled pid could redirect a kill | optional `expectName`, and the plan says what to pass |
+| the TypeScript side had no tests at all | `node --test`, run by the converge, no new dependency |
+| a query that was never meaningful read as a failure | repos with no commits skip the upstream check |
 
 The middle fourteen came from a deep quality check by three parallel review agents pointed at
 the broker, the servers, and the provisioning and TypeScript code. Several invalidated claims

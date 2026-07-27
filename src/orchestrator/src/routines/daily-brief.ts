@@ -64,8 +64,6 @@ async function collectIssues(repos: RepoState[]): Promise<IssueRef[]> {
     }
   };
 
-  add(await assignedIssues());
-
   // Issues in your own active repos matter even when nobody assigned them to you, which is
   // the normal case for a solo project.
   const activeSlugs = [
@@ -76,8 +74,21 @@ async function collectIssues(repos: RepoState[]): Promise<IssueRef[]> {
     ),
   ].slice(0, 6);
 
-  for (const slug of activeSlugs) {
-    add(await repoIssues(slug));
+  // Issued together rather than one after another. Each gh call is a network round trip of
+  // roughly two seconds, and seven of them in sequence was most of the brief's runtime. They
+  // are independent queries, so waiting for each before starting the next bought nothing.
+  //
+  // Order still matters for dedup: the assigned list wins, since being assigned an issue is
+  // a stronger signal than it merely living in a repo you touched. So the results are
+  // collected in parallel and then added in a fixed order.
+  const [assigned, ...perRepo] = await Promise.all([
+    assignedIssues(),
+    ...activeSlugs.map((slug) => repoIssues(slug)),
+  ]);
+
+  add(assigned);
+  for (const issues of perRepo) {
+    add(issues);
   }
 
   return all;
