@@ -87,9 +87,22 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
             "aos-files/trash.restore",
             RiskTier.Write,
             "Restore a staged-trash entry to where it came from, by its id from trash.list.",
-            args => $"Restore trash entry '{args.RequireString("id")}' to its original path.",
+            PlanRestore,
             RestoreTrash,
             verify: VerifyRestore);
+
+        yield return Set.Mutating(
+            "aos-files/trash.purge",
+            RiskTier.Destructive,
+            "PERMANENTLY delete staged-trash entries older than a given age. This is the only "
+            + "operation here that cannot be undone. Nothing younger than minimumAgeDays is "
+            + "touched, and the default age is deliberately generous.",
+            PlanPurge,
+            Purge,
+            // Nothing to snapshot onto. A shadow copy of the trash folder would be a copy of
+            // the very bytes being reclaimed, which defeats the entire purpose of the call.
+            snapshot: false,
+            verify: VerifyPurge);
     }
 
     // --- post-condition checks -------------------------------------------------------
@@ -354,9 +367,26 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
     {
         var limit = Math.Clamp(args.GetInt32("limit", 50), 1, 500);
 
+        var includeClosed = args.GetBool("includeClosed", false);
+
+        // One row per id, from its latest line. The manifest is append only, so a purge or a
+        // restore writes a further line for the same id, and listing them raw showed one file
+        // three times with three different restorable flags. A list of trash is meant to
+        // answer "what can I get back", and duplicates make that unreadable.
+        var latest = trash.List()
+            .GroupBy(e => e.Id)
+            .Select(g => g.Last())
+            .Where(e => includeClosed || e.State == "trashed")
+            .OrderByDescending(e => e.DeletedAt)
+            .Take(limit);
+
         var entries = new JsonArray();
-        foreach (var entry in trash.List().OrderByDescending(e => e.DeletedAt).Take(limit))
+        var closed = 0;
+
+        foreach (var entry in latest)
         {
+            if (entry.State != "trashed") { closed++; }
+
             entries.Add(new JsonObject
             {
                 ["id"] = entry.Id,
@@ -364,7 +394,12 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
                 ["deletedAt"] = entry.DeletedAt.ToString("o"),
                 ["sizeKb"] = Math.Round(entry.SizeBytes / 1024d, 1),
                 ["reason"] = entry.Reason,
+                // trashed, restored, purged, or missing. The flag alone could not distinguish
+                // "we put this back" from "the bytes vanished", which are very different news.
+                ["state"] = entry.State,
                 ["restorable"] = entry.StillStored,
+                ["restoredAt"] = entry.RestoredAt?.ToString("o"),
+                ["purgedAt"] = entry.PurgedAt?.ToString("o"),
             });
         }
 
@@ -372,6 +407,10 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
         {
             ["count"] = entries.Count,
             ["trashRoot"] = trash.Root,
+            ["closedShown"] = includeClosed ? closed : null,
+            ["note"] = includeClosed
+                ? "Includes entries already restored or permanently purged."
+                : "Only entries still in trash. Pass includeClosed for restored and purged ones.",
             ["entries"] = entries,
         };
     }
@@ -490,6 +529,49 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
         };
     }
 
+    /// <summary>
+    /// Resolves the entry so the plan describes what will actually happen.
+    ///
+    /// This used to be a fixed sentence built from the id alone, which meant the plan for
+    /// restoring a purged entry read "Restore trash entry X to its original path" and the
+    /// commit then failed. A plan that confidently describes an impossible action is worse
+    /// than no plan, because it is the thing a person reads before approving.
+    /// </summary>
+    private string PlanRestore(JsonObject args)
+    {
+        var id = args.RequireString("id");
+        var entry = trash.List().LastOrDefault(e => e.Id == id);
+
+        if (entry is null) { return $"No trash entry with id '{id}'. Nothing would be restored."; }
+
+        if (entry.PurgedAt is { } purgedAt)
+        {
+            return $"Cannot restore: entry '{id}' ('{entry.OriginalPath}') was permanently purged "
+                + $"on {purgedAt:yyyy-MM-dd}.";
+        }
+
+        if (entry.RestoredAt is { } restoredAt)
+        {
+            return $"Cannot restore: entry '{id}' was already restored on {restoredAt:yyyy-MM-dd} "
+                + $"to '{entry.OriginalPath}'.";
+        }
+
+        if (!entry.StillStored)
+        {
+            return $"Cannot restore: entry '{id}' is recorded but its contents are gone from "
+                + $"'{entry.StoredPath}'.";
+        }
+
+        if (File.Exists(entry.OriginalPath) || Directory.Exists(entry.OriginalPath))
+        {
+            return $"Cannot restore: '{entry.OriginalPath}' exists again, and this never "
+                + "overwrites. Move that aside first.";
+        }
+
+        return $"Restore '{entry.OriginalPath}' from staged trash, trashed "
+            + $"{entry.DeletedAt:yyyy-MM-dd}.";
+    }
+
     private JsonNode? RestoreTrash(JsonObject args)
     {
         var entry = trash.Restore(args.RequireString("id"));
@@ -499,5 +581,105 @@ internal sealed class FileSurface(PathGuard guard, TrashStore trash)
             ["id"] = entry.Id,
             ["restoredTo"] = entry.OriginalPath,
         };
+    }
+
+    // --- purge -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Thirty days. Long enough that anything still sitting there has demonstrably not been
+    /// missed, and the caller has to say a smaller number out loud to go below it.
+    /// </summary>
+    private const int DefaultPurgeAgeDays = 30;
+
+    private static int PurgeAge(JsonObject args) =>
+        Math.Clamp(args.GetInt32("minimumAgeDays", DefaultPurgeAgeDays), 1, 3650);
+
+    private string PlanPurge(JsonObject args)
+    {
+        var age = PurgeAge(args);
+        var candidates = trash.PurgeCandidates(age, DateTimeOffset.UtcNow);
+
+        if (candidates.Count == 0)
+        {
+            return $"Nothing in staged trash is older than {age} days, so there is nothing to purge.";
+        }
+
+        var totalMb = Math.Round(candidates.Sum(c => c.SizeBytes) / 1024d / 1024d, 1);
+
+        // Names the largest few rather than all of them. The plan is what a person reads
+        // before authorising an irreversible delete, so it has to be readable, and the big
+        // items are the ones worth a second look.
+        var named = string.Join(", ", candidates
+            .Take(5)
+            .Select(c => $"{Path.GetFileName(c.Entry.OriginalPath)} ({Math.Round(c.SizeBytes / 1024d / 1024d)} MB, {c.AgeDays} days)"));
+
+        var more = candidates.Count > 5 ? $", and {candidates.Count - 5} more" : string.Empty;
+
+        return $"PERMANENTLY delete {candidates.Count} staged-trash entries older than {age} days, "
+            + $"reclaiming {totalMb} MB. This cannot be undone. Largest: {named}{more}.";
+    }
+
+    private JsonNode? Purge(JsonObject args)
+    {
+        var age = PurgeAge(args);
+        var candidates = trash.PurgeCandidates(age, DateTimeOffset.UtcNow);
+
+        var purged = new JsonArray();
+        var failed = new JsonArray();
+        var reclaimed = 0L;
+
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                trash.Purge(candidate.Entry);
+                reclaimed += candidate.SizeBytes;
+                purged.Add(new JsonObject
+                {
+                    ["id"] = candidate.Entry.Id,
+                    ["originalPath"] = candidate.Entry.OriginalPath,
+                    ["sizeMb"] = Math.Round(candidate.SizeBytes / 1024d / 1024d, 1),
+                });
+            }
+            catch (Exception ex)
+            {
+                // One locked file must not abandon the rest. Reported individually, because
+                // "purged 40 of 42" is a true answer and throwing here would make the whole
+                // call look like it did nothing while having already deleted forty.
+                failed.Add(new JsonObject
+                {
+                    ["id"] = candidate.Entry.Id,
+                    ["originalPath"] = candidate.Entry.OriginalPath,
+                    ["error"] = ex.Message,
+                });
+            }
+        }
+
+        return new JsonObject
+        {
+            ["purged"] = purged.Count,
+            ["failed"] = failed.Count,
+            ["reclaimedMb"] = Math.Round(reclaimed / 1024d / 1024d, 1),
+            ["minimumAgeDays"] = age,
+            ["entries"] = purged,
+            ["errors"] = failed.Count > 0 ? failed : null,
+        };
+    }
+
+    private string? VerifyPurge(JsonObject args, JsonNode? result)
+    {
+        var claimed = result?["purged"]?.GetValue<int>() ?? 0;
+        if (claimed == 0) { return null; }
+
+        // Asks the store again rather than trusting the loop above. A purge that reported
+        // success while the bytes are still on disk is the one failure mode that turns
+        // "reclaimed 6 GB" into a lie, and it is the whole reason this call exists.
+        var age = PurgeAge(args);
+        var remaining = trash.PurgeCandidates(age, DateTimeOffset.UtcNow);
+
+        return remaining.Count == 0
+            ? null
+            : $"{remaining.Count} entries older than {age} days are still stored after the purge "
+              + "reported success, so the space was not actually reclaimed.";
     }
 }

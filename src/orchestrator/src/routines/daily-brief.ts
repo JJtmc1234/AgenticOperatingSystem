@@ -1,4 +1,4 @@
-import { readdir, stat, mkdir, writeFile } from 'node:fs/promises';
+import { readdir, stat, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { assignedIssues, repoIssues, type IssueRef } from '../lib/github.js';
@@ -18,6 +18,8 @@ export interface Brief {
   issues: IssueRef[];
   staleDownloads: { name: string; ageDays: number; sizeMb: number }[];
   downloadsTotal: number;
+  /** Staged trash still occupying disk, and the oldest entry's age in days. */
+  trash: { sizeMb: number; entries: number; oldestDays: number };
 }
 
 export async function gather(): Promise<Brief> {
@@ -35,6 +37,7 @@ export async function gather(): Promise<Brief> {
 
   const issues = await collectIssues(repos);
   const downloads = await scanDownloads();
+  const trash = await measureTrash();
 
   return {
     generatedAt: new Date(),
@@ -43,7 +46,96 @@ export async function gather(): Promise<Brief> {
     issues,
     staleDownloads: downloads.stale,
     downloadsTotal: downloads.total,
+    trash,
   };
+}
+
+/**
+ * Measures staged trash, because trashing something does not free any space.
+ *
+ * The trash lives on the same volume as the files it holds, so tidy-downloads moving 6 GB
+ * into it reclaimed exactly nothing. Reporting the clutter as dealt with while it still
+ * occupies the disk would be the same category of lie as the false all-clear above.
+ */
+async function measureTrash(): Promise<Brief['trash']> {
+  const root = join(AOS_ROOT, 'trash');
+  let sizeMb = 0;
+  let entries = 0;
+
+  const walk = async (directory: string): Promise<void> => {
+    let names: string[];
+    try {
+      names = await readdir(directory);
+    } catch {
+      return;
+    }
+
+    for (const name of names) {
+      const path = join(directory, name);
+      try {
+        const info = await stat(path);
+        if (info.isDirectory()) {
+          await walk(path);
+        } else {
+          sizeMb += info.size / 1_048_576;
+        }
+      } catch {
+        // Locked or vanished mid-scan.
+      }
+    }
+  };
+
+  try {
+    // One slot folder per entry, so the top level count is the entry count.
+    entries = (await readdir(root)).filter((name) => name !== 'manifest.jsonl').length;
+  } catch {
+    return { sizeMb: 0, entries: 0, oldestDays: 0 };
+  }
+
+  await walk(root);
+
+  return { sizeMb: Math.round(sizeMb), entries, oldestDays: await oldestTrashedDays(root) };
+}
+
+/**
+ * How long the longest-sitting entry has been IN TRASH, from the manifest.
+ *
+ * Not from file modification times, which was the first attempt and was wrong in a way that
+ * mattered: a file last edited 588 days ago and trashed this morning kept its old mtime, so
+ * the brief announced "the oldest is 588 days old" and advised purging entries older than 30
+ * days when nothing qualified. Purge keys off deletedAt, so this has to as well or the advice
+ * describes an operation that would do nothing.
+ */
+async function oldestTrashedDays(root: string): Promise<number> {
+  let text: string;
+  try {
+    text = await readFile(join(root, 'manifest.jsonl'), 'utf8');
+  } catch {
+    return 0;
+  }
+
+  // Latest line per id wins, so restored and purged entries drop out rather than counting
+  // toward an age nobody can act on.
+  const latest = new Map<string, { deletedAt?: string; purgedAt?: string; restoredAt?: string }>();
+
+  for (const line of text.split('\n')) {
+    if (line.trim().length === 0) continue;
+    try {
+      const entry = JSON.parse(line) as { id?: string; deletedAt?: string; purgedAt?: string; restoredAt?: string };
+      if (entry.id) latest.set(entry.id, entry);
+    } catch {
+      // A torn final line beats losing the whole measurement.
+    }
+  }
+
+  let oldestMs = Number.POSITIVE_INFINITY;
+  for (const entry of latest.values()) {
+    if (entry.purgedAt || entry.restoredAt || !entry.deletedAt) continue;
+    const when = Date.parse(entry.deletedAt);
+    if (!Number.isNaN(when)) oldestMs = Math.min(oldestMs, when);
+  }
+
+  return Number.isFinite(oldestMs) ? Math.round((Date.now() - oldestMs) / 86_400_000) : 0;
 }
 
 /** Unchecked repos outrank every known count; among the known, more dirty files wins. */
@@ -194,6 +286,23 @@ export function render(brief: Brief): string {
       'Run `aos tidy-downloads` to see exactly what would move, then add `--commit`.',
       'Old installers and archives go to staged trash, keepers are filed by kind, and',
       'nothing is ever permanently deleted.',
+      '',
+    );
+  }
+
+  if (brief.trash.sizeMb > 0) {
+    // Says pending, not reclaimed. The trash sits on the same drive, so this space is still
+    // spent until it is purged, and the purge floor is thirty days by design.
+    lines.push(
+      `## staged trash, ${brief.trash.entries} entries, ${brief.trash.sizeMb} MB still on disk`,
+      '',
+      'This space is not reclaimed yet. Trashing moves files within the same drive, so they',
+      'keep occupying it until purged, which is what makes every trash reversible.',
+      '',
+      brief.trash.oldestDays >= 30
+        ? `The oldest is ${brief.trash.oldestDays} days old. Run \`aos\` and ask to purge staged ` +
+          'trash older than 30 days to reclaim it permanently.'
+        : `The oldest is ${brief.trash.oldestDays} days old, and nothing is purged under 30 days.`,
       '',
     );
   }

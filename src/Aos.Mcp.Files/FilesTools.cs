@@ -107,9 +107,13 @@ public sealed class FilesTools(CapabilityBroker broker)
     [Description("List everything moved to staged trash, newest first, with restore ids.")]
     public Task<string> TrashList(
         [Description("Maximum entries. Default 50.")] int limit = 50,
+        [Description("Also show entries already restored or permanently purged. Default false, "
+            + "since the usual question is what can still be recovered.")]
+        bool includeClosed = false,
         CancellationToken cancellationToken = default) =>
         broker.CallAsync("aos-files/trash.list",
-            JsonArgs.Of(("limit", limit)), cancellationToken: cancellationToken);
+            JsonArgs.Of(("limit", limit), ("includeClosed", includeClosed)),
+            cancellationToken: cancellationToken);
 
     [McpServerTool(Name = "files_trash_restore")]
     [Description("Restore a staged-trash entry to its original path, by id from "
@@ -121,6 +125,22 @@ public sealed class FilesTools(CapabilityBroker broker)
         CancellationToken cancellationToken = default) =>
         broker.CallAsync("aos-files/trash.restore",
             JsonArgs.Of(("id", id)), commit, reason, cancellationToken);
+
+    [McpServerTool(Name = "files_trash_purge")]
+    [Description("PERMANENTLY delete staged-trash entries older than a given age, reclaiming "
+        + "disk space. This is the only file operation that cannot be undone, so it is the one "
+        + "to be most careful with: read the plan and check what it names before committing. "
+        + "Staged trash sits on the same drive as the files it holds, so trashing alone frees "
+        + "nothing; this is what actually reclaims the space.")]
+    public Task<string> TrashPurge(
+        [Description("Only purge entries trashed at least this many days ago. Default 30. "
+            + "Lower it deliberately; the default is generous on purpose.")]
+        int minimumAgeDays = 30,
+        [Description("Set true to actually delete them permanently.")] bool commit = false,
+        [Description("Why this is being done. Recorded in the audit log.")] string? reason = null,
+        CancellationToken cancellationToken = default) =>
+        broker.CallAsync("aos-files/trash.purge",
+            JsonArgs.Of(("minimumAgeDays", minimumAgeDays)), commit, reason, cancellationToken);
 
     [McpServerTool(Name = "files_capabilities")]
     [Description("List every registered file capability with its risk tier and whether it "

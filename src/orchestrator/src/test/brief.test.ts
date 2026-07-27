@@ -29,9 +29,30 @@ function brief(overrides: Partial<Brief> = {}): Brief {
     issues: [],
     staleDownloads: [],
     downloadsTotal: 0,
+    trash: { sizeMb: 0, entries: 0, oldestDays: 0 },
     ...overrides,
   };
 }
+
+test('staged trash is reported as pending, never as reclaimed', () => {
+  // The trash sits on the same volume as the files it holds, so tidy-downloads moving 6 GB
+  // into it freed exactly nothing. Reporting that as dealt with would be the same category
+  // of false reassurance as the all-clear over unchecked repos.
+  const young = render(brief({ trash: { sizeMb: 6007, entries: 42, oldestDays: 1 } }));
+  assert.match(young, /42 entries, 6007 MB still on disk/);
+  assert.match(young, /not reclaimed yet/);
+  assert.match(young, /nothing is purged under 30 days/);
+  assert.doesNotMatch(young, /ask to purge/);
+
+  const old = render(brief({ trash: { sizeMb: 6007, entries: 42, oldestDays: 95 } }));
+  assert.match(old, /oldest is 95 days old/);
+  assert.match(old, /ask to purge staged trash older than 30 days/);
+});
+
+test('an empty trash gets no section at all', () => {
+  const rendered = render(brief());
+  assert.doesNotMatch(rendered, /staged trash/);
+});
 
 test('the all clear is only printed when every repo actually answered', () => {
   const clean = render(brief({ repos: [repo(), repo()] }));

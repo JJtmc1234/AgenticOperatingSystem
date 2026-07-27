@@ -70,10 +70,11 @@ Checks that passed on live servers over real JSON RPC, not mocks.
 | a wrong `expectName` on a real process kill | refused at commit, Notepad still running afterwards |
 | the same kill with the right name | plan, then commit, then the pid is genuinely gone |
 | the daily brief, end to end | real repos, real issues, real Downloads, 9.8 seconds |
-| tidy downloads, dry run | 90 of 135 files, 42 to trash, 6 GB, on real Downloads |
-| tidy downloads, commit | real files trashed and filed, names and extensions intact |
+| tidy downloads, on the real folder | 134 loose files to 44, every one of the 134 accounted for |
 | staged trash round trip | a trashed installer restored byte for byte to where it came from |
-| test suite | 156 C# and 21 TypeScript passing |
+| purge of an aged entry | exactly 2 MB reclaimed, slot removed, other 51 entries untouched |
+| purge age floor | refuses everything under the stated age, checked at the boundary |
+| test suite | 164 C# and 23 TypeScript passing |
 | provisioning | 30 ok, 0 changed on re apply |
 
 The brief is the first part of this that pays for itself without being asked. This morning it
@@ -89,6 +90,16 @@ comes back with one call.
 The commit path was proved against a scratch folder of backdated fixtures, not against real
 Downloads. That was the point: the first run had a bug that renamed files, and finding that
 out on 90 of your own files would have been a poor way to learn it.
+
+It has since run on the real folder, on request. 134 loose files became 44, and all 134 were
+reconciled afterwards against a snapshot taken before: 44 still loose, 48 filed, 42 in trash,
+nothing lost and nothing renamed.
+
+Then the honest part. Nothing had been reclaimed. Staged trash lives on the same volume as
+Downloads, so 6 GB had simply moved from one folder on C: to another, and 15 GB was sitting
+there in total. A staged trash that never empties is a second Downloads folder, and the space
+saving the report implied did not exist. That gap is now closed by `trash.purge`, and the brief
+reports staged trash as pending rather than dealt with.
 
 ## deadlines
 
@@ -151,6 +162,11 @@ The harness rule is that a bug is finished when a guard exists that would have c
 | a query that was never meaningful read as a failure | repos with no commits skip the upstream check |
 | a move renamed files and reported success | the caller checks the name, since the broker cannot |
 | the brief named a command the launcher did not have | `aos.cmd` dispatches routines, and a test asserts the pointer |
+| trashing was reported as reclaiming space | the brief says pending, and `trash.purge` actually reclaims |
+| one file appeared three times in the trash list | one row per id, from its latest manifest line |
+| a restore plan promised something already purged | the plan resolves the entry instead of echoing the id |
+| a restored entry read as unaccountably missing | restores are recorded, so the four end states are distinct |
+| trash age measured from file mtime, not deletion | read from the manifest, which is what purge keys off |
 
 The middle fourteen came from a deep quality check by three parallel review agents pointed at
 the broker, the servers, and the provisioning and TypeScript code. Several invalidated claims
@@ -203,8 +219,8 @@ immediately caught a second case I had missed while writing it.
 
 ## next
 
-1. Decide whether to run `aos tidy-downloads --commit` on the real Downloads folder. It is
-   staged and reversible, but it moves 90 files, so it waits for a yes.
+1. The 15 GB in staged trash becomes purgeable from late August, thirty days after it went in.
+   Until then it is deliberately stuck, which is the price of every trash being reversible.
 2. `aos-apps`. Gmail and Google Calendar over OAuth2. Needs a Google Cloud client id.
 3. The six JJtorio employee branches with no upstream. The brief flags them every morning and
    nothing yet pushes them, which is the next routine worth writing.
