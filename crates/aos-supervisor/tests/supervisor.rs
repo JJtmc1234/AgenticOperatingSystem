@@ -36,10 +36,12 @@ fn starts_lists_and_stops_a_real_process() {
     let (mut sup, _dir) = sleeper();
     let s = spec("sleeper", "/usr/bin/sleep", &["30"]);
 
-    let AgentState::Running { pid } = sup.start(&s).unwrap() else {
-        panic!("expected a running agent");
-    };
-    assert!(pid > 0);
+    let handle = sup.start(&s).unwrap();
+    assert!(handle.pid > 0);
+    assert!(
+        handle.start_token > 0,
+        "a live process always has a start time"
+    );
     assert_eq!(sup.list().len(), 1);
 
     let stopped = sup.stop(&s.id, Duration::from_secs(2)).unwrap();

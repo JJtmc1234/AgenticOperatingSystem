@@ -34,18 +34,31 @@ echo '["/usr/bin/echo"]' > run/allowed-programs.json
 
 ./target/debug/aos validate examples/hello.json
 ./target/debug/aos run examples/hello.json
+./target/debug/aos status
 
 cat run/logs/hello.log     # what the agent said
-cat run/audit.jsonl        # what the runtime allowed or refused
+cat run/events.jsonl       # what the runtime did, including what it refused
 ```
 
 `examples/blocked.json` asks for `/bin/sh`, which is not on the allowlist. It is refused and
-the refusal is written to the audit log.
+the refusal is written to the event log with its reason.
+
+## the event log
+
+`run/events.jsonl` is the only durable state. Everything the runtime believes is a fold over
+it, so `aos status` can answer what is running after a crash, and can do it by reading a text
+file rather than trusting memory that no longer exists.
+
+Each start record carries a `start_token` next to the pid, which is the process start time
+from `/proc`. Linux reuses pids, so a pid alone cannot tell your agent apart from whatever
+took its number afterwards. `aos status` reports a pid it cannot confirm as lost and leaves
+it alone rather than risk signalling a stranger.
 
 ## what works today
 
-Phase 0. Contracts, the supervisor, the `aos` binary, the audit log. Supervision is foreground
-only, so `list` and `stop` across separate invocations wait for the phase 1 daemon.
+Phase 0 and 0r. Contracts, the supervisor, the `aos` binary, the event log, and replay.
+Supervision is foreground only, so `list` and `stop` across separate invocations wait for the
+phase 1 daemon.
 
 ## before you edit
 

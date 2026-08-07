@@ -21,7 +21,8 @@ Nothing is called done on a compile. Done means `cargo fmt`, `cargo clippy --all
 
 | phase | chunk | effort | status |
 |---|---|---|---|
-| 0 | contracts crate, supervisor, cli, audit log | 1 session | done |
+| 0 | contracts crate, supervisor, cli, event log | 1 session | done |
+| 0r | event log as source of truth, replay, pid identity | 1 session | done |
 | 1 | daemon, so list and stop work across invocations | 1 week | not started |
 | 2 | policy engine and the plan then commit handshake | 1 week | not started |
 | 3 | capability servers over MCP, files and shell first | 1 to 2 weeks | not started |
@@ -31,12 +32,26 @@ Nothing is called done on a compile. Done means `cargo fmt`, `cargo clippy --all
 
 ## phase 0, foundation
 
-`aos-core` holds the safety contracts and touches nothing. `aos-supervisor` starts, watches
-and stops agents as child processes. `aos-cli` runs one in the foreground and writes the
-audit log.
+`aos-core` holds the safety contracts and touches no processes. `aos-supervisor` starts,
+watches and stops agents as child processes. `aos-cli` runs one in the foreground and writes
+the event log.
 
-Done when `cargo test` passes against real child processes, and `aos run` starts a real agent,
-logs its output, and refuses a program that is not on the allowlist. Both verified.
+Passes when `cargo test` runs green against real child processes, and `aos run` starts a real
+agent, keeps its output, and refuses a program that is not on the allowlist. Both verified.
+
+## phase 0r, the log becomes the source of truth
+
+Added after reading Hunter's `agentic_os`. His kernel keeps its state as a fold over an
+append only log and replays it on boot. The log here was write only, which meant phase 1 had
+no honest answer for what a daemon should do after a crash.
+
+Now every belief is a fold over `run/events.jsonl`, and `aos status` reconciles that fold
+against `/proc`. Because Linux reuses pids, each start record carries the process start time
+alongside the pid, and an agent is adopted only when both match.
+
+Passes when a supervisor is killed mid run, the agent survives as an orphan, `aos status`
+reports it alive, and the same command reports it lost once the agent is gone. Both verified,
+plus a live process with a tampered token which recovery correctly refuses to claim.
 
 ## phase 1, the daemon
 
@@ -44,11 +59,15 @@ Phase 0 supervises in the foreground only, so `list` and `stop` cannot see an ag
 invocation started. A long lived `aosd` holds the supervisor and the cli talks to it over a
 unix socket.
 
+Phase 0r did the hard half. The daemon boots by replaying the log rather than starting blind,
+and adopts only the agents `/proc` confirms are genuinely still ours.
+
 The socket is the new attack surface, so it gets file permissions restricted to the owner and
 a message schema that is checked before anything is acted on.
 
-Done when an agent started by one terminal is visible and stoppable from another, and when
-killing the daemon does not orphan its agents.
+Passes when an agent started in one terminal is visible and stoppable from another, when
+restarting the daemon re-adopts a surviving agent rather than losing or duplicating it, and
+when killing the daemon does not orphan its agents silently.
 
 ## phase 2, policy
 

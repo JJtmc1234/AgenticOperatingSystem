@@ -1,10 +1,10 @@
 //! Loading specs and running one in the foreground.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use aos_core::{AgentSpec, AgentState, AuditEntry, AuditSink, JsonlSink, Outcome};
+use aos_core::{AgentSpec, AgentState, Event, Ledger};
 use aos_supervisor::Supervisor;
 
 pub fn load_spec(path: &Path) -> Result<AgentSpec> {
@@ -12,6 +12,10 @@ pub fn load_spec(path: &Path) -> Result<AgentSpec> {
         std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     serde_json::from_str(&text)
         .with_context(|| format!("{} is not a valid agent spec", path.display()))
+}
+
+pub fn log_path(run_dir: &Path) -> PathBuf {
+    run_dir.join("events.jsonl")
 }
 
 fn now() -> u64 {
@@ -24,51 +28,77 @@ fn now() -> u64 {
 pub fn run(run_dir: &Path, spec_path: &Path) -> Result<()> {
     let spec = load_spec(spec_path)?;
     let allowed = crate::allowlist(run_dir)?;
-    let mut audit = JsonlSink::open(run_dir.join("audit.jsonl"))?;
+    let mut ledger = Ledger::open(log_path(run_dir))?;
     let mut sup = Supervisor::new(allowed, run_dir.join("logs"));
 
-    let note = |audit: &mut JsonlSink, outcome, reason: Option<String>| {
-        let entry = AuditEntry {
-            at: now(),
-            agent: spec.id.clone(),
-            action: "agent.start".into(),
-            tier: spec.ceiling,
-            outcome,
-            reason,
-        };
-        audit.record(&entry)
-    };
-
-    // Every attempt writes exactly one entry, refusals included. A log that only records
-    // successes hides precisely the calls worth reviewing.
-    let started = match sup.start(&spec) {
-        Ok(state) => {
-            note(&mut audit, Outcome::Allowed, None)?;
-            state
+    // Append, then act. A refusal is written too, because a log that only records what
+    // worked hides exactly the calls worth reviewing.
+    let handle = match sup.start(&spec) {
+        Ok(handle) => {
+            ledger.append(
+                now(),
+                spec.id.clone(),
+                Event::Started {
+                    handle,
+                    program: spec.program.clone(),
+                },
+            )?;
+            handle
         }
         Err(err) => {
-            note(&mut audit, Outcome::Refused, Some(err.to_string()))?;
+            ledger.append(
+                now(),
+                spec.id.clone(),
+                Event::Refused {
+                    reason: err.to_string(),
+                },
+            )?;
             return Err(err.into());
         }
     };
 
-    let AgentState::Running { pid } = started else {
-        anyhow::bail!("{} exited before it could be supervised", spec.id);
-    };
     println!(
-        "{} running as pid {pid}, output at {}",
+        "{} running as pid {}, output at {}",
         spec.id,
+        handle.pid,
         sup.log_path(&spec.id).display()
     );
 
-    // Foreground supervision. Poll until it exits, then report how it went.
     loop {
         match sup.state(&spec.id)? {
             AgentState::Stopped { code } => {
+                ledger.append(now(), spec.id.clone(), Event::Exited { code })?;
                 println!("{} stopped, exit code {code:?}", spec.id);
                 return Ok(());
             }
             AgentState::Running { .. } => std::thread::sleep(Duration::from_millis(100)),
         }
     }
+}
+
+/// Reconciles the log against `/proc` and reports what is genuinely still running.
+///
+/// This is what a daemon will do on boot. Exposing it as a command first means the recovery
+/// logic is exercised by hand before anything depends on it.
+pub fn status(run_dir: &Path) -> Result<()> {
+    let records = aos_core::ledger::read(log_path(run_dir))?;
+    let recovered = aos_supervisor::recover(&records);
+
+    println!("{} records in the log", records.len());
+
+    if recovered.alive.is_empty() && recovered.lost.is_empty() {
+        println!("nothing was left running");
+        return Ok(());
+    }
+
+    for (agent, handle) in &recovered.alive {
+        println!("alive  {agent}  pid {}", handle.pid);
+    }
+    for (agent, handle) in &recovered.lost {
+        println!(
+            "lost   {agent}  pid {} is gone or was recycled, so it will not be touched",
+            handle.pid
+        );
+    }
+    Ok(())
 }

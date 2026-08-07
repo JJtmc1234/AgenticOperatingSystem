@@ -4,19 +4,23 @@
 //! above this layer, so that the part which can leave stray processes on the machine stays
 //! small enough to read in one sitting.
 
+pub mod proc;
+pub mod replay;
 mod signal;
+mod spawn;
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::path::PathBuf;
+use std::process::Child;
 use std::time::Duration;
 
-use aos_core::{AgentId, AgentSpec, AgentState, Error, Result};
+use aos_core::{AgentId, AgentSpec, AgentState, Error, ProcessHandle, Result};
 
+pub use replay::{Recovered, recover};
 pub use signal::StopMode;
 
-/// Owns every running child. Dropping it does not kill them, because a supervisor that
-/// takes its agents down when the caller goes away cannot be a daemon later.
+/// Owns every running child. Dropping it does not kill them, because a supervisor that takes
+/// its agents down when the caller goes away cannot be a daemon later.
 pub struct Supervisor {
     children: BTreeMap<AgentId, Child>,
     allowed: Vec<String>,
@@ -29,9 +33,9 @@ impl Supervisor {
     /// Never put an interpreter on it. `python -c` and `node -e` take code on their own
     /// argument vector, so allowing one grants everything the other gates protect.
     ///
-    /// `log_dir` receives one combined output file per agent. It is not optional, because
-    /// the alternative is a pipe nobody drains, which loses the output and eventually
-    /// deadlocks the agent. See bug 1 in `bug-list.md`.
+    /// `log_dir` receives one combined output file per agent. It is not optional, because the
+    /// alternative is a pipe nobody drains, which loses the output and eventually deadlocks
+    /// the agent. See bug 1 in `bug-list.md`.
     pub fn new(allowed: impl IntoIterator<Item = String>, log_dir: impl Into<PathBuf>) -> Self {
         Self {
             children: BTreeMap::new(),
@@ -46,35 +50,20 @@ impl Supervisor {
         self.log_dir.join(format!("{id}.log"))
     }
 
-    pub fn start(&mut self, spec: &AgentSpec) -> Result<AgentState> {
+    /// Launches an agent and returns the handle that identifies its process.
+    ///
+    /// A handle rather than a bare pid, so the caller can write something to the log that
+    /// stays meaningful after a reboot recycles the number. See `proc::is_still`.
+    pub fn start(&mut self, spec: &AgentSpec) -> Result<ProcessHandle> {
         if self.children.contains_key(&spec.id) {
             return Err(Error::Refused(format!("{} is already running", spec.id)));
         }
-        if !self.allowed.iter().any(|p| p == &spec.program) {
-            return Err(Error::Refused(format!(
-                "{:?} is not an allowed program, allowed are {:?}",
-                spec.program, self.allowed
-            )));
-        }
 
-        let log = open_log(&self.log_dir, &self.log_path(&spec.id))?;
+        let log_file = self.log_path(&spec.id);
+        let (child, handle) = spawn::launch(spec, &self.allowed, &self.log_dir, &log_file)?;
 
-        // Arguments go straight to execve as a list. No shell, so a semicolon or a pipe
-        // inside an argument stays literal text.
-        let child = Command::new(&spec.program)
-            .args(&spec.args)
-            // The child must not inherit our stdin. On the Windows AOS a child inherited the
-            // protocol pipe and ate the parent's messages.
-            .stdin(Stdio::null())
-            // A file, never a pipe. Nothing here drains a pipe, and a full pipe buffer stops
-            // the agent dead at roughly 64 KB of output.
-            .stderr(Stdio::from(log.try_clone()?))
-            .stdout(Stdio::from(log))
-            .spawn()?;
-
-        let pid = child.id();
         self.children.insert(spec.id.clone(), child);
-        Ok(AgentState::Running { pid })
+        Ok(handle)
     }
 
     /// Current state of one agent, reaping it if it has already exited.
@@ -134,16 +123,4 @@ impl Supervisor {
             })
             .collect()
     }
-}
-
-/// Opens an agent's log for appending, creating the directory on first use.
-///
-/// Append rather than truncate, so restarting an agent keeps the history that explains why
-/// it needed restarting.
-fn open_log(dir: &Path, path: &Path) -> Result<std::fs::File> {
-    std::fs::create_dir_all(dir)?;
-    Ok(std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?)
 }

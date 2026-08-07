@@ -4,13 +4,43 @@ Where the plan stands. Updated 2026 08 07.
 
 ## summary
 
-The project restarted on Linux in Rust. Phase 0 is complete and verified. The Windows tree is
-archived in the repo and removed from the working code.
+The project restarted on Linux in Rust. Phase 0 is complete and verified. Phase 0r was added
+after reading Hunter's `agentic_os` and is also complete. The Windows tree is archived in the
+repo and removed from the working code.
 
 | phase | target | status | note |
 |---|---|---|---|
 | 0 | 1 session | done | both acceptance criteria verified against real processes |
+| 0r | 1 session | done | log replay and pid identity, verified against a real crash |
 | 1 to 6 | see planning.md | not started | |
+
+## what reading agentic_os changed
+
+Hunter's kernel keeps its state as a fold over an append only log and replays that log on
+boot. The comment on `emit` states the rule as append, fold, then broadcast, in that order,
+always.
+
+The log here was write only. That was a real gap rather than a stylistic one, because the
+phase 1 daemon had no honest answer for what to do after a crash. It would have started blind
+and either lost track of running agents or started duplicates.
+
+So the audit log became the event log and the only durable state. `aos status` folds it and
+reconciles the result against `/proc`. Two logs would have meant two versions of the truth, so
+the old audit module was deleted rather than kept alongside.
+
+A full comparison of what else transfers, and what does not, is in
+[infrastructure.md](infrastructure.md).
+
+## the part his design never has to solve
+
+His agents are rows in a database. AOS agents are processes on a machine, and Linux reuses
+pids. After a crash, the pid the log remembers may belong to something entirely unrelated, so
+adopting it would mean signalling a stranger's process.
+
+Every start record now carries the process start time from field 22 of `/proc/<pid>/stat`
+alongside the pid. The kernel sets it once and never changes it, so the pair identifies a
+process for as long as the machine has been up. Recovery adopts an agent only when both
+match, and reports anything else as lost.
 
 ## why it restarted
 
@@ -24,19 +54,26 @@ Not compiled. Run.
 
 | check | result |
 |---|---|
-| `cargo test` | 18 passing. 9 unit, 9 integration against real child processes. |
+| `cargo test` | 35 passing. 26 unit, 9 integration against real child processes. |
 | `cargo clippy --all-targets -- -D warnings` | clean |
 | `cargo fmt` | clean |
 | `aos validate` on a good spec | reports the program and tier |
 | `aos validate` on id `../etc` | refused, and the message names the bad id |
 | `aos run` on an allowed program | started as a real pid, output captured, exit code reported |
 | `aos run` on `/bin/sh` | refused, and the allowlist is named in the message |
-| audit log after both runs | two lines, one allowed and one refused with a reason |
+| event log after both runs | two records, one started and one refused with a reason |
 | kill switch | three sleeping agents, all three stopped, none left running |
 | shell metacharacters in an argument | stayed literal, the injected `touch` never ran |
+| supervisor killed with SIGKILL mid run | agent survived as an orphan, `aos status` reported it alive |
+| the orphan then killed | `aos status` reported it lost, without being told |
+| a live pid with a tampered start token | reported lost, and the running process was left alone |
+| `/proc` stat parser against `we ) love ) parens` | still reads field 22 correctly |
 
-The refusal line in the audit log matters more than the success line. A log that only records
-what worked hides exactly the calls worth reviewing.
+The refusal record matters more than the success record. A log that only keeps what worked
+hides exactly the calls worth reviewing.
+
+The tampered token check is the one worth repeating. The process was genuinely alive and its
+pid genuinely matched the log. Recovery still refused to claim it, which is the whole point.
 
 ## mistakes and their permanent guards
 
@@ -64,6 +101,13 @@ estimated at a week of part time work.
 Rust's type system did real work here. `AgentId` cannot exist without passing its check, so
 path traversal is refused once at construction rather than at every place an id becomes a
 filename. That is a guard the compiler enforces rather than a rule someone has to remember.
+
+Reading someone else's repo found a design gap that testing never would have. Every test was
+green and every acceptance criterion was met, and the log was still write only. A test can
+only check the thing you already thought of.
+
+An identifier that the system reuses is not an identifier. That is true of pids and it will
+be true of anything else AOS starts handing out numbers for.
 
 Linux gives away for free what Windows charged a kernel driver for. Process state is readable
 under `/proc`, and resource limits are cgroups rather than a signed minifilter. Phase 4 is a

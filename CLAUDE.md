@@ -15,6 +15,15 @@ The model never calls a tool directly. It emits a structured request. The runtim
 the schema, checks policy, executes, and hands the result back. Anything that lets a model
 reach the machine without passing through that gate is a bug, not a shortcut.
 
+## the event log is the only durable state
+
+Everything the runtime believes is a fold over `run/events.jsonl`. Append the record first,
+then change the belief. Never the other way round, or a crash leaves the two disagreeing.
+
+A pid is not an identity, because Linux reuses them. Anything that records a process records
+its start time from `/proc` alongside the pid, and anything that acts on a recorded pid
+checks both first. See `proc::is_still`.
+
 ## safety model carried over from the Windows AOS
 
 | idea | what it means here |

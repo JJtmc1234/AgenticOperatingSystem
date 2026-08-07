@@ -29,6 +29,9 @@ enum Command {
 
     /// Start an agent and supervise it in the foreground until it exits.
     Run { spec: PathBuf },
+
+    /// Replay the event log and report which agents are genuinely still running.
+    Status,
 }
 
 fn main() -> Result<()> {
@@ -36,6 +39,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Validate { spec } => validate(&spec),
         Command::Run { spec } => runtime::run(&cli.run_dir, &spec),
+        Command::Status => runtime::status(&cli.run_dir),
     }
 }
 
