@@ -52,6 +52,38 @@ the token in the log and watching recovery refuse to claim it.
 Hunter's kernel never meets this problem, because his agents are rows in a database rather
 than processes on a machine. It is the cost of AOS supervising the real thing.
 
+## the token is enough to decide, not enough to act
+
+Checking the token tells you a pid is still yours. It does not keep it yours. Between the
+check passing and a signal being sent, the process can exit and its number can be handed to
+something else. The window is tiny, the consequence is killing the wrong program, and the bug
+would never reproduce.
+
+So AOS never signals an inherited agent by number. `PidFd::open` pins the process behind a
+file descriptor, and a pidfd never comes to mean a different process. A signal sent through
+it either reaches the process we opened or fails because that process is gone.
+
+The open itself is check, open, check again. If the token still matches while the descriptor
+is already held, the descriptor belongs to the process we meant, because nothing can swap it
+afterwards. Without the second check the swap could have happened during the open.
+
+| situation | what identifies the process |
+|---|---|
+| deciding, during replay | pid plus start token from `/proc` |
+| acting, on an inherited agent | a pidfd, opened under the check above |
+| acting, on an agent we spawned | the `Child` we already hold |
+
+## the two kinds of agent
+
+| kind | we can | we cannot |
+|---|---|---|
+| spawned | wait on it, read its exit code, signal it | |
+| adopted | see whether it lives, signal it | learn how it ended |
+
+An adopted agent outlived a previous supervisor, so the kernel reparented it to init, and
+init reaped it. Its exit code went there. `AgentState::Stopped { code: None }` says so
+honestly rather than inventing a zero that would read as success.
+
 Parsing field 22 has its own trap. Field 2 is the executable name in parentheses and may
 itself contain spaces and parentheses, so splitting the line on whitespace is wrong. The
 parser reads everything after the last `)`, and there is a test with a process named
@@ -128,6 +160,7 @@ anything. That is why fifteen of its tests run in under a millisecond.
 | bounded wait | `signal::wait_bounded` | an unbounded hang on a child that ignores SIGTERM |
 | record on refusal | `runtime::run` | a log that only records successes |
 | pid identity | `proc::is_still` | adopting a recycled pid that now belongs to a stranger |
+| pinned signalling | `PidFd::open` | a pid recycled between the check and the signal |
 
 The agent id check is worth calling out. Ids become filenames under the run directory, so
 they are validated once at construction rather than guarded at every use site. `AgentId` can

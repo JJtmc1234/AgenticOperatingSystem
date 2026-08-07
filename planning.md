@@ -23,7 +23,8 @@ Nothing is called done on a compile. Done means `cargo fmt`, `cargo clippy --all
 |---|---|---|---|
 | 0 | contracts crate, supervisor, cli, event log | 1 session | done |
 | 0r | event log as source of truth, replay, pid identity | 1 session | done |
-| 1 | daemon, so list and stop work across invocations | 1 week | not started |
+| 1a | adoption, so a restart re-takes its surviving agents | 1 session | done |
+| 1b | the daemon and its socket | 1 week | not started |
 | 2 | policy engine and the plan then commit handshake | 1 week | not started |
 | 3 | capability servers over MCP, files and shell first | 1 to 2 weeks | not started |
 | 4 | resource limits through cgroups | 1 week | not started |
@@ -53,14 +54,27 @@ Passes when a supervisor is killed mid run, the agent survives as an orphan, `ao
 reports it alive, and the same command reports it lost once the agent is gone. Both verified,
 plus a live process with a tampered token which recovery correctly refuses to claim.
 
-## phase 1, the daemon
+## phase 1a, adoption
+
+A supervisor that restarts has to take back the agents that outlived it. They are no longer
+its children, so it cannot wait on them, and signalling them by number races against pid
+reuse.
+
+`Supervisor::adopt` pins each survivor with a pidfd, which cannot come to mean a different
+process. `adopt_from` drives that off a replayed log and reports what was lost.
+
+Passes when a genuinely orphaned process, reparented to init, is adopted by a fresh
+supervisor, reported running, and stopped through its descriptor, and when a handle with a
+stale token is refused while the real process is left untouched. Both verified.
+
+## phase 1b, the daemon
 
 Phase 0 supervises in the foreground only, so `list` and `stop` cannot see an agent another
 invocation started. A long lived `aosd` holds the supervisor and the cli talks to it over a
 unix socket.
 
-Phase 0r did the hard half. The daemon boots by replaying the log rather than starting blind,
-and adopts only the agents `/proc` confirms are genuinely still ours.
+Phases 0r and 1a did the hard half. The daemon boots by replaying the log rather than starting
+blind, and adopts only the agents it can prove are still its own.
 
 The socket is the new attack surface, so it gets file permissions restricted to the owner and
 a message schema that is checked before anything is acted on.

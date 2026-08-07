@@ -12,7 +12,8 @@ repo and removed from the working code.
 |---|---|---|---|
 | 0 | 1 session | done | both acceptance criteria verified against real processes |
 | 0r | 1 session | done | log replay and pid identity, verified against a real crash |
-| 1 to 6 | see planning.md | not started | |
+| 1a | 1 session | done | adoption, verified against genuinely orphaned processes |
+| 1b to 6 | see planning.md | not started | the daemon and its socket are next |
 
 ## what reading agentic_os changed
 
@@ -82,13 +83,18 @@ Full detail in [bug-list.md](bug-list.md).
 | mistake | permanent guard |
 |---|---|
 | agent output piped with no reader, so output was lost and a chatty agent would deadlock | `a_chatty_agent_finishes_and_its_output_is_kept`, which pushes 1.3 MB through, plus `agent_output_lands_in_its_log` |
+| a test helper waited on `setsid` with no bound, so a wrong assumption hung the suite for two minutes instead of failing | `wait_bounded` in `tests/adoption.rs`, which panics naming the cause after 5 seconds |
 
-One bug so far, and it was found by running the binary rather than by a test. That is the
-honest lesson of the session. The test suite was green while the thing was broken, because
-every test used a program that printed almost nothing. Tests written from the same assumption
-as the code do not catch the assumption being wrong.
+Bug 1 was found by running the binary rather than by a test. The suite was green while the
+thing was broken, because every test used a program that printed almost nothing. Tests written
+from the same assumption as the code do not catch the assumption being wrong.
 
-The guard was checked by reverting the fix and watching the test fail, which is now the rule
+Bug 2 is more embarrassing and more useful. The project already holds the rule that an
+unbounded wait is a bug, in `signal::wait_bounded` and in the Windows AOS bug list before
+that. The rule was written down and then broken in the next file. Writing a rule down is not
+the same as following it, which is exactly why the guards have to be code.
+
+Both guards were checked by reverting the fix and watching the test fail, which is the rule
 for every entry in the bug list.
 
 ## deadlines
@@ -108,6 +114,12 @@ only check the thing you already thought of.
 
 An identifier that the system reuses is not an identifier. That is true of pids and it will
 be true of anything else AOS starts handing out numbers for.
+
+Checking is not the same as holding. The start token proves a pid is yours at the moment you
+look, and proves nothing at the moment you act. Closing that gap needed a different tool, a
+pidfd, which is a handle the kernel guarantees will never point somewhere else. Worth
+remembering as a shape: when a check and an action are separate steps, something has to hold
+the answer still in between.
 
 Linux gives away for free what Windows charged a kernel driver for. Process state is readable
 under `/proc`, and resource limits are cgroups rather than a signed minifilter. Phase 4 is a

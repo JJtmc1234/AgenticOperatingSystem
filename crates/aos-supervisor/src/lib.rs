@@ -4,25 +4,29 @@
 //! above this layer, so that the part which can leave stray processes on the machine stays
 //! small enough to read in one sitting.
 
+pub mod pidfd;
 pub mod proc;
 pub mod replay;
 mod signal;
 mod spawn;
+mod tracked;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::process::Child;
 use std::time::Duration;
 
-use aos_core::{AgentId, AgentSpec, AgentState, Error, ProcessHandle, Result};
+use aos_core::{AgentId, AgentSpec, AgentState, Error, ProcessHandle, Record, Result};
 
+pub use pidfd::PidFd;
 pub use replay::{Recovered, recover};
 pub use signal::StopMode;
+pub use tracked::Tracked;
 
-/// Owns every running child. Dropping it does not kill them, because a supervisor that takes
-/// its agents down when the caller goes away cannot be a daemon later.
+/// Owns every agent this supervisor is responsible for. Dropping it does not kill them,
+/// because a supervisor that takes its agents down when the caller goes away cannot be a
+/// daemon later.
 pub struct Supervisor {
-    children: BTreeMap<AgentId, Child>,
+    agents: BTreeMap<AgentId, Tracked>,
     allowed: Vec<String>,
     log_dir: PathBuf,
 }
@@ -38,7 +42,7 @@ impl Supervisor {
     /// the agent. See bug 1 in `bug-list.md`.
     pub fn new(allowed: impl IntoIterator<Item = String>, log_dir: impl Into<PathBuf>) -> Self {
         Self {
-            children: BTreeMap::new(),
+            agents: BTreeMap::new(),
             allowed: allowed.into_iter().collect(),
             log_dir: log_dir.into(),
         }
@@ -51,44 +55,77 @@ impl Supervisor {
     }
 
     /// Launches an agent and returns the handle that identifies its process.
-    ///
-    /// A handle rather than a bare pid, so the caller can write something to the log that
-    /// stays meaningful after a reboot recycles the number. See `proc::is_still`.
     pub fn start(&mut self, spec: &AgentSpec) -> Result<ProcessHandle> {
-        if self.children.contains_key(&spec.id) {
+        if self.agents.contains_key(&spec.id) {
             return Err(Error::Refused(format!("{} is already running", spec.id)));
         }
 
         let log_file = self.log_path(&spec.id);
         let (child, handle) = spawn::launch(spec, &self.allowed, &self.log_dir, &log_file)?;
 
-        self.children.insert(spec.id.clone(), child);
+        self.agents
+            .insert(spec.id.clone(), Tracked::Spawned { child, handle });
         Ok(handle)
+    }
+
+    /// Takes responsibility for an agent that outlived a previous supervisor.
+    ///
+    /// Refuses unless the process is genuinely still the one recorded. That check and the
+    /// pinning happen together in `PidFd::open`, so nothing can slip in between them.
+    pub fn adopt(&mut self, id: AgentId, handle: ProcessHandle) -> Result<()> {
+        if self.agents.contains_key(&id) {
+            return Err(Error::Refused(format!("{id} is already tracked")));
+        }
+        let pinned = PidFd::open(handle).ok_or_else(|| {
+            Error::Refused(format!(
+                "{id} is not running as pid {}, so it will not be adopted",
+                handle.pid
+            ))
+        })?;
+
+        self.agents.insert(id, Tracked::Adopted { pinned });
+        Ok(())
+    }
+
+    /// Replays a log and adopts everything it says is running that genuinely still is.
+    ///
+    /// Returns what recovery found, so the caller can write a record for each agent that was
+    /// lost while nobody was supervising. Closing that gap in the log is the caller's job,
+    /// because only the caller holds the ledger.
+    pub fn adopt_from(&mut self, records: &[Record]) -> Recovered {
+        let recovered = recover(records);
+        for (id, handle) in &recovered.alive {
+            // A failure here means it died between recovery and adoption. Rare, and the agent
+            // simply stays untracked, which is the safe outcome.
+            let _ = self.adopt(id.clone(), *handle);
+        }
+        recovered
     }
 
     /// Current state of one agent, reaping it if it has already exited.
     pub fn state(&mut self, id: &AgentId) -> Result<AgentState> {
-        let child = self
-            .children
+        let tracked = self
+            .agents
             .get_mut(id)
             .ok_or_else(|| Error::UnknownAgent(id.clone()))?;
 
-        match child.try_wait()? {
-            Some(status) => {
-                self.children.remove(id);
-                Ok(AgentState::Stopped {
-                    code: status.code(),
-                })
-            }
-            None => Ok(AgentState::Running { pid: child.id() }),
+        let state = tracked.state()?;
+        if matches!(state, AgentState::Stopped { .. }) {
+            self.agents.remove(id);
         }
+        Ok(state)
     }
 
     pub fn list(&mut self) -> Vec<(AgentId, AgentState)> {
-        let ids: Vec<_> = self.children.keys().cloned().collect();
+        let ids: Vec<_> = self.agents.keys().cloned().collect();
         ids.into_iter()
             .filter_map(|id| self.state(&id).ok().map(|s| (id, s)))
             .collect()
+    }
+
+    /// Whether this agent was inherited rather than started by us.
+    pub fn is_adopted(&self, id: &AgentId) -> bool {
+        self.agents.get(id).is_some_and(Tracked::is_adopted)
     }
 
     /// Asks the agent to stop, then insists after `grace`.
@@ -96,26 +133,23 @@ impl Supervisor {
     /// The wait is bounded. An unbounded wait on a child that ignores the signal hangs the
     /// supervisor, which is the failure the Windows AOS hit and guarded against.
     pub fn stop(&mut self, id: &AgentId, grace: Duration) -> Result<AgentState> {
-        let child = self
-            .children
+        let tracked = self
+            .agents
             .get_mut(id)
             .ok_or_else(|| Error::UnknownAgent(id.clone()))?;
 
-        let status = match signal::stop_child(child, grace)? {
-            Some(status) => status,
-            None => return Err(Error::Refused(format!("{id} did not stop"))),
+        let Some(state) = tracked.stop(grace)? else {
+            return Err(Error::Refused(format!("{id} did not stop")));
         };
 
-        self.children.remove(id);
-        Ok(AgentState::Stopped {
-            code: status.code(),
-        })
+        self.agents.remove(id);
+        Ok(state)
     }
 
     /// Kill switch. Stops every agent regardless of tier and reports what it stopped.
     #[allow(clippy::type_complexity)]
     pub fn stop_all(&mut self, grace: Duration) -> Vec<(AgentId, Result<AgentState>)> {
-        let ids: Vec<_> = self.children.keys().cloned().collect();
+        let ids: Vec<_> = self.agents.keys().cloned().collect();
         ids.into_iter()
             .map(|id| {
                 let outcome = self.stop(&id, grace);

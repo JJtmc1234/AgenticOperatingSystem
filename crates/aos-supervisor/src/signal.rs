@@ -44,6 +44,35 @@ fn term(_child: &Child) {
     // No SIGTERM equivalent. stop_child falls through to kill.
 }
 
+/// Same escalation for a process we do not own, pinned by descriptor.
+///
+/// Returns whether it actually stopped. There is no exit status, because an adopted process
+/// is reaped by init and its code never comes back to us.
+pub fn stop_pinned(pinned: &crate::pidfd::PidFd, grace: Duration) -> Result<bool> {
+    // An error here means the process is already gone, which is the outcome we wanted.
+    let _ = pinned.send(libc::SIGTERM);
+    if wait_gone(pinned, grace) {
+        return Ok(true);
+    }
+
+    let _ = pinned.send(libc::SIGKILL);
+    Ok(wait_gone(pinned, Duration::from_secs(5)))
+}
+
+/// Polls a pinned process until it is gone or the deadline passes.
+fn wait_gone(pinned: &crate::pidfd::PidFd, limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        if !pinned.is_alive() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 /// Polls until the child exits or the deadline passes.
 ///
 /// Polling rather than blocking on wait, because a blocking wait cannot be given a timeout
