@@ -1,0 +1,20 @@
+[workspace]
+members = ["crates/aos-core", "crates/aos-supervisor", "crates/aos-cli"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+repository = "https://github.com/JJtmc1234/AgenticOperatingSystem"
+
+[workspace.dependencies]
+aos-core = { path = "crates/aos-core" }
+aos-supervisor = { path = "crates/aos-supervisor" }
+
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tempfile = "3"

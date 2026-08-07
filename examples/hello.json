@@ -1,0 +1,6 @@
+{
+  "id": "hello",
+  "program": "/usr/bin/echo",
+  "args": ["agent one, reporting in"],
+  "ceiling": "read"
+}

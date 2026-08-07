@@ -4,53 +4,62 @@ How this project idea was reached.
 
 ## the want
 
-Make Windows agent native. Agents should be part of the operating system, not an app you
-alt tab into. Goal is personal productivity, not a product for other users.
+Agents should be part of the operating system, not an app you alt tab into. They should be
+started, watched, limited and stopped the way the system already does that for processes.
+Goal is JJ's own productivity, not a product for other people.
 
-## four readings of "agentic operating system built off Windows"
+## why this is the second attempt
+
+The first AOS targeted Windows. It reached a working capability broker, three MCP servers
+and a daily brief, then stopped early. Two things changed.
+
+A new computer arrived, running Ubuntu 26.04. AOS follows the machine it is meant to
+improve, so a Windows layer on a Linux desktop is a layer over nothing.
+
+JJ's CS teacher calls Linux the hacker OS, and for this project that is literally true.
+Everything an agent supervisor wants to inspect is already readable on Linux. Processes are
+files under `/proc`. Limits are cgroups. Isolation is namespaces. Service supervision is a
+solved and documented pattern in systemd. On Windows the same information sat behind ETW,
+WMI and eventually a signed kernel driver.
+
+## four readings of "agentic operating system"
 
 | reading | verdict |
 |---|---|
-| agent layer on top of Windows | fastest, but not really an OS |
-| replace explorer.exe as the shell | high risk, high wow, rebuilds the desktop from zero |
-| custom Windows image with the agent baked in | chosen, real OS distro feel |
-| ordinary desktop app | rejected, no system integration |
+| ordinary desktop app | rejected, no system integration, and this was rejected the first time too |
+| agent runtime layered on Linux | chosen |
+| replace the shell or desktop environment | rejected for now, high risk and it rebuilds work that is not the point |
+| custom kernel or distro | rejected for now, the slowest possible iteration loop |
 
-Chosen: custom Windows image. Agents act through native APIs, MCP servers, computer use
-vision, and kernel hooks. Stack is hybrid, C sharp for deep Windows access and TypeScript
-for the agent loop.
+Chosen: an agent runtime on top of an ordinary Ubuntu install. A custom image stays possible
+later, and Linux makes it far cheaper than a Windows WIM ever was.
 
-## the tension that shaped everything
+## what carries over and what does not
 
-A custom image plus kernel drivers is the slowest iteration loop on Windows. Edit, rebuild
-the WIM, boot a VM, test. Twenty to forty minutes per cycle. Driver work needs an EV
-certificate with Microsoft attestation signing, or test signing mode with Secure Boot off.
+The safety design carries over whole, because it was the good part. Risk tiers, plan then
+commit, an allowlist that refuses interpreters, an append only audit log, a kill switch, and
+post condition checks after a change lands.
 
-If the image were the development environment, months would go to build plumbing before
-any productivity gain arrived.
+The platform work does not carry over. UIAutomation, the WIM build, the minifilter and the
+signing problem are all gone. That is most of why the rewrite is cheap.
 
-## the inversion
+The old tree is kept as `old-windows-code.zip` at the repo root, taken with `git archive` so
+it holds what was committed rather than whatever happened to be on disk. That distinction was
+the lesson of JJtorio issue 16.
 
-The custom image is a packaging target, not a development environment.
+## the language choice
 
-Every capability is an idempotent provisioning module that installs onto a live machine.
-Daily dogfooding starts in phase 1. The image build applies those same tested modules
-offline to a mounted WIM, which is nearly free once provisioning is proven.
+Rust. The supervisor is the part that can leave stray processes on the machine, so the
+component with the highest cost of being wrong is the one being written first. Rust also
+removes an entire class of mistake from the part that handles other people's process
+lifetimes, and it compiles to a single binary with no runtime to install.
 
-Same logic for observability. ETW, the NTFS USN journal, and WMI give most of what a
-kernel minifilter gives, with none of the signing cost. The real driver waits until last
-and stays in a VM.
+Cost is honest: Rust is harder than Python, and progress will be slower at the start.
 
-## consequence we liked
+## what has to be true first
 
-Phase 1 delivers value through Claude Code and Claude Desktop, both already installed,
-before any custom user interface exists.
+The supervisor has to be boring and correct before anything clever sits on it. An agent
+runtime that occasionally leaks a process is not a foundation. Phase 0 therefore builds the
+contracts and the supervisor and nothing else.
 
-## constraints found by probing the machine
-
-Windows 11 Home has no Hyper V, so image and driver testing needs VMware Workstation or
-VirtualBox. The Windows ADK is not installed, which phase 6 requires. Hardware is
-comfortable at 20 cores, 64 GB RAM, and an RTX 4060, so local Whisper and a small local
-model can absorb high frequency work and keep token cost near zero.
-
-See [planning.md](planning.md) for the phase breakdown.
+See [planning.md](planning.md) for the phases.

@@ -1,22 +1,6 @@
-bin/
-obj/
-node_modules/
-dist/
-.vs/
-*.user
+/target
+**/*.rs.bk
 
-# Runtime state — never commit
-audit/
-*.jsonl
-.trash/
-data/*.db
-data/*.db-*
-
-# Secrets
-.env
-*.secrets.json
-provisioning/secrets/
-image/out/
-image/mount/
-*.wim
-*.iso
+# Runtime state. Allowlist, audit log, agent output, sockets. Never committed.
+# Scoped to the run directory on purpose. A bare *.jsonl would also hide a test fixture.
+/run

@@ -1,145 +1,97 @@
 # planning
 
-Idea broken into executable chunks. Effort assumes part time solo work. Dates are targets,
-not commitments.
+The idea broken into chunks. Effort assumes part time solo work. Dates are targets, not
+commitments.
 
 ## principles that order the phases
 
-Build every capability as an idempotent provisioning module, install it on the live
-machine, use it daily. The custom image consumes those modules at the end. This is why
-phase 6 is cheap and why value arrives in phase 1.
+Build the part with the highest cost of being wrong first. That is the supervisor, because it
+owns process lifetimes and a mistake there leaves things running on the machine.
 
-This is a harness, so it is built to harness engineering rules. See the framing section in
-[infrastructure.md](infrastructure.md) for the full mapping. Two rules change the plan.
+The model never calls a tool directly. Every call goes through a gate that validates, checks
+policy, executes and reports. This is why the contracts crate exists before any capability.
 
-The model never calls a tool directly. Every call goes through the broker, which validates,
-checks permissions, executes, and injects the result back. Already true, and it is why the
-foundation phases came first.
+A bug is finished when a permanent guard exists that would have caught it. Every entry in
+[bug-list.md](bug-list.md) names the test that fails against the old code.
 
-Any time the agent makes a mistake, engineer a solution so it can never make that mistake
-again. A bug is not finished when it is fixed, it is finished when a permanent guard exists
-that would have caught it. This promoted verification from absent to first class, since it
-is the primitive that turns a demo into something trustworthy.
+Nothing is called done on a compile. Done means `cargo fmt`, `cargo clippy --all-targets
+-- -D warnings` and `cargo test` all run, plus the thing exercised for real.
 
 ## phases
 
 | phase | chunk | effort | status |
 |---|---|---|---|
-| 0 | foundation, contracts, provisioning runner | 1 session | done |
-| 1 | capability broker and four MCP servers | 1 to 2 weeks | in progress |
-| 1v | verification: post-conditions and harness invariants | 2 days | done |
-| 2 | TypeScript orchestrator, routines, memory | 1 to 2 weeks | in progress |
-| 3 | tray app, hotkey, resident session | 1 week | in progress |
-| 4 | sensors and proactivity as a Windows service | 1 to 2 weeks | not started |
-| 5 | computer use vision fallback | 3 to 5 days | not started |
-| 6 | the custom Windows image | 1 to 2 weeks | not started |
-| 7 | kernel minifilter, optional | 2 to 3 weeks | not started |
+| 0 | contracts crate, supervisor, cli, audit log | 1 session | done |
+| 1 | daemon, so list and stop work across invocations | 1 week | not started |
+| 2 | policy engine and the plan then commit handshake | 1 week | not started |
+| 3 | capability servers over MCP, files and shell first | 1 to 2 weeks | not started |
+| 4 | resource limits through cgroups | 1 week | not started |
+| 5 | routines and a scheduler, starting with a daily brief | 1 to 2 weeks | not started |
+| 6 | sensors, so agents react to the machine rather than to prompts | 2 weeks | not started |
 
 ## phase 0, foundation
 
-Solution scaffold. `Aos.Core` holds the safety contracts. Provisioning runner establishes
-the idempotent module pattern from the first commit.
+`aos-core` holds the safety contracts and touches nothing. `aos-supervisor` starts, watches
+and stops agents as child processes. `aos-cli` runs one in the foreground and writes the
+audit log.
 
-Done when `dotnet build` succeeds and `Install-Aos.ps1 -WhatIf` lists planned actions
-without changing anything.
+Done when `cargo test` passes against real child processes, and `aos run` starts a real agent,
+logs its output, and refuses a program that is not on the allowlist. Both verified.
 
-## phase 1, capability servers and broker
+## phase 1, the daemon
 
-Broker first, then the servers on top of it.
+Phase 0 supervises in the foreground only, so `list` and `stop` cannot see an agent another
+invocation started. A long lived `aosd` holds the supervisor and the cli talks to it over a
+unix socket.
 
-| server | scope |
+The socket is the new attack surface, so it gets file permissions restricted to the owner and
+a message schema that is checked before anything is acted on.
+
+Done when an agent started by one terminal is visible and stoppable from another, and when
+killing the daemon does not orphan its agents.
+
+## phase 2, policy
+
+Tiers exist as types already. This phase gives them a policy file and a verdict of allow,
+prompt or deny, plus the plan then commit handshake so nothing mutating happens in one step.
+
+Done when a `Destructive` action refuses to run without an explicit commit, and the refusal
+is in the audit log with a reason.
+
+## phase 3, capability servers
+
+Rebuild the useful part of the Windows AOS in Rust over MCP, which is the protocol Claude
+Code already speaks. Files first, then a policy gated command runner. Never a raw shell.
+
+Done when a request like "find every PDF I touched this week and file them by project" works
+from Claude Code, with every gated call in the audit log.
+
+## phase 4, resource limits
+
+cgroups v2 gives memory and cpu ceilings per agent. This is the thing Windows made hard and
+Linux makes routine, so it lands early rather than late.
+
+Done when an agent that tries to allocate past its ceiling is stopped by the kernel and the
+supervisor reports why.
+
+## phase 5, routines
+
+Declarative routines on a schedule. The daily brief comes first, because on Windows it was the
+first thing that paid for itself without being asked.
+
+Done when the brief runs unattended and gets read.
+
+## phase 6, sensors
+
+inotify for filesystem activity, `/proc` for process activity, journald for system events.
+Agents react to what happened rather than to being asked.
+
+Done when a routine fires from an event and the result is useful rather than noisy.
+
+## known risks
+
+| risk | response |
 |---|---|
-| aos-windows | UIAutomation, window and process control, screen capture |
-| aos-files | content indexed search, USN journal recent activity, safe organize |
-| aos-shell | policy gated PowerShell, raw shell stays denied |
-| aos-apps | Gmail and Google Calendar over OAuth2, browser control over CDP |
-
-Done when a request like "find every PDF I touched this week and file them by project"
-works from Claude Code, with the audit log showing each gated call. Also triaging tomorrow
-calendar and drafting replies to unread mail.
-
-## phase 1v, verification
-
-Two mechanisms, both borrowed from what already worked in provisioning.
-
-Post-condition checks. A mutating capability confirms the world looks the way it claimed
-after a committed change, exactly as the provisioning runner re-tests a step after setting
-it. A failed check reports `AppliedButUnverified` rather than `Failed`, because a failure
-reads as nothing happened and invites a retry that applies the change twice.
-
-Harness invariants. A suite asserts properties for every capability that will ever be
-written rather than for the ones that exist now: a dry run never commits, `System` and
-above always require a commit, every call writes exactly one audit entry, secrets are always
-redacted, the kill switch stops every tier.
-
-Done when both hold and the invariant suite fails if a new capability breaks a guarantee.
-
-## phase 2, orchestrator
-
-TypeScript service on the Claude Agent SDK, consuming the phase 1 servers. Routines as
-declarative definitions: morning brief, inbox triage, end of day shutdown, weekly review.
-Scheduled through Windows Task Scheduler. Memory in SQLite, kept separate from transcript
-history so routines have durable context. A local model handles high frequency
-classification, Claude handles reasoning and writing, and a hard token budget guard caps
-spend.
-
-Done when the morning brief runs unattended and lands somewhere it gets read.
-
-## phase 3, heads up display
-
-C sharp WebView2 host rather than Electron. The WebView2 runtime already ships with
-Windows 11, and a C sharp host gives native tray, always on top overlay, and global
-hotkeys without a second Chromium. Global hotkey opens a command palette from anywhere.
-Streaming responses, approval prompts for gated calls, kill switch, audit viewer.
-
-Done when one hotkey takes typed or spoken intent to a visible result without leaving the
-current application.
-
-## phase 4, sensors and proactivity
-
-`Aos.Service` as a real Windows service hosting ETW consumers, a USN journal watcher, WMI
-subscriptions, and window focus tracking, feeding an event bus. Activity ledger drives the
-weekly review and context reconstruction. Proactive nudges react to events rather than
-prompts, rate limited and opt in per event class. Optional meeting capture runs audio
-through local faster whisper on the 4060, free and offline.
-
-Done when the service survives reboot and the weekly review is accurate.
-
-## phase 5, vision fallback
-
-Screenshot to Claude vision to coordinate actions through SendInput. Exposed as a distinct
-higher cost tool the agent reaches for only when UIAutomation fails. The tool description
-must state that ordering, because vision is slower, pricier, and more brittle.
-
-Done when an application with no accessible control tree can be driven end to end.
-
-## phase 6, the custom image
-
-Install the Windows ADK with the WinPE add on. Set up VMware Workstation or VirtualBox as
-the test target, since Hyper V is unavailable on Windows 11 Home. `Build-Image.ps1` mounts
-install.wim, applies the provisioning modules offline, injects drivers and unattend.xml,
-sets the service to auto start, unmounts, and builds an ISO with oscdimg. Secrets come from
-a file supplied at build time and are never committed.
-
-Done when a clean virtual machine boots from the ISO and the agent greets you at first
-login with no manual setup.
-
-## phase 7, kernel minifilter, optional
-
-Only if phase 4 telemetry proves insufficient. Honest cost is WDK setup, a minifilter
-driver project, test signing with Secure Boot disabled, and a real risk of bugchecks. VM
-only, never the host, because test signing breaks BitLocker recovery flows and some anti
-cheat.
-
-Done when the driver loads in the VM, streams filesystem events, and survives a stress run
-without a bugcheck.
-
-## open items
-
-1. Secrets storage. Windows Credential Manager over DPAPI is the pragmatic choice. Decide
-   before the first API key is written anywhere.
-2. Elevation split. The service needs administrator rights for ETW and system changes. The
-   display and orchestrator should run as the normal user. Confirm rather than running
-   everything elevated.
-
-Mail and calendar is settled. Google Workspace, not Microsoft Graph.
+| Rust slows early progress | phase 0 was deliberately small, and it is done |
+| the daemon orphans agents on crash | phase 1 acceptance test covers exactly this |
+| scope grows toward a custom distro | brainstorm records that as rejected for now, revisit only after phase 5 |

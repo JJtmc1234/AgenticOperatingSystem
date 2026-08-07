@@ -1,0 +1,18 @@
+[package]
+name = "aos-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "aos"
+path = "src/main.rs"
+
+[dependencies]
+aos-core.workspace = true
+aos-supervisor.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true

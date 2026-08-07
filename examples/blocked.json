@@ -1,0 +1,6 @@
+{
+  "id": "blocked",
+  "program": "/bin/sh",
+  "args": ["-c", "echo this should never run"],
+  "ceiling": "read"
+}

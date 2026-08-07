@@ -1,57 +1,57 @@
-# agenticos
+# aos
 
-An agent native layer over Windows, built to be baked into a custom Windows image.
+Agent native layer over Linux. Rust, developed on Ubuntu 26.04.
 
-Guiding decision: the custom image is a packaging target, not a development environment.
-Everything is an idempotent provisioning module that installs onto a live machine and gets
-used daily. The image build applies those same tested modules offline to a mounted WIM,
-which keeps it cheap.
+Agents are supervised like processes. The runtime starts them, bounds what they may run,
+records every attempt including refusals, and can stop all of them at once.
+
+This is the second AOS. The first targeted Windows in C sharp and is archived here as
+`old-windows-code.zip`. Its safety design carried over. Its platform did not.
 
 ## docs
 
 | file | contents |
 |---|---|
-| [brainstorm.md](brainstorm.md) | how the idea was reached and why the image is a packaging target |
-| [planning.md](planning.md) | the seven phases, effort, and acceptance criteria |
-| [infrastructure.md](infrastructure.md) | components, transports, data flow, safety model |
-| [progress-report.md](progress-report.md) | current status, deadlines, what was learned |
+| [brainstorm.md](brainstorm.md) | how the idea was reached and why Windows was left behind |
+| [planning.md](planning.md) | the phases, effort, and acceptance criteria |
+| [infrastructure.md](infrastructure.md) | components, how they talk, the safety gates |
+| [progress-report.md](progress-report.md) | current status and what was learned |
+| [bug-list.md](bug-list.md) | every bug and the test that stops it coming back |
 
 ## getting started
 
-```powershell
-dotnet build aos.sln
-dotnet test aos.sln
-.\provisioning\Install-Aos.ps1 -WhatIf   # report what would change
-.\provisioning\Install-Aos.ps1           # publish servers, install policy, register MCP
+```sh
+cargo build
+cargo test
+cargo clippy --all-targets -- -D warnings
 ```
 
-Runtime state lives in `%LOCALAPPDATA%\AgenticOS` and is never committed.
+Then run a real agent. The run directory holds the allowlist, the audit log and agent output.
 
-Claude Code reads the servers from `.mcp.json` in this repo. Claude Desktop is registered by
-`provisioning/modules/30-mcp.ps1`, which merges into its config and backs it up first.
+```sh
+mkdir -p run
+echo '["/usr/bin/echo"]' > run/allowed-programs.json
 
-## gotchas worth knowing before you edit
+./target/debug/aos validate examples/hello.json
+./target/debug/aos run examples/hello.json
 
-Provisioning module scoping. Steps are collected from a module, then invoked after that
-module scope is gone. So module local variables referenced by a step must be captured with
-`.GetNewClosure()`. Because `GetNewClosure` snapshots the module scope, runner scope
-functions would not resolve from inside a closure either, so shared helpers are defined
-global and removed on exit. Both rules sit at the top of `provisioning/Install-Aos.ps1`.
-Getting either wrong fails at step execution time, not parse time.
+cat run/logs/hello.log     # what the agent said
+cat run/audit.jsonl        # what the runtime allowed or refused
+```
 
-`System.IO` is not in the implicit using set for WindowsDesktop SDK projects that set
-`UseWPF` or `UseWindowsForms`, though it is for plain `net9.0`. Import it explicitly.
+`examples/blocked.json` asks for `/bin/sh`, which is not on the allowlist. It is refused and
+the refusal is written to the audit log.
 
-`JsonValue.GetValue<T>()` demands an exact type match for nodes built in process, so a value
-constructed from an `int` throws when read as a `long`, while the same argument arriving over
-the wire is JsonElement backed and converts freely. Always go through `Aos.Core.JsonArgs`.
+## what works today
 
-UIAutomation refs. `ui.tree` addresses elements by a path of child indices such as `0.3.1`
-rather than display name, because names repeat, localize, and contain whitespace. Refs go
-stale when the interface changes, and the error says so.
+Phase 0. Contracts, the supervisor, the `aos` binary, the audit log. Supervision is foreground
+only, so `list` and `stop` across separate invocations wait for the phase 1 daemon.
 
-## house rules for this repo
+## before you edit
 
-Filenames use lower case only. Documentation is `.md` only. Prose avoids dashes and
-semicolons. No local paths containing a user name anywhere in the repo, including tests.
-Always quality check generated output before committing it.
+Read [infrastructure.md](infrastructure.md) first, and the section on why an allowlist is not
+enough on its own. Never add an interpreter to `allowed-programs.json`. `python3 -c` and
+`node -e` take code on their own argument vector, so allowing one grants everything the rest
+of the gates protect.
+
+Runtime state lives in `run/` and is never committed.
