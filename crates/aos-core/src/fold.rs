@@ -17,13 +17,21 @@ use crate::{AgentId, Event, ProcessHandle, Record};
 pub fn believed_running(records: &[Record]) -> BTreeMap<AgentId, ProcessHandle> {
     let mut live = BTreeMap::new();
     for record in records {
+        // Matched variant by variant on purpose, with no catch-all. A catch-all treats every
+        // new event as an ending, which is how `planned` would have silently marked a running
+        // agent stopped. This way a new event type fails to compile until someone decides.
         match &record.event {
             Event::Started { handle, .. } => {
                 live.insert(record.agent.clone(), *handle);
             }
-            _ => {
+            Event::Exited { .. }
+            | Event::Stopped { .. }
+            | Event::Refused { .. }
+            | Event::LostWhileUnsupervised { .. } => {
                 live.remove(&record.agent);
             }
+            // An offer, not an outcome. Nothing about the machine changed.
+            Event::Planned { .. } => {}
         }
     }
     live
@@ -110,6 +118,24 @@ mod tests {
                 "{ending:?} should clear the agent"
             );
         }
+    }
+
+    /// A plan is an offer. Recording one must not make a running agent look stopped, which
+    /// is exactly what the old catch-all would have done.
+    #[test]
+    fn a_plan_does_not_disturb_a_running_agent() {
+        let records = [
+            record(1, "worker", started(10)),
+            record(
+                2,
+                "worker",
+                Event::Planned {
+                    plan: crate::PlanId::from("abc".to_string()),
+                    tier: crate::RiskTier::Destructive,
+                },
+            ),
+        ];
+        assert_eq!(believed_running(&records)[&id("worker")], handle(10));
     }
 
     #[test]

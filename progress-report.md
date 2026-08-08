@@ -4,7 +4,7 @@ Where the plan stands. Updated 2026 08 07.
 
 ## summary
 
-The project restarted on Linux in Rust. Phase 0 and all of phase 1 are complete and verified.
+The project restarted on Linux in Rust. Phases 0, 1 and 2 are complete and verified.
 Phase 0r was added after reading Hunter's `agentic_os`. `aosd` now supervises agents that
 outlive it, and `aos list` and `aos stop` work from any terminal. The Windows tree is archived
 in the repo and removed from the working code.
@@ -15,7 +15,8 @@ in the repo and removed from the working code.
 | 0r | 1 session | done | log replay and pid identity, verified against a real crash |
 | 1a | 1 session | done | adoption, verified against genuinely orphaned processes |
 | 1b | 1 session | done | the daemon, verified over a real socket |
-| 2 to 6 | see planning.md | not started | policy and the commit handshake are next |
+| 2 | 1 session | done | policy and the plan then commit handshake |
+| 3 to 6 | see planning.md | not started | capability servers over MCP are next |
 
 ## what reading agentic_os changed
 
@@ -78,6 +79,13 @@ Not compiled. Run.
 | a second daemon on the same run directory | refused, and the live one was left listening |
 | the socket's permissions | 0600, asserted after bind rather than assumed |
 | malformed requests, including a path shaped agent id | answered with an error, and the daemon stayed healthy |
+| a destructive agent with no commit | refused, nothing ran, and the plan is in the log |
+| a plan committed against a different request | refused, and the honest commit still worked afterwards |
+| a plan committed twice | refused the second time |
+| an invented plan id | refused, and the refusal is in the log |
+| an agent the policy denies | refused at every tier, and never offered a plan |
+| a malformed policy file | the daemon refuses to start rather than run under unwritten rules |
+| a policy that forgets a tier | same, and the message names the missing tiers |
 
 The refusal record matters more than the success record. A log that only keeps what worked
 hides exactly the calls worth reviewing.
@@ -94,6 +102,8 @@ Full detail in [bug-list.md](bug-list.md).
 | agent output piped with no reader, so output was lost and a chatty agent would deadlock | `a_chatty_agent_finishes_and_its_output_is_kept`, which pushes 1.3 MB through, plus `agent_output_lands_in_its_log` |
 | a test helper waited on `setsid` with no bound, so a wrong assumption hung the suite for two minutes instead of failing | `wait_bounded` in `tests/adoption.rs`, which panics naming the cause after 5 seconds |
 | the daemon test harness killed the daemon but not its agents, so a failing test left real processes on the machine | `Drop for Aosd` now sends `stop_all` before killing the daemon |
+| narrowing the process wide umask across a bind broke every other thread creating a directory at that moment | `binding_concurrently_does_not_disturb_other_threads` |
+| the fix for that bound under a longer staging name, overflowing the 108 byte socket path limit | `a_long_run_directory_still_binds` |
 
 Bug 1 was found by running the binary rather than by a test. The suite was green while the
 thing was broken, because every test used a program that printed almost nothing. Tests written
@@ -114,9 +124,10 @@ every entry in the bug list.
 
 ## deadlines
 
-Nothing is late, because nothing has a hard date yet. Phase 1 was estimated at a week and came
-in well under that, because phases 0r and 1a had already done its hard half. Phase 2, policy
-and the plan then commit handshake, is next.
+Nothing is late, because nothing has a hard date yet. Phases 1 and 2 were each estimated at a
+week and each came in well under, because the foundation work kept doing their hard halves in
+advance. Phase 3, capability servers over MCP, is next and is the first phase that is mostly
+new ground rather than a rebuild.
 
 ## what was learned
 
@@ -142,6 +153,11 @@ under `/proc`, and resource limits are cgroups rather than a signed minifilter. 
 week here and was phase 7 and optional on Windows.
 
 Running the thing is not optional. The pipe bug was invisible to a green test suite.
+
+Two fixes in a row reached for something clever when something plain was already there. A
+umask, then a rename, when the directory permission covered it the whole time. Bugs 4 and 5
+are the same mistake twice. Worth asking, before adding a mechanism, whether something already
+in place does the job.
 
 Order is a safety property. Append to the log, then act. A start that is recorded and then
 fails leaves the log claiming one thing too many, which replay corrects against `/proc`. A

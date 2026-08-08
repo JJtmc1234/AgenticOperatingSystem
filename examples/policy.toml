@@ -1,0 +1,30 @@
+# What AOS is allowed to do.
+#
+# The tier on an agent says how much damage it could do. This file says what to
+# do about that. Keeping them apart means a tier never has to be edited just to
+# change a decision.
+#
+# Copy this to your run directory as policy.toml. With no file at all the safe
+# default applies: read runs freely, everything else needs a commit.
+
+[tiers]
+# allow   goes ahead on its own
+# prompt  needs a plan, then an explicit commit quoting that plan
+# deny    never, whatever the caller says
+read        = "allow"
+write       = "prompt"
+system      = "prompt"
+destructive = "prompt"
+
+# Per agent overrides. These beat the tier, in both directions, so read this
+# list carefully before adding to it.
+[agents]
+# A routine you have watched enough times to trust unattended.
+# "morning-brief" = "allow"
+
+# Something you never want running on this machine, at any tier.
+# "wiper" = "deny"
+
+# How long a plan stays committable, in seconds. Short on purpose. A plan you
+# agreed to an hour ago is not one you are still watching.
+plan_ttl_secs = 120

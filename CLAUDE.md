@@ -29,7 +29,7 @@ checks both first. See `proc::is_still`.
 | idea | what it means here |
 |---|---|
 | risk tiers | Read, Write, System, Destructive. Each escalates what approval is needed. |
-| plan then commit | Nothing mutating happens without an explicit commit. A dry run never writes. |
+| plan then commit | Above tier read, the first call returns a plan and the second quotes its id. The plan is bound to its exact request, single use, and expires. |
 | allowed roots | Filesystem access is bounded to declared directories. Everything else is refused. |
 | command allowlist | Only named binaries may start, and never through a shell. |
 | audit log | Append only JSONL. One entry per call, including refusals. |

@@ -83,20 +83,29 @@ them. A supervisor that killed everything whenever it restarted would make resta
 frightening, and a frightening restart is one nobody performs.
 
 The socket is the entire attack surface. Anyone who can reach it can start and stop processes
-as this user, so it gets four separate guards.
+as this user, so it gets several separate guards.
 
 | guard | stops |
 |---|---|
 | the run directory is 0700 | anyone else reaching any name inside it at all |
-| bound under a staging name, chmodded, then renamed into place | a window where the real socket path exists with the wrong mode |
-| mode asserted as 0600 afterwards, else refuse to serve | a filesystem that quietly ignored the chmod |
+| the socket chmodded to 0600, then asserted, else refuse to serve | a filesystem that quietly ignored the chmod |
 | `SO_PEERCRED` checked per connection | a caller who is not this user, even if the mode were loosened by mistake |
 | the request schema parsed before anything acts | a path shaped agent id, or a verb that does not exist |
+| the policy gate, before the supervisor is reached | anything the policy denies, and anything above read without a commit |
 
-Creating the socket and then fixing its permissions would leave a gap, and a gap is all an
-attack needs. The obvious fix is to narrow the umask across the bind, and it is wrong: `umask`
-is per process, so it changes what every other thread creates at the same moment. See bug 4.
-Rename is atomic and affects nothing outside this call, so that is what is used instead.
+There is a moment between binding the socket and chmodding it. Two cleverer ways to close it
+were tried and both were worse than the directory permission that already covers it.
+
+Narrowing the umask across the bind is wrong, because `umask` is per process rather than per
+thread, so it changes what every other thread creates at that moment. That is bug 4.
+
+Binding under a staging name and renaming into place is wrong, because a socket path is capped
+at around 108 bytes and a staging name is longer than the real one, so it overflows on paths
+where the real name fits. That is bug 5.
+
+Neither was needed. The directory is `0700`, so during that moment there is nobody who can
+reach the socket at all. The lesson, twice over, is to check whether something already in place
+covers it before adding a mechanism.
 
 A socket file that already exists is either a live daemon or debris from a crashed one.
 Guessing either way is wrong. Deleting a live daemon's socket strands it, and refusing to
@@ -110,6 +119,37 @@ impossible, and nothing here is slow enough to mind.
 
 A malformed request is answered with an error, never dropped. A caller that gets silence
 cannot tell a rejection from a crash.
+
+### policy and the handshake
+
+`policy.toml` maps each tier to allow, prompt or deny, with per agent overrides that win over
+the tier. Every tier must be listed. A missing one would have to mean something, and both
+available meanings are bad, so it is an error and the daemon refuses to start. A malformed
+policy is an error for the same reason: running under rules nobody wrote is the worst outcome
+available.
+
+With no policy file at all the default applies, and it allows only read. A runtime that starts
+out permissive is one that gets deployed permissive.
+
+Prompt means the first call returns a plan and nothing runs. A second call quotes the plan's
+id to make it happen.
+
+The two steps are not the point. The plan stores the exact request it was made for, compared
+whole on commit, so planning something harmless and committing something dangerous is refused.
+The stored copy is the full canonical spec rather than a hash of it, because a spec is a few
+hundred bytes and comparing the real text cannot collide.
+
+| the plan is | so that |
+|---|---|
+| bound to its exact request | agreeing to one thing never authorises another |
+| single use | a commit cannot be replayed |
+| expiring, 120 seconds by default | a plan you agreed to an hour ago is not one you are watching |
+| unguessable, 16 random bytes | reaching the socket is not the same as having been offered a plan |
+| in memory only, never in the log | a restart cannot honour an offer the current daemon never made |
+
+`Daemon::gate` returns either "go ahead" or the response to send back, and `launch` is private
+and only reachable through it. There is no path to starting a process that does not pass the
+gate first.
 
 ### the one ordering that matters
 
@@ -149,8 +189,8 @@ parser reads everything after the last `)`, and there is a test with a process n
     the only owner of an agent. Boots by replaying the log.
         |
         v
-  policy                          phase 2
-    tier to verdict, plan then commit handshake
+  policy                          phase 2, done
+    policy.toml, tier to verdict, plan then commit
         |
         v
   supervisor                      phase 0, done

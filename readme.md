@@ -64,6 +64,30 @@ code to report, because init reaped it.
 
 The socket is `run/aosd.sock`, mode 0600, and it only answers connections from your own user.
 
+## policy
+
+Copy [examples/policy.toml](examples/policy.toml) into your run directory to change what is
+allowed. With no file at all, read runs freely and everything else needs a commit.
+
+Above tier read, `aos start` tells you what would happen and stops:
+
+```
+$ aos start examples/risky.json
+tier destructive needs a commit, so nothing has run.
+
+  risky would run /usr/bin/sleep ["30"] at tier destructive
+
+To go ahead:
+  aos start examples/risky.json --commit 8a59a17dfd7d8e64f166eaf98c69b3cd
+```
+
+`examples/risky.json` only sleeps. It is declared destructive so the handshake can be tried
+without anything at stake.
+
+The plan records the exact request it was made for, so planning one thing and committing
+another is refused. It is single use, it expires after two minutes, and it does not survive a
+daemon restart, because an offer the current daemon never made is not one it should honour.
+
 ## the event log
 
 `run/events.jsonl` is the only durable state. Everything the runtime believes is a fold over
@@ -77,11 +101,12 @@ it alone rather than risk signalling a stranger.
 
 ## what works today
 
-Phases 0 and 1. Contracts, the supervisor, the event log with replay, adoption of agents that
-outlived their supervisor, and `aosd` with `list` and `stop` working from any terminal.
+Phases 0, 1 and 2. Contracts, the supervisor, the event log with replay, adoption of agents
+that outlived their supervisor, `aosd` with `list` and `stop` working from any terminal, and
+policy with the plan then commit handshake.
 
-Phase 2 is next: a policy file, verdicts of allow, prompt or deny, and the plan then commit
-handshake so nothing mutating happens in one step.
+Phase 3 is next: capability servers over MCP, which is the protocol Claude Code already
+speaks. Files first, then a policy gated command runner. Never a raw shell.
 
 ## before you edit
 

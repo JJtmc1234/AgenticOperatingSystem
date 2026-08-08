@@ -46,7 +46,15 @@ enum Command {
     List,
 
     /// Ask the daemon to start an agent.
-    Start { spec: PathBuf },
+    ///
+    /// Above tier read this only reports what would happen. Rerun it with the plan id it
+    /// prints to actually go ahead.
+    Start {
+        spec: PathBuf,
+        /// The plan id from a previous run of this exact command.
+        #[arg(long)]
+        commit: Option<String>,
+    },
 
     /// Ask the daemon to stop an agent.
     Stop {
@@ -73,7 +81,7 @@ fn main() -> Result<()> {
         Command::Run { spec } => runtime::run(dir, &spec),
         Command::Ping => commands::ping(dir),
         Command::List => commands::list(dir),
-        Command::Start { spec } => commands::start(dir, &spec),
+        Command::Start { spec, commit } => commands::start(dir, &spec, commit),
         Command::Stop { agent, grace } => commands::stop(dir, &agent, grace),
         Command::StopAll { grace } => commands::stop_all(dir, grace),
     }

@@ -8,12 +8,19 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use aos_core::{AgentReport, AgentSpec, Event, Ledger, Request, Response};
+use aos_core::{
+    AgentReport, AgentSpec, Event, Ledger, PlanId, PlanLedger, Policy, Request, Response, Verdict,
+};
 use aos_supervisor::Supervisor;
 
 pub struct Daemon {
     supervisor: Supervisor,
     ledger: Ledger,
+    policy: Policy,
+    /// Plans live in memory only. A plan is an offer, not a fact about the machine, and an
+    /// offer that survived a restart would let someone commit something this daemon never
+    /// proposed.
+    plans: PlanLedger,
 }
 
 fn now() -> u64 {
@@ -32,6 +39,9 @@ impl Daemon {
         let records = aos_core::ledger::read(&log)?;
         let mut ledger = Ledger::open(&log)?;
         let mut supervisor = Supervisor::new(allowed, run_dir.join("logs"));
+
+        let policy = Policy::load(run_dir.join("policy.toml"))?;
+        let plans = PlanLedger::new(policy.plan_ttl_secs);
 
         let recovered = supervisor.adopt_from(&records);
 
@@ -54,7 +64,12 @@ impl Daemon {
             );
         }
 
-        Ok(Self { supervisor, ledger })
+        Ok(Self {
+            supervisor,
+            ledger,
+            policy,
+            plans,
+        })
     }
 
     pub fn socket_path(run_dir: &Path) -> PathBuf {
@@ -68,7 +83,7 @@ impl Daemon {
                 tracking: self.supervisor.list().len(),
             },
             Request::List => self.list(),
-            Request::Start { spec } => self.start(*spec),
+            Request::Start { spec, commit } => self.start(*spec, commit),
             Request::Stop { agent, grace_secs } => {
                 self.stop(&agent, Duration::from_secs(grace_secs))
             }
@@ -90,7 +105,82 @@ impl Daemon {
         Response::Agents { agents }
     }
 
-    fn start(&mut self, spec: AgentSpec) -> Response {
+    /// The gate. Nothing reaches the supervisor without passing through here.
+    ///
+    /// Returns `None` to mean "go ahead", or a response to send back instead. Written this
+    /// way so the caller cannot forget to check: there is no path to `launch` that does not
+    /// go through the gate first.
+    fn gate(&mut self, spec: &AgentSpec, commit: Option<PlanId>) -> Option<Response> {
+        let tier = spec.ceiling;
+        let verdict = self.policy.verdict(&spec.id, tier);
+
+        match verdict {
+            Verdict::Allow => None,
+
+            Verdict::Deny => {
+                let reason = format!("policy denies {} at tier {tier}", spec.id);
+                self.record_refusal(&spec.id, &reason);
+                Some(Response::error(reason))
+            }
+
+            Verdict::Prompt => match commit {
+                // No commit quoted, so this is the planning call. Nothing runs.
+                None => match self.plans.propose(spec, tier, now()) {
+                    Ok(plan) => {
+                        let _ = self.ledger.append(
+                            now(),
+                            spec.id.clone(),
+                            Event::Planned {
+                                plan: plan.id.clone(),
+                                tier,
+                            },
+                        );
+                        Some(Response::PlanRequired {
+                            plan: plan.id,
+                            agent: spec.id.clone(),
+                            tier,
+                            summary: format!(
+                                "{} would run {} {:?} at tier {tier}",
+                                spec.id, spec.program, spec.args
+                            ),
+                        })
+                    }
+                    Err(e) => Some(Response::error(e)),
+                },
+
+                // A commit was quoted. It has to match this exact request.
+                Some(id) => match self.plans.commit(&id, spec, now()) {
+                    Ok(_) => None,
+                    Err(e) => {
+                        let reason = e.to_string();
+                        self.record_refusal(&spec.id, &reason);
+                        Some(Response::error(reason))
+                    }
+                },
+            },
+        }
+    }
+
+    fn record_refusal(&mut self, agent: &aos_core::AgentId, reason: &str) {
+        let _ = self.ledger.append(
+            now(),
+            agent.clone(),
+            Event::Refused {
+                reason: reason.to_string(),
+            },
+        );
+    }
+
+    fn start(&mut self, spec: AgentSpec, commit: Option<PlanId>) -> Response {
+        if let Some(refusal) = self.gate(&spec, commit) {
+            return refusal;
+        }
+        self.launch(spec)
+    }
+
+    /// Actually starts it. Private, and only reachable through `start`, so the gate cannot
+    /// be bypassed by a future caller.
+    fn launch(&mut self, spec: AgentSpec) -> Response {
         match self.supervisor.start(&spec) {
             Ok(handle) => {
                 let recorded = self.ledger.append(
@@ -113,14 +203,9 @@ impl Daemon {
                 Response::Started { handle }
             }
             Err(err) => {
-                let _ = self.ledger.append(
-                    now(),
-                    spec.id.clone(),
-                    Event::Refused {
-                        reason: err.to_string(),
-                    },
-                );
-                Response::error(err)
+                let reason = err.to_string();
+                self.record_refusal(&spec.id, &reason);
+                Response::error(reason)
             }
         }
     }

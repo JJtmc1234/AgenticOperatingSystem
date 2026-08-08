@@ -1,0 +1,6 @@
+{
+  "id": "risky",
+  "program": "/usr/bin/sleep",
+  "args": ["30"],
+  "ceiling": "destructive"
+}

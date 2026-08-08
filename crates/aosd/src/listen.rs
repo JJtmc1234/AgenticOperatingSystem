@@ -38,28 +38,22 @@ pub fn bind(path: &Path) -> Result<UnixListener> {
     // name inside it, whatever that name's own permissions say.
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
 
-    // Bind under a staging name, tighten it, then rename into place. Rename is atomic, so
-    // the real path never exists with the wrong mode, not even for an instant.
+    // Bind at the real path, then tighten it.
     //
-    // Not a narrowed umask, which was the obvious approach and is wrong. umask is process
-    // wide rather than per thread, so narrowing it here changes the mode of every file and
-    // directory any other thread creates at the same time. A directory created under 0o177
-    // comes out with no execute bit and nothing can be made inside it. See bug 4.
-    let staging = dir.join(format!(
-        ".{}.{}.staging",
-        file_name(path),
-        std::process::id()
-    ));
-    let _ = std::fs::remove_file(&staging);
-
-    let listener = UnixListener::bind(&staging)
-        .with_context(|| format!("cannot bind {}", staging.display()))?;
-    std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o600))?;
-
-    // The listener keeps working across the rename. It is bound to the inode, and the new
-    // name resolves to that same inode.
-    std::fs::rename(&staging, path)
-        .with_context(|| format!("cannot move the socket into place at {}", path.display()))?;
+    // Two cleverer approaches were tried here and both were worse.
+    //
+    // Narrowing the umask across the bind is wrong because umask is per process rather than
+    // per thread, so it changes what every other thread creates at that moment. See bug 4.
+    //
+    // Binding under a staging name and renaming into place is wrong because a socket path is
+    // capped at around 108 bytes, and a staging name is longer than the real one, so it
+    // overflows on paths where the real name fits perfectly well. See bug 5.
+    //
+    // Neither was needed. The directory above is 0700, so in the moment between bind and
+    // chmod there is nobody who can reach the socket at all. The directory is the lock.
+    let listener =
+        UnixListener::bind(path).with_context(|| format!("cannot bind {}", path.display()))?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
 
     // Assert rather than trust. A filesystem that ignored the chmod must not be served on.
     let mode = std::fs::metadata(path)?.permissions().mode() & 0o777;
@@ -72,12 +66,6 @@ pub fn bind(path: &Path) -> Result<UnixListener> {
     }
 
     Ok(listener)
-}
-
-fn file_name(path: &Path) -> String {
-    path.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "socket".into())
 }
 
 /// Whether a peer is this same user.
@@ -233,19 +221,51 @@ mod tests {
         assert_eq!(mode, 0o700, "nobody else may even traverse into it");
     }
 
-    /// Staging files must not pile up in the run directory.
+    /// Regression test for bug 5.
+    ///
+    /// A unix socket path is capped at about 108 bytes by `sockaddr_un`. The bind used to
+    /// happen under a longer staging name, so a run directory whose real socket path fitted
+    /// comfortably could still fail. This builds a path close to the limit and checks the
+    /// real name is what has to fit.
     #[test]
-    fn no_staging_file_is_left_behind() {
+    fn a_long_run_directory_still_binds() {
+        let root = tempfile::tempdir().unwrap();
+        let sock_name = "aosd.sock";
+
+        // Grow the directory until the socket path is just inside the limit.
+        let mut dir = root.path().to_path_buf();
+        while dir.join(sock_name).as_os_str().len() < 100 {
+            dir = dir.join("nested");
+        }
+        let path = dir.join(sock_name);
+        assert!(
+            path.as_os_str().len() <= 107,
+            "test set up a path that cannot work at all: {}",
+            path.as_os_str().len()
+        );
+
+        let _listener = bind(&path).unwrap_or_else(|e| {
+            panic!(
+                "a {} byte socket path should bind: {e:#}",
+                path.as_os_str().len()
+            )
+        });
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    /// Nothing extra should be left lying in the run directory.
+    #[test]
+    fn only_the_socket_is_created() {
         let dir = tempfile::tempdir().unwrap();
         let _listener = bind(&dir.path().join("aosd.sock")).unwrap();
 
-        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        let names: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|name| name.contains("staging"))
             .collect();
-        assert!(leftovers.is_empty(), "left behind {leftovers:?}");
+        assert_eq!(names, vec!["aosd.sock".to_string()]);
     }
 
     #[test]

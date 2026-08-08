@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Result, bail};
-use aos_core::{AgentId, AgentState, Request, Response};
+use aos_core::{AgentId, AgentState, PlanId, Request, Response};
 
 use crate::client;
 use crate::runtime;
@@ -54,19 +54,37 @@ pub fn list(run_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn start(run_dir: &Path, spec_path: &Path) -> Result<()> {
+pub fn start(run_dir: &Path, spec_path: &Path, commit: Option<String>) -> Result<()> {
     let spec = runtime::load_spec(spec_path)?;
     let id = spec.id.clone();
 
     let request = Request::Start {
         spec: Box::new(spec),
-    };
-    let Response::Started { handle } = client::demand(run_dir, &request)? else {
-        bail!("unexpected answer to start");
+        commit: commit.map(PlanId::from),
     };
 
-    println!("{id} started as pid {}", handle.pid);
-    Ok(())
+    match client::demand(run_dir, &request)? {
+        Response::Started { handle } => {
+            println!("{id} started as pid {}", handle.pid);
+            Ok(())
+        }
+        // Nothing happened yet. Print what would, and how to say yes.
+        Response::PlanRequired {
+            plan,
+            tier,
+            summary,
+            ..
+        } => {
+            println!("tier {tier} needs a commit, so nothing has run.");
+            println!();
+            println!("  {summary}");
+            println!();
+            println!("To go ahead:");
+            println!("  aos start {} --commit {plan}", spec_path.display());
+            Ok(())
+        }
+        other => bail!("unexpected answer to start: {other:?}"),
+    }
 }
 
 pub fn stop(run_dir: &Path, agent: &str, grace: u64) -> Result<()> {

@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AgentId, AgentSpec, AgentState, ProcessHandle};
+use crate::{AgentId, AgentSpec, AgentState, PlanId, ProcessHandle, RiskTier};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case")]
@@ -18,6 +18,13 @@ pub enum Request {
     List,
     Start {
         spec: Box<AgentSpec>,
+        /// Quote a plan's id to commit it. Absent means "tell me what would happen".
+        ///
+        /// Optional so the planning call and the committing call are the same request with
+        /// one field added. Two different verbs would let a caller reach the acting one
+        /// without ever passing through the planning one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commit: Option<PlanId>,
     },
     Stop {
         agent: AgentId,
@@ -55,6 +62,14 @@ pub enum Response {
     },
     Started {
         handle: ProcessHandle,
+    },
+    /// The action needs a commit. Nothing has happened yet.
+    PlanRequired {
+        plan: PlanId,
+        agent: AgentId,
+        tier: RiskTier,
+        /// What committing would actually do, in one line a human can check.
+        summary: String,
     },
     Stopped {
         agent: AgentId,
@@ -102,7 +117,12 @@ mod tests {
             Request::Ping,
             Request::List,
             Request::Start {
+                spec: Box::new(spec.clone()),
+                commit: None,
+            },
+            Request::Start {
                 spec: Box::new(spec),
+                commit: Some(crate::PlanId::from("abc123".to_string())),
             },
             Request::Stop {
                 agent: AgentId::new("brief").unwrap(),
@@ -139,6 +159,16 @@ mod tests {
                 grace_secs: 5
             }
         );
+    }
+
+    /// A start with no commit field must parse, because that is the planning call.
+    #[test]
+    fn a_start_without_a_commit_is_a_plan_request() {
+        let parsed: Request = serde_json::from_str(
+            r#"{"request":"start","spec":{"id":"x","program":"/usr/bin/echo","ceiling":"read"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(parsed, Request::Start { commit: None, .. }));
     }
 
     /// The schema is checked before anything is acted on. A bad agent id in a start request

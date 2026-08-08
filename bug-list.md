@@ -14,6 +14,7 @@ To check an entry is real, revert the fix, run the named test, and watch it fail
 | 2 | The adoption test helper waited on `setsid` with no bound. `setsid` had not forked, so the sleeper was still our child and the wait blocked for the full 511 seconds. | `cargo test --test adoption` hitting a two minute timeout with no output. | `wait_bounded` in `tests/adoption.rs`, which panics with the reason after 5 seconds |
 | 3 | The daemon test harness killed the daemon on drop but not its agents, so a failing test left real processes running on the machine. | Three stray `sleep 400` processes surviving a failed `cargo test`. | `Drop for Aosd` in `tests/daemon.rs` now sends `stop_all` before killing the daemon |
 | 4 | `bind` narrowed the process wide umask across the bind call, so any other thread creating a directory at that moment got one with no execute bit and could not use it. | A flaky `Permission denied` in `cargo test`, one run in three. | `binding_concurrently_does_not_disturb_other_threads` |
+| 5 | The fix for bug 4 bound under a staging name that is longer than the real one, so a run directory whose socket path fitted under the 108 byte limit could still overflow it. | `aosd` refusing to start in a deep scratch directory, with `path must be shorter than SUN_LEN`. | `a_long_run_directory_still_binds` |
 
 ## bug 1, in full
 
@@ -102,10 +103,10 @@ It showed up as a flake, roughly one full test run in three, in a test that had 
 with permissions. That is what a shared mutable global looks like from the outside.
 
 Fix. No umask at all. The parent directory is set to `0700`, which is the real lock, because
-without the execute bit nobody else can reach any name inside it. The socket is then bound
-under a staging name, chmodded to `0600`, and renamed into place. Rename is atomic, so the
-real path never exists with the wrong mode for even an instant. The listener keeps working
-across the rename because it is bound to the inode, and the new name resolves to that inode.
+without the execute bit nobody else can reach any name inside it.
+
+The first version of this fix also bound under a staging name and renamed into place. That
+turned out to be both unnecessary and broken, and it is bug 5.
 
 Guard, and it took three attempts to get right, which is the more useful story.
 
@@ -126,3 +127,32 @@ what other threads get", so the baseline is now measured before the threads star
 assumed.
 
 Verified ten runs against the fix, all passing, and ten against the restored bug, all failing.
+
+
+## bug 5, in full
+
+Caused by the fix for bug 4, which is the useful part of the story.
+
+A unix socket path lives in a `sockaddr_un`, and that struct has a fixed field of about 108
+bytes. Longer paths cannot be bound at all.
+
+Bug 4's fix bound the socket under a staging name and renamed it into place, so that the real
+path never existed with the wrong permissions. The staging name was
+`.aosd.sock.<pid>.staging`, which is sixteen characters longer than `aosd.sock`. So a run
+directory where the real socket path fitted with room to spare could still fail, and it did,
+in a scratch directory the tests happened not to use.
+
+Fix. No staging and no rename. Bind at the real path and chmod it.
+
+That sounds like giving up the protection, and it is not, because the protection was never
+the rename. The directory above the socket is set to `0700` first, and without the execute bit
+nobody else can reach any name inside it however that name is chmodded. The directory is the
+lock. The rename was guarding a window that the directory had already closed.
+
+Guard. `a_long_run_directory_still_binds` builds a run directory whose socket path is just
+inside the limit and binds there. Against the staging version it fails.
+
+The lesson is about the shape of the mistake rather than about sockets. Two fixes in a row
+reached for something clever, a umask and then a rename, when a plain directory permission was
+both simpler and stronger. Worth asking, before adding a mechanism, whether something already
+in place covers it.

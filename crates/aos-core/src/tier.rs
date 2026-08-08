@@ -20,6 +20,15 @@ pub enum RiskTier {
 }
 
 impl RiskTier {
+    /// Every tier, so a policy can be checked for covering all of them. Adding a tier here
+    /// makes an incomplete policy fail loudly rather than default to something.
+    pub const ALL: [RiskTier; 4] = [
+        RiskTier::Read,
+        RiskTier::Write,
+        RiskTier::System,
+        RiskTier::Destructive,
+    ];
+
     /// Whether a call at this tier may run without an explicit commit.
     ///
     /// Read is the only tier that may. Everything above it plans first, so a mistaken plan

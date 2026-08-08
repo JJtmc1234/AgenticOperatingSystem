@@ -36,6 +36,11 @@ pub enum Event {
     Stopped { code: Option<i32> },
     /// The launch was refused before anything ran.
     Refused { reason: String },
+    /// Policy asked for a commit, so a plan was offered and nothing ran.
+    Planned {
+        plan: crate::PlanId,
+        tier: crate::RiskTier,
+    },
     /// Replay found a `Started` with no ending, and the process is gone.
     ///
     /// Written during replay so the gap is visible in the log rather than quietly patched.
@@ -99,6 +104,14 @@ mod tests {
             Event::Started {
                 handle: handle(),
                 program: "/usr/bin/echo".into()
+            }
+            .leaves_agent_running()
+        );
+
+        assert!(
+            !Event::Planned {
+                plan: crate::PlanId::from("abc".to_string()),
+                tier: crate::RiskTier::Destructive
             }
             .leaves_agent_running()
         );

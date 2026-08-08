@@ -104,6 +104,43 @@ fn run_dir() -> tempfile::TempDir {
     dir
 }
 
+/// A run directory with a policy in it.
+fn run_dir_with_policy(policy: &str) -> tempfile::TempDir {
+    let dir = run_dir();
+    std::fs::write(dir.path().join("policy.toml"), policy).unwrap();
+    dir
+}
+
+const PROMPT_ON_DESTRUCTIVE: &str = r#"
+[tiers]
+read = "allow"
+write = "prompt"
+system = "prompt"
+destructive = "prompt"
+
+[agents]
+"wiper" = "deny"
+"#;
+
+/// A start request at a given tier, optionally quoting a plan.
+fn start_at(id: &str, secs: &str, tier: &str, commit: Option<&str>) -> String {
+    let commit = commit
+        .map(|c| format!(r#","commit":"{c}""#))
+        .unwrap_or_default();
+    format!(
+        r#"{{"request":"start","spec":{{"id":"{id}","program":"/usr/bin/sleep","args":["{secs}"],"ceiling":"{tier}"}}{commit}}}"#
+    )
+}
+
+fn plan_id_of(answer: &str) -> String {
+    let value: serde_json::Value =
+        serde_json::from_str(answer).unwrap_or_else(|e| panic!("not JSON: {answer} ({e})"));
+    value["plan"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no plan id in {answer}"))
+        .to_string()
+}
+
 fn sleeper(id: &str) -> String {
     format!(
         r#"{{"request":"start","spec":{{"id":"{id}","program":"/usr/bin/sleep","args":["400"],"ceiling":"read"}}}}"#
@@ -268,4 +305,157 @@ fn a_second_daemon_refuses_to_share_the_socket() {
         "{}",
         String::from_utf8_lossy(&second.stderr)
     );
+}
+
+/// Read runs on its own. That is the only tier that may.
+#[test]
+fn a_read_tier_agent_needs_no_commit() {
+    let dir = run_dir_with_policy(PROMPT_ON_DESTRUCTIVE);
+    let daemon = Aosd::start(dir.path());
+
+    let answer = daemon.ask(&start_at("reader", "400", "read", None));
+    assert!(answer.contains("\"started\""), "{answer}");
+}
+
+/// The acceptance criterion for this phase. Destructive must not act in one step.
+#[test]
+fn a_destructive_agent_will_not_run_without_a_commit() {
+    let dir = run_dir_with_policy(PROMPT_ON_DESTRUCTIVE);
+    let daemon = Aosd::start(dir.path());
+
+    let answer = daemon.ask(&start_at("destroyer", "400", "destructive", None));
+    assert!(answer.contains("\"plan_required\""), "{answer}");
+
+    // And nothing is running, which is the part that actually matters.
+    let listed = daemon.ask(r#"{"request":"list"}"#);
+    assert!(!listed.contains("destroyer"), "{listed}");
+
+    // The refusal is in the log with a reason, as the criterion requires.
+    let log = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+    assert!(log.contains("\"planned\""), "{log}");
+}
+
+/// The whole reason plans record their request. Agreeing to one thing must not
+/// authorise another.
+#[test]
+fn a_plan_cannot_be_committed_against_a_different_request() {
+    let dir = run_dir_with_policy(PROMPT_ON_DESTRUCTIVE);
+    let daemon = Aosd::start(dir.path());
+
+    let plan = plan_id_of(&daemon.ask(&start_at("destroyer", "400", "destructive", None)));
+
+    // Same agent, same tier, different arguments.
+    let swapped = daemon.ask(&start_at("destroyer", "999", "destructive", Some(&plan)));
+    assert!(swapped.contains("different request"), "{swapped}");
+
+    let listed = daemon.ask(r#"{"request":"list"}"#);
+    assert!(
+        !listed.contains("destroyer"),
+        "nothing should have run: {listed}"
+    );
+
+    // The honest commit still works, so the refusal did not burn the plan.
+    let honest = daemon.ask(&start_at("destroyer", "400", "destructive", Some(&plan)));
+    assert!(honest.contains("\"started\""), "{honest}");
+}
+
+#[test]
+fn a_plan_cannot_be_used_twice() {
+    let dir = run_dir_with_policy(PROMPT_ON_DESTRUCTIVE);
+    let daemon = Aosd::start(dir.path());
+
+    let plan = plan_id_of(&daemon.ask(&start_at("once", "400", "destructive", None)));
+    assert!(
+        daemon
+            .ask(&start_at("once", "400", "destructive", Some(&plan)))
+            .contains("\"started\"")
+    );
+
+    daemon.ask(r#"{"request":"stop","agent":"once"}"#);
+
+    let replayed = daemon.ask(&start_at("once", "400", "destructive", Some(&plan)));
+    assert!(replayed.contains("no plan"), "{replayed}");
+}
+
+#[test]
+fn an_invented_plan_id_is_refused_and_logged() {
+    let dir = run_dir_with_policy(PROMPT_ON_DESTRUCTIVE);
+    let daemon = Aosd::start(dir.path());
+
+    let answer = daemon.ask(&start_at(
+        "forger",
+        "400",
+        "destructive",
+        Some("00000000000000000000000000000000"),
+    ));
+    assert!(answer.contains("no plan"), "{answer}");
+
+    let log = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+    assert!(log.contains("\"refused\""), "{log}");
+}
+
+/// A denied agent is denied whatever its tier, and no plan is offered.
+#[test]
+fn a_denied_agent_is_never_offered_a_plan() {
+    let dir = run_dir_with_policy(PROMPT_ON_DESTRUCTIVE);
+    let daemon = Aosd::start(dir.path());
+
+    let answer = daemon.ask(&start_at("wiper", "400", "read", None));
+    assert!(answer.contains("policy denies"), "{answer}");
+    assert!(
+        !answer.contains("plan"),
+        "deny must not hand out a plan: {answer}"
+    );
+}
+
+/// With no policy file the safe default applies, so only read runs freely.
+#[test]
+fn the_default_policy_prompts_above_read() {
+    let dir = run_dir();
+    let daemon = Aosd::start(dir.path());
+
+    assert!(
+        daemon
+            .ask(&start_at("reader", "400", "read", None))
+            .contains("\"started\"")
+    );
+    assert!(
+        daemon
+            .ask(&start_at("writer", "400", "write", None))
+            .contains("\"plan_required\"")
+    );
+}
+
+/// A broken policy must stop the daemon rather than let it run under rules nobody wrote.
+#[test]
+fn a_malformed_policy_refuses_to_start_the_daemon() {
+    let dir = run_dir_with_policy("this is not valid toml {{{");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_aosd"))
+        .args(["--run-dir", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not a valid policy"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A policy that forgets a tier is refused too. Every meaning a missing tier could have
+/// is a bad one.
+#[test]
+fn a_policy_missing_a_tier_refuses_to_start_the_daemon() {
+    let dir = run_dir_with_policy("[tiers]\nread = \"allow\"\n");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_aosd"))
+        .args(["--run-dir", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("destructive"), "{stderr}");
 }

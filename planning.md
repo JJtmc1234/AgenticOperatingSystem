@@ -25,7 +25,7 @@ Nothing is called done on a compile. Done means `cargo fmt`, `cargo clippy --all
 | 0r | event log as source of truth, replay, pid identity | 1 session | done |
 | 1a | adoption, so a restart re-takes its surviving agents | 1 session | done |
 | 1b | the daemon and its socket | 1 session | done |
-| 2 | policy engine and the plan then commit handshake | 1 week | not started |
+| 2 | policy engine and the plan then commit handshake | 1 session | done |
 | 3 | capability servers over MCP, files and shell first | 1 to 2 weeks | not started |
 | 4 | resource limits through cgroups | 1 week | not started |
 | 5 | routines and a scheduler, starting with a daily brief | 1 to 2 weeks | not started |
@@ -84,13 +84,20 @@ restarting the daemon re-adopts a surviving agent rather than losing or duplicat
 when killing the daemon does not orphan its agents silently. All three verified against the
 real binary over a real socket.
 
-## phase 2, policy
+## phase 2, policy, done
 
-Tiers exist as types already. This phase gives them a policy file and a verdict of allow,
-prompt or deny, plus the plan then commit handshake so nothing mutating happens in one step.
+Tiers existed as types already. This phase gives them `policy.toml`, a verdict of allow,
+prompt or deny, and the plan then commit handshake so nothing above read happens in one step.
 
-Done when a `Destructive` action refuses to run without an explicit commit, and the refusal
-is in the audit log with a reason.
+The handshake is not really about the two steps. It is that the plan records the exact request
+it was made for, so planning something harmless and committing something dangerous is refused.
+A plan is also single use and expires, and it lives in memory only, because an offer that
+survived a restart would let someone commit something the current daemon never proposed.
+
+Passes when a destructive action refuses to run without a commit and the refusal is in the log
+with a reason. Verified, along with a plan committed against a different request, an invented
+plan id, a replayed plan, and a denied agent. A malformed policy or one that forgets a tier
+stops the daemon starting rather than letting it run under rules nobody wrote.
 
 ## phase 3, capability servers
 
