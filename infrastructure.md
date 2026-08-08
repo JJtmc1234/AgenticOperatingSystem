@@ -309,3 +309,60 @@ The most useful disagreement is the kill switch. He defers it and token budgets 
 has a kill switch in phase 0, because a runtime that starts real processes and cannot stop
 all of them is not something to leave running on your own machine. That difference falls
 straight out of the two projects supervising different things.
+
+
+## the file capability server
+
+Phase 3a. `aos-files` is an MCP server Claude Code starts as a child process and talks to on
+stdin and stdout. MCP is the protocol Claude Code already speaks, so a capability is exposed
+as a tool rather than as anything new, and the gate is the tier, policy and plan machinery
+the supervisor already had.
+
+```
+  tools/call
+    |
+    +-- does the capability exist            tools.rs, and no shell is in the table
+    +-- what does the policy say about it    policy.rs, by tier and by agent
+    +-- was it agreed to                     plan.rs, for anything above read
+    +-- is the path inside the root          root.rs, checked after resolution
+    |
+  do it, and append what happened to the log
+```
+
+Four gates, kept apart because they fail for different reasons and a caller needs to know
+which. Denied by policy and outside the root are both refusals and share nothing else.
+
+| capability | tier |
+|---|---|
+| `list_dir`, `read_file`, `find` | read |
+| `write_file`, `make_dir`, `move_file` | write |
+| `delete_file` | destructive |
+
+There is no shell and no way to add one without noticing, because a shell is every tier at
+once and cannot be described to a policy at all. A test asserts no capability name contains
+run, exec, shell, bash, eval or spawn.
+
+### the root is the part that carries the weight
+
+Everything above it decides whether a call may happen. None of that matters if the call can
+then name `../../../.ssh/id_rsa` and be handed it.
+
+Three ways out of a directory and all three are closed. An absolute path and `..` are text
+and are refused by looking. A symlink inside the root pointing out of it cannot be caught
+that way at all: every component of the path is innocent and it still lands anywhere on the
+disk. So containment is checked on the real path after the kernel resolves it, never on the
+string that was asked for.
+
+Creating a file is the awkward case, because a path that does not exist cannot be resolved
+and an unresolvable path cannot be proven safe. So for a new file the parent is resolved
+instead, which does exist, and that is what gets checked.
+
+Both of those were proven by breaking them. Removing the containment check made exactly two
+tests fail and nothing else.
+
+### the log holds the refusals too
+
+Every gated call is appended, including denied ones, failed ones, and calls naming a
+capability that does not exist. A log of only what happened cannot answer what an agent tried
+to do and was stopped from doing, which is the question you ask when something has gone
+wrong. An agent reaching for `shell` is the most interesting line such a log can contain.

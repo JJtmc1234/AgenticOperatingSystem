@@ -35,6 +35,15 @@ impl PlanId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// A plan id as quoted back by a caller.
+    ///
+    /// Deliberately does no validation. An id that was never issued has to be looked up and
+    /// refused by the ledger anyway, and checking the shape here would only mean two places
+    /// that can reject an id and two different errors for the same mistake.
+    pub fn quoted(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
 }
 
 impl std::fmt::Display for PlanId {

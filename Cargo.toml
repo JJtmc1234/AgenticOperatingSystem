@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/aos-core", "crates/aos-supervisor", "crates/aos-cli", "crates/aosd"]
+members = ["crates/aos-core", "crates/aos-supervisor", "crates/aos-cli", "crates/aosd", "crates/aos-mcp"]
 resolver = "3"
 
 [workspace.package]

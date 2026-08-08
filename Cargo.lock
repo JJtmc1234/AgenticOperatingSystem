@@ -81,6 +81,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aos-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aos-core",
+ "clap",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "aos-supervisor"
 version = "0.1.0"
 dependencies = [

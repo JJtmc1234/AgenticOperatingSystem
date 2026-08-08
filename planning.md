@@ -107,6 +107,14 @@ Code already speaks. Files first, then a policy gated command runner. Never a ra
 Done when a request like "find every PDF I touched this week and file them by project" works
 from Claude Code, with every gated call in the audit log.
 
+**3a, the file server, is done.** `aos-files` speaks MCP on stdio with seven capabilities,
+every one gated by root, policy and plan then commit, and every gated call recorded including
+the refusals. Proven end to end against the real binary, not only in tests.
+
+3b, the command runner, is not started. It is the harder half, because an allowlist bounds
+which binary starts and not what that binary then does, and any interpreter on that list
+hands back everything the other gates were protecting.
+
 ## phase 4, resource limits
 
 cgroups v2 gives memory and cpu ceilings per agent. This is the thing Windows made hard and

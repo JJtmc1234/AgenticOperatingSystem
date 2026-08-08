@@ -32,6 +32,10 @@ pub fn believed_running(records: &[Record]) -> BTreeMap<AgentId, ProcessHandle> 
             }
             // An offer, not an outcome. Nothing about the machine changed.
             Event::Planned { .. } => {}
+            // A capability call is something an agent did, not something that happened to
+            // the agent. It may well have changed a file, and it does not change whether a
+            // process is running, which is the only question this fold answers.
+            Event::Capability { .. } => {}
         }
     }
     live

@@ -41,6 +41,17 @@ pub enum Event {
         plan: crate::PlanId,
         tier: crate::RiskTier,
     },
+    /// A capability server was asked to do something, and this is what came of it.
+    ///
+    /// Refusals are recorded as well as successes, and the refusals are the interesting half.
+    /// A log that only holds what happened cannot answer what an agent tried to do and was
+    /// stopped from doing, which is the question you ask when something has gone wrong.
+    Capability {
+        tool: String,
+        tier: crate::RiskTier,
+        outcome: String,
+    },
+
     /// Replay found a `Started` with no ending, and the process is gone.
     ///
     /// Written during replay so the gap is visible in the log rather than quietly patched.

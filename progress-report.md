@@ -4,7 +4,7 @@ Where the plan stands. Updated 2026 08 07.
 
 ## summary
 
-The project restarted on Linux in Rust. Phases 0, 1 and 2 are complete and verified.
+The project restarted on Linux in Rust. Phases 0, 1, 2 and 3a are complete and verified.
 Phase 0r was added after reading Hunter's `agentic_os`. `aosd` now supervises agents that
 outlive it, and `aos list` and `aos stop` work from any terminal. The Windows tree is archived
 in the repo and removed from the working code.
@@ -16,7 +16,8 @@ in the repo and removed from the working code.
 | 1a | 1 session | done | adoption, verified against genuinely orphaned processes |
 | 1b | 1 session | done | the daemon, verified over a real socket |
 | 2 | 1 session | done | policy and the plan then commit handshake |
-| 3 to 6 | see planning.md | not started | capability servers over MCP are next |
+| 3a | 1 session | done | the file capability server, over MCP, proven against the real binary |
+| 3b to 6 | see planning.md | not started | the command runner is next, and is the harder half |
 
 ## what reading agentic_os changed
 

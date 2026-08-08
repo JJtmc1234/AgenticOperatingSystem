@@ -129,6 +129,8 @@ assumed.
 Verified ten runs against the fix, all passing, and ten against the restored bug, all failing.
 
 
+| 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+
 ## bug 5, in full
 
 Caused by the fix for bug 4, which is the useful part of the story.
@@ -156,3 +158,41 @@ The lesson is about the shape of the mistake rather than about sockets. Two fixe
 reached for something clever, a umask and then a rename, when a plain directory permission was
 both simpler and stronger. Worth asking, before adding a mechanism, whether something already
 in place covers it.
+
+
+## bug 6, in full
+
+Found by running the shipped example rather than by reading it.
+
+`examples/policy.toml` ended with this:
+
+```toml
+[agents]
+# "wiper" = "deny"
+
+plan_ttl_secs = 120
+```
+
+In TOML a bare key belongs to the table header above it, so that is not the plan lifetime. It
+is an agent called `plan_ttl_secs` with the value `120`, and since an agent id has to be
+lowercase letters, digits or dashes, the whole file was refused.
+
+The file had never parsed. Nothing caught it because every test builds its policy in Rust,
+so the example was only ever read by people, and reading it is exactly what does not reveal
+the problem. The first person to copy it, doing precisely what the comment at the top tells
+them to do, would have got a daemon that refuses to start.
+
+Refusing is the correct behaviour for an unreadable policy, and that is what made this worse
+rather than better. A supervisor that starts with a policy it could not read is a supervisor
+enforcing nothing while looking healthy, so the strictness is right. It just meant the
+failure landed on a new user in their first five minutes.
+
+The fix moves the key above every table header. The guard is two tests. One loads the file
+the repo actually ships and fails if it does not parse. The other checks the parsed value is
+120, because the interesting failure is not a parse error but the key silently landing in
+the wrong table.
+
+The first attempt at that second test scanned the text for bare keys under a header, which
+was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
+against the fixed file and caught itself. Checking the parsed structure is the only way to
+see where a key actually landed.
