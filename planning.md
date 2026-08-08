@@ -24,7 +24,7 @@ Nothing is called done on a compile. Done means `cargo fmt`, `cargo clippy --all
 | 0 | contracts crate, supervisor, cli, event log | 1 session | done |
 | 0r | event log as source of truth, replay, pid identity | 1 session | done |
 | 1a | adoption, so a restart re-takes its surviving agents | 1 session | done |
-| 1b | the daemon and its socket | 1 week | not started |
+| 1b | the daemon and its socket | 1 session | done |
 | 2 | policy engine and the plan then commit handshake | 1 week | not started |
 | 3 | capability servers over MCP, files and shell first | 1 to 2 weeks | not started |
 | 4 | resource limits through cgroups | 1 week | not started |
@@ -67,7 +67,7 @@ Passes when a genuinely orphaned process, reparented to init, is adopted by a fr
 supervisor, reported running, and stopped through its descriptor, and when a handle with a
 stale token is refused while the real process is left untouched. Both verified.
 
-## phase 1b, the daemon
+## phase 1b, the daemon, done
 
 Phase 0 supervises in the foreground only, so `list` and `stop` cannot see an agent another
 invocation started. A long lived `aosd` holds the supervisor and the cli talks to it over a
@@ -81,7 +81,8 @@ a message schema that is checked before anything is acted on.
 
 Passes when an agent started in one terminal is visible and stoppable from another, when
 restarting the daemon re-adopts a surviving agent rather than losing or duplicating it, and
-when killing the daemon does not orphan its agents silently.
+when killing the daemon does not orphan its agents silently. All three verified against the
+real binary over a real socket.
 
 ## phase 2, policy
 

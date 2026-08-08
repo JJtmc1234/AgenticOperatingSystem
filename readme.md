@@ -43,6 +43,27 @@ cat run/events.jsonl       # what the runtime did, including what it refused
 `examples/blocked.json` asks for `/bin/sh`, which is not on the allowlist. It is refused and
 the refusal is written to the event log with its reason.
 
+## the daemon
+
+`aos run` supervises in the foreground, so it only lasts as long as your terminal. `aosd` is
+the long lived version, and it is the only thing that owns an agent.
+
+```sh
+./target/debug/aosd &          # one per run directory
+
+./target/debug/aos ping
+./target/debug/aos start examples/sleeper.json
+./target/debug/aos list        # works from any terminal
+./target/debug/aos stop sleeper
+./target/debug/aos stop-all    # the kill switch
+```
+
+Stopping the daemon does not stop its agents. They keep running, and the next `aosd` replays
+the log and adopts them, which `aos list` marks as `(adopted)`. An adopted agent has no exit
+code to report, because init reaped it.
+
+The socket is `run/aosd.sock`, mode 0600, and it only answers connections from your own user.
+
 ## the event log
 
 `run/events.jsonl` is the only durable state. Everything the runtime believes is a fold over
@@ -56,9 +77,11 @@ it alone rather than risk signalling a stranger.
 
 ## what works today
 
-Phase 0 and 0r. Contracts, the supervisor, the `aos` binary, the event log, and replay.
-Supervision is foreground only, so `list` and `stop` across separate invocations wait for the
-phase 1 daemon.
+Phases 0 and 1. Contracts, the supervisor, the event log with replay, adoption of agents that
+outlived their supervisor, and `aosd` with `list` and `stop` working from any terminal.
+
+Phase 2 is next: a policy file, verdicts of allow, prompt or deny, and the plan then commit
+handshake so nothing mutating happens in one step.
 
 ## before you edit
 

@@ -73,6 +73,53 @@ afterwards. Without the second check the swap could have happened during the ope
 | acting, on an inherited agent | a pidfd, opened under the check above |
 | acting, on an agent we spawned | the `Child` we already hold |
 
+## the daemon and its socket
+
+`aosd` is the only thing that owns an agent. Two owners would mean two answers to what is
+running, and the whole point of the log is that there is one.
+
+Shutting the daemon down does not stop its agents. They keep running and the next boot adopts
+them. A supervisor that killed everything whenever it restarted would make restarts
+frightening, and a frightening restart is one nobody performs.
+
+The socket is the entire attack surface. Anyone who can reach it can start and stop processes
+as this user, so it gets four separate guards.
+
+| guard | stops |
+|---|---|
+| the run directory is 0700 | anyone else reaching any name inside it at all |
+| bound under a staging name, chmodded, then renamed into place | a window where the real socket path exists with the wrong mode |
+| mode asserted as 0600 afterwards, else refuse to serve | a filesystem that quietly ignored the chmod |
+| `SO_PEERCRED` checked per connection | a caller who is not this user, even if the mode were loosened by mistake |
+| the request schema parsed before anything acts | a path shaped agent id, or a verb that does not exist |
+
+Creating the socket and then fixing its permissions would leave a gap, and a gap is all an
+attack needs. The obvious fix is to narrow the umask across the bind, and it is wrong: `umask`
+is per process, so it changes what every other thread creates at the same moment. See bug 4.
+Rename is atomic and affects nothing outside this call, so that is what is used instead.
+
+A socket file that already exists is either a live daemon or debris from a crashed one.
+Guessing either way is wrong. Deleting a live daemon's socket strands it, and refusing to
+start over a dead one's leftovers demands a manual cleanup after every crash. So `aosd` asks:
+if something answers, it refuses to start. If nothing answers, the file is debris and is
+cleared.
+
+Requests are served one at a time. The daemon owns process lifetimes, so two requests racing
+to start the same agent is a bug with a stray process at the end of it. Serialising makes it
+impossible, and nothing here is slow enough to mind.
+
+A malformed request is answered with an error, never dropped. A caller that gets silence
+cannot tell a rejection from a crash.
+
+### the one ordering that matters
+
+Append to the log, then tell the supervisor. Never the other way round.
+
+If a start is recorded and the process then fails, the log claims one thing too many, and
+replay checks against `/proc` and corrects it. If a process starts and the record fails, the
+log claims one thing too few, and nothing will ever know that process exists. So a start whose
+record cannot be written is stopped again immediately rather than left unaccounted for.
+
 ## the two kinds of agent
 
 | kind | we can | we cannot |
@@ -93,12 +140,13 @@ parser reads everything after the last `)`, and there is a test with a process n
 
 ```
   cli, aos                        phase 0, done
-    validate, run, status
+    validate, run, status         read files, need no daemon
+    ping, list, start, stop, stop-all
         |
-        |  unix socket, JSON      phase 1
+        |  unix socket, one JSON object per line, owner only
         v
-  daemon, aosd                    phase 1
-    holds the supervisor, one owner of every child
+  daemon, aosd                    phase 1b, done
+    the only owner of an agent. Boots by replaying the log.
         |
         v
   policy                          phase 2
@@ -130,9 +178,13 @@ parser reads everything after the last `)`, and there is a test with a process n
 
 | crate | job | depends on |
 |---|---|---|
-| `aos-core` | contracts and the event log. Tiers, agent ids, specs, events, the fold. | nothing |
-| `aos-supervisor` | child process lifetimes, `/proc` identity, replay | `aos-core`, libc |
-| `aos-cli` | the `aos` binary | both |
+| `aos-core` | contracts, the event log, the protocol. No side effects on processes. | nothing |
+| `aos-supervisor` | process lifetimes, `/proc` identity, pidfds, replay | `aos-core`, libc |
+| `aosd` | the daemon. Owns the supervisor and the socket. | both, libc |
+| `aos-cli` | the `aos` binary. Talks to the daemon. | both |
+
+The protocol lives in `aos-core` so both sides compile against one definition. A protocol
+defined twice is a protocol that drifts.
 
 `aos-core` deliberately touches no processes, so the rules can be tested without spawning
 anything. That is why fifteen of its tests run in under a millisecond.

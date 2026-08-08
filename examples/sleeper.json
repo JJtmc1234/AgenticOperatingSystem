@@ -1,0 +1,6 @@
+{
+  "id": "sleeper",
+  "program": "/usr/bin/sleep",
+  "args": ["300"],
+  "ceiling": "read"
+}

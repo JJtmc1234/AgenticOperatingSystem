@@ -90,6 +90,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aosd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aos-core",
+ "aos-supervisor",
+ "clap",
+ "libc",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
