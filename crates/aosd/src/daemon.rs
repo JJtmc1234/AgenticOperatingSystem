@@ -1,8 +1,15 @@
 //! The daemon's state and the one place requests are turned into actions.
 //!
-//! Every mutation appends to the log before the supervisor is told, so a crash can never
-//! leave the log claiming less than actually happened. Losing a record for a process that is
-//! genuinely running is the failure that strands agents nobody can find.
+//! Losing a record for a process that is genuinely running is the failure that strands agents
+//! nobody can find, so no append here is allowed to fail quietly.
+//!
+//! Starting and stopping cannot append first. A pid and its start token do not exist until
+//! after the spawn, and an exit code does not exist until after the stop, so there is nothing
+//! truthful to write down beforehand. The rule those two obey instead is that a mutation which
+//! could not be recorded is either undone or reported as unrecorded, never dropped. `launch`
+//! stops the process it could not write down. `stop` and `stop_all` report the agent as
+//! stopped but unrecorded, because undoing a stop is not possible and pretending it failed
+//! would be false.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -119,15 +126,14 @@ impl Daemon {
 
             Verdict::Deny => {
                 let reason = format!("policy denies {} at tier {tier}", spec.id);
-                self.record_refusal(&spec.id, &reason);
-                Some(Response::error(reason))
+                Some(self.refuse(&spec.id, reason))
             }
 
             Verdict::Prompt => match commit {
                 // No commit quoted, so this is the planning call. Nothing runs.
                 None => match self.plans.propose(spec, tier, now()) {
                     Ok(plan) => {
-                        let _ = self.ledger.append(
+                        let recorded = self.ledger.append(
                             now(),
                             spec.id.clone(),
                             Event::Planned {
@@ -135,6 +141,15 @@ impl Daemon {
                                 tier,
                             },
                         );
+                        if let Err(e) = recorded {
+                            // Do not hand out an offer the log has no record of. The plan
+                            // stays in memory unused: its id was never disclosed, so it
+                            // cannot be quoted, and it expires with the rest.
+                            return Some(Response::error(format!(
+                                "could not record the plan for {}, so none was offered: {e}",
+                                spec.id
+                            )));
+                        }
                         Some(Response::PlanRequired {
                             plan: plan.id,
                             agent: spec.id.clone(),
@@ -151,24 +166,32 @@ impl Daemon {
                 // A commit was quoted. It has to match this exact request.
                 Some(id) => match self.plans.commit(&id, spec, now()) {
                     Ok(_) => None,
-                    Err(e) => {
-                        let reason = e.to_string();
-                        self.record_refusal(&spec.id, &reason);
-                        Some(Response::error(reason))
-                    }
+                    Err(e) => Some(self.refuse(&spec.id, e.to_string())),
                 },
             },
         }
     }
 
-    fn record_refusal(&mut self, agent: &aos_core::AgentId, reason: &str) {
-        let _ = self.ledger.append(
+    /// Records a refusal and builds the response that reports it.
+    ///
+    /// Returns the response rather than nothing, so writing the record and answering the
+    /// caller cannot come apart. A refusal that was not written down is indistinguishable
+    /// later from one that never happened, and the audit log is the whole point of refusing
+    /// out loud, so the caller is told about both failures rather than only the first.
+    fn refuse(&mut self, agent: &aos_core::AgentId, reason: String) -> Response {
+        let recorded = self.ledger.append(
             now(),
             agent.clone(),
             Event::Refused {
-                reason: reason.to_string(),
+                reason: reason.clone(),
             },
         );
+        match recorded {
+            Ok(_) => Response::error(reason),
+            Err(e) => Response::error(format!(
+                "{reason}. This refusal could not be recorded either, so the log has a hole: {e}"
+            )),
+        }
     }
 
     fn start(&mut self, spec: AgentSpec, commit: Option<PlanId>) -> Response {
@@ -202,11 +225,7 @@ impl Daemon {
                 }
                 Response::Started { handle }
             }
-            Err(err) => {
-                let reason = err.to_string();
-                self.record_refusal(&spec.id, &reason);
-                Response::error(reason)
-            }
+            Err(err) => self.refuse(&spec.id, err.to_string()),
         }
     }
 
@@ -217,9 +236,18 @@ impl Daemon {
                     aos_core::AgentState::Stopped { code } => code,
                     aos_core::AgentState::Running { .. } => None,
                 };
-                let _ = self
+                let recorded = self
                     .ledger
                     .append(now(), agent.clone(), Event::Stopped { code });
+                if let Err(e) = recorded {
+                    // The agent really did stop, so saying otherwise would be a lie. But the
+                    // log still calls it running, and `believed_running` folds over the log,
+                    // so the next boot will look for this pid. Report both.
+                    return Response::error(format!(
+                        "stopped {agent} but could not record it, so the log still calls it \
+                         running and needs reconciling: {e}"
+                    ));
+                }
                 Response::Stopped {
                     agent: agent.clone(),
                     state,
@@ -240,9 +268,18 @@ impl Daemon {
                         aos_core::AgentState::Stopped { code } => code,
                         aos_core::AgentState::Running { .. } => None,
                     };
-                    let _ = self
+                    let recorded = self
                         .ledger
                         .append(now(), id.clone(), Event::Stopped { code });
+                    if let Err(e) = recorded {
+                        // Both facts go back. It is in `stopped` because it genuinely stopped,
+                        // and in `failed` because the log does not say so and the operator is
+                        // the only one who can close that gap.
+                        failed.push(format!(
+                            "{id}: stopped, but the record could not be written, so the log \
+                             still calls it running: {e}"
+                        ));
+                    }
                     stopped.push(id);
                 }
                 Err(e) => failed.push(format!("{id}: {e}")),
@@ -260,4 +297,140 @@ pub fn allowlist(run_dir: &Path) -> Result<Vec<String>> {
         .with_context(|| format!("no allowlist at {}", path.display()))?;
     serde_json::from_str(&text)
         .with_context(|| format!("{} is not a JSON array of strings", path.display()))
+}
+
+/// What the daemon does when the log will not take a write.
+///
+/// These build a `Daemon` by hand rather than going through `boot`, because the failure being
+/// tested is a refusing log and `boot` insists on a real openable file. The socket, the
+/// protocol and the restart are covered by `tests/daemon.rs` against the real binary.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aos_core::{AgentId, RiskTier, Verdict};
+
+    /// A sink that refuses every write, which is what a full disk looks like from here.
+    struct Refusing;
+
+    impl std::io::Write for Refusing {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("no space left on device"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn spec(id: &str, args: &[&str], ceiling: RiskTier) -> AgentSpec {
+        AgentSpec {
+            id: AgentId::new(id).unwrap(),
+            program: "/usr/bin/sleep".into(),
+            args: args.iter().map(|a| (*a).to_string()).collect(),
+            ceiling,
+        }
+    }
+
+    /// A daemon whose every append fails, over a real supervisor so processes are real.
+    fn refusing(policy: Policy, log_dir: &Path) -> Daemon {
+        let plans = PlanLedger::new(policy.plan_ttl_secs);
+        Daemon {
+            supervisor: Supervisor::new(["/usr/bin/sleep".to_string()], log_dir.to_path_buf()),
+            ledger: Ledger::to_sink(Box::new(Refusing), 1),
+            policy,
+            plans,
+        }
+    }
+
+    fn message(response: Response) -> String {
+        match response {
+            Response::Error { message } => message,
+            other => panic!("expected an error, got {other:?}"),
+        }
+    }
+
+    /// The refusal reason and the failed write are both the caller's business. Reporting only
+    /// the refusal is what the old code did, and it left the operator believing the log had
+    /// recorded something it had not.
+    #[test]
+    fn a_refusal_that_could_not_be_written_reports_both() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut policy = Policy::default();
+        policy
+            .agents
+            .insert(AgentId::new("wiper").unwrap(), Verdict::Deny);
+
+        let response = refusing(policy, dir.path()).handle(Request::Start {
+            spec: Box::new(spec("wiper", &["1"], RiskTier::Read)),
+            commit: None,
+        });
+
+        let message = message(response);
+        assert!(message.contains("policy denies"), "{message}");
+        assert!(message.contains("could not be recorded"), "{message}");
+    }
+
+    /// An offer the log has no record of is not an offer. Nothing has run at this point, so
+    /// refusing to plan costs only a retry.
+    #[test]
+    fn a_plan_that_could_not_be_recorded_is_not_offered() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Write is Prompt under the default policy, so this is the planning call.
+        let response = refusing(Policy::default(), dir.path()).handle(Request::Start {
+            spec: Box::new(spec("risky", &["1"], RiskTier::Write)),
+            commit: None,
+        });
+
+        let message = message(response);
+        assert!(message.contains("could not record the plan"), "{message}");
+        assert!(message.contains("none was offered"), "{message}");
+    }
+
+    /// The stop happened, so the response must not claim it failed. The log still calls the
+    /// agent running though, and `believed_running` folds over the log, so the next boot would
+    /// hunt a pid Linux may have handed to someone else. Both halves get reported.
+    #[test]
+    fn a_stop_that_could_not_be_recorded_is_reported_as_unrecorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut daemon = refusing(Policy::default(), dir.path());
+        let spec = spec("sleeper", &["30"], RiskTier::Read);
+
+        // Started directly on the supervisor, because a start through the daemon would hit the
+        // same refusing log and be stopped again by `launch`.
+        daemon.supervisor.start(&spec).unwrap();
+
+        let response = daemon.handle(Request::Stop {
+            agent: spec.id.clone(),
+            grace_secs: 1,
+        });
+
+        let message = message(response);
+        assert!(message.contains("stopped sleeper"), "{message}");
+        assert!(message.contains("needs reconciling"), "{message}");
+
+        // And it is genuinely gone, not merely reported.
+        assert!(matches!(
+            daemon.supervisor.state(&spec.id),
+            Ok(aos_core::AgentState::Stopped { .. }) | Err(_)
+        ));
+    }
+
+    /// The kill switch has somewhere to put both facts already, so it uses both. Leaving the
+    /// agent out of `stopped` would be false, and leaving `failed` empty would hide the hole.
+    #[test]
+    fn stop_all_reports_an_agent_it_stopped_but_could_not_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut daemon = refusing(Policy::default(), dir.path());
+        let spec = spec("sleeper", &["30"], RiskTier::Read);
+        daemon.supervisor.start(&spec).unwrap();
+
+        let response = daemon.handle(Request::StopAll { grace_secs: 1 });
+
+        let Response::StoppedAll { stopped, failed } = response else {
+            panic!("expected stop-all to answer, got {response:?}");
+        };
+        assert_eq!(stopped, vec![spec.id.clone()]);
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(failed[0].contains("could not be written"), "{failed:?}");
+    }
 }

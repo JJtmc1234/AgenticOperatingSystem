@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | Three of the daemon's four ledger appends threw the error away with `let _ =`, so a refusal or a stop could go unrecorded while the caller was told everything worked. | Reading `crates/aosd/src/daemon.rs` against its own module doc, which claimed every mutation is written down first. | `a_refusal_that_could_not_be_written_reports_both`, `a_plan_that_could_not_be_recorded_is_not_offered`, `a_stop_that_could_not_be_recorded_is_reported_as_unrecorded`, `stop_all_reports_an_agent_it_stopped_but_could_not_record` |
 
 ## bug 5, in full
 
@@ -196,3 +197,64 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+`Daemon` wrote four kinds of record. One of them checked whether the write worked.
+
+`launch` got it right. It appends the `Started` record, and if the append fails it stops the
+process again, because a running agent nobody wrote down is a running agent nobody can find.
+The other three used `let _ = self.ledger.append(...)` and carried on: `Planned` in the gate,
+`Refused` in `record_refusal`, and `Stopped` in both `stop` and `stop_all`.
+
+Each one loses something different.
+
+A dropped `Refused` record is the worst of them, because refusing out loud is the entire
+reason the audit log exists. The caller still got a normal refusal message, so nothing
+anywhere said the refusal had not been written. Later, a log with no entry looks exactly like
+a call that was never made.
+
+A dropped `Stopped` record is the one that can hurt the machine. `believed_running` in
+`aos-core/src/fold.rs` is a fold over the log, so with no `Stopped` record the log keeps
+calling the agent running. The next boot reads that and goes looking for the pid. Linux reuses
+pids, so the process it finds may belong to somebody else entirely. The existing start token
+check is what stops that becoming a signal to a stranger, which means the guard held, but only
+because a different guard was doing its job.
+
+A dropped `Planned` record just loses the audit trail of an offer, since plans live in memory
+only. It is the least harmful and it was fixed the same way.
+
+Fix. `record_refusal` became `refuse`, which returns the `Response` instead of returning
+nothing. That is the part worth keeping. Writing the record and answering the caller are now
+one operation, so a future call site cannot record a refusal and then forget to mention the
+write failed, and three call sites got shorter. `Planned` now refuses to offer a plan it could
+not write down, which is safe because nothing has run at that point. `stop` and `stop_all`
+report the agent as stopped, which is true, and also report that the log does not say so,
+which is the part the operator has to fix by hand. A stop cannot be undone, so reporting both
+facts is the only honest option.
+
+The module doc was also wrong, and its wrongness is why this was worth writing up. It said
+every mutation appends before the supervisor is told. That cannot be true for starting or
+stopping. A pid and its start token do not exist until after the spawn, and an exit code does
+not exist until after the stop, so there is nothing truthful to write beforehand. The real
+rule those two follow is that a mutation which could not be recorded is undone or reported as
+unrecorded, never dropped. The doc now says that instead.
+
+Guard. Four tests, one per site, in a new `mod tests` inside `daemon.rs`. They build a
+`Daemon` by hand over a ledger whose every write fails, which needed a seam that did not
+exist: `Ledger` now holds a `Box<dyn Write>` rather than a `File`, and `Ledger::to_sink` makes
+one over anything. That seam is the more valuable half of this fix. Every belief the runtime
+holds is a fold over the log, so "the log refused a write" is the failure most worth testing,
+and it is exactly the one a real file will not reproduce on demand. Before this, no test in
+the project could reach any of that code.
+
+The daemon tests in `tests/daemon.rs` still drive the real binary over a real socket. These
+new ones sit inside the crate instead, because `boot` needs a log it can actually open and the
+whole point here is a log that cannot be written.
+
+Verified by rebuilding `daemon.rs` as the committed version plus the four new tests and
+running them. All four failed, each for its own reason: the plan test got `PlanRequired` back,
+the stop test got `Stopped`, `stop_all` reported an empty `failed` list, and the refusal test
+got a message that mentioned only the policy. Then the fix was restored and all four passed,
+with `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and the full `cargo test`
+clean.
