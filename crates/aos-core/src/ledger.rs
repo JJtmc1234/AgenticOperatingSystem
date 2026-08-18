@@ -10,7 +10,7 @@ use crate::{AgentId, Event, Record, Result};
 /// Text rather than SQLite on purpose. The log has to be readable with `cat` when the thing
 /// that writes it is the thing that is broken.
 pub struct Ledger {
-    file: std::fs::File,
+    sink: Box<dyn std::io::Write>,
     next_seq: u64,
 }
 
@@ -26,7 +26,21 @@ impl Ledger {
             .create(true)
             .append(true)
             .open(path)?;
-        Ok(Self { file, next_seq })
+        Ok(Self {
+            sink: Box::new(file),
+            next_seq,
+        })
+    }
+
+    /// A ledger over any sink, starting the sequence at `next_seq`.
+    ///
+    /// This exists so a failing write can be reached on purpose. Every belief the runtime
+    /// holds is a fold over the log, which makes "the log refused a write" the failure worth
+    /// testing hardest, and it is also the one a real file will not reproduce on demand. A
+    /// guard nobody can trigger is a guess, so the seam is part of the product rather than
+    /// something bolted on beside it.
+    pub fn to_sink(sink: Box<dyn std::io::Write>, next_seq: u64) -> Self {
+        Self { sink, next_seq }
     }
 
     pub fn append(&mut self, at: u64, agent: AgentId, event: Event) -> Result<Record> {
@@ -37,9 +51,9 @@ impl Ledger {
             event,
         };
         // One write call, so two writers appending cannot interleave a partial line.
-        self.file
+        self.sink
             .write_all(format!("{}\n", serde_json::to_string(&record)?).as_bytes())?;
-        self.file.flush()?;
+        self.sink.flush()?;
         self.next_seq += 1;
         Ok(record)
     }

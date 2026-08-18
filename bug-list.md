@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `aos run` started the child, then appended the `Started` record with a bare `?`, so a log that would not take the write left a process running that nothing had recorded. | Reading `crates/aos-cli/src/runtime.rs` against the comment directly above it, which said "Append, then act". | `a_start_that_cannot_be_recorded_leaves_no_surviving_child` |
 
 ## bug 5, in full
 
@@ -196,3 +197,56 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+`aos run` spawned the agent, then appended the `Started` record with a bare `?`. If the append
+failed, the `?` returned immediately, the `Supervisor` was dropped, and the child kept running.
+Dropping a `std::process::Child` does not kill anything, and there is no `Drop` on `Supervisor`,
+so the process simply stayed.
+
+That is the worst shape a failure can take in this system. The record is the only thing that
+would have carried the pid, so with no record there is nothing for `aos status` to reconcile,
+nothing for the next `aosd` to adopt, and nothing for the kill switch to stop. The agent is
+running and no part of the machine knows it exists. Confirmed rather than reasoned about: the
+old code left `/usr/bin/sleep 4919.3543467` as pid 3543469, with an 82 minute lifetime ahead of
+it and no entry anywhere.
+
+The comment directly above said "Append, then act", which is the opposite of what the code did,
+and that is the more interesting half. Append then act is impossible here. A pid and its start
+token do not exist until the child does, so before the spawn there is nothing truthful to write
+down. `aosd` had already worked this out: `Daemon::launch` appends, and if the append fails it
+stops the process and says so. The cli had the same job and the wrong order.
+
+Fix. On a failed append, stop the child before returning, and say in the error that it was
+started, could not be recorded, and was stopped again. If the stop also fails, the message names
+the pid, because at that point only a person can close the gap. The comment now describes the
+real rule, which is that a start which could not be recorded is undone.
+
+Guard. `a_start_that_cannot_be_recorded_leaves_no_surviving_child` runs a real
+`/usr/bin/sleep` against a ledger whose every write fails, then scans `/proc` for anything whose
+command line still carries the marker. `run` was split so the body is `supervise`, taking a
+ledger and supervisor already built, because the failure being tested is a log that refuses
+writes and `Ledger::open` insists on a file it can really open.
+
+Three things went wrong while writing that guard, and each is worth keeping.
+
+The marker started as a bare `4919`, and the pre check failed because an unrelated shell command
+on this machine mentioned 4919 in its own arguments. `survivors` matches a substring of every
+command line, so the marker has to be unique to this process. It now carries the test's own pid
+after the decimal point, which `sleep` accepts because it takes a float.
+
+The assertions were in the wrong order. The message check came first, so against the broken code
+the test failed on the wording and never reached the claim about the surviving process. The
+substantive claim now goes first, and the message check after it.
+
+Worst of the three, the first version leaked. Against the broken code the test is the thing that
+starts the process, so when it fails it is the thing that leaves it behind, which is bug 3 in
+this list repeated in a new file. It now samples the survivors and sends SIGKILL to each before
+asserting anything, so a failing run cleans up after itself. That is why `libc` is a dev
+dependency of `aos-cli`.
+
+Verified by restoring the bare `?` while keeping the seam and the test, and running it. It
+failed with `left: [3545768], right: []`, naming the process that outlived the failed append,
+and left nothing behind afterwards. The fix was then restored and the test passed, with
+`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and the full `cargo test` clean.
