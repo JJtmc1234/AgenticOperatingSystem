@@ -16,7 +16,10 @@ fn id(name: &str) -> AgentId {
 
 fn sup() -> (Supervisor, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let sup = Supervisor::new(["/usr/bin/sleep".to_string()], dir.path());
+    let sup = Supervisor::new(
+        aos_core::Allowlist::resolve(["/usr/bin/sleep".to_string()]).unwrap(),
+        dir.path(),
+    );
     (sup, dir)
 }
 

@@ -5,6 +5,7 @@
 //! side effects means the rules can be tested without spawning anything.
 
 pub mod agent;
+pub mod allowlist;
 pub mod event;
 pub mod fold;
 pub mod ledger;
@@ -14,6 +15,7 @@ pub mod protocol;
 pub mod tier;
 
 pub use agent::{AgentId, AgentSpec, AgentState};
+pub use allowlist::Allowlist;
 pub use event::{Event, ProcessHandle, Record};
 pub use fold::believed_running;
 pub use ledger::Ledger;

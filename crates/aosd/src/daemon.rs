@@ -9,7 +9,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use aos_core::{
-    AgentReport, AgentSpec, Event, Ledger, PlanId, PlanLedger, Policy, Request, Response, Verdict,
+    AgentReport, AgentSpec, Allowlist, Event, Ledger, PlanId, PlanLedger, Policy, Request,
+    Response, Verdict,
 };
 use aos_supervisor::Supervisor;
 
@@ -182,13 +183,16 @@ impl Daemon {
     /// be bypassed by a future caller.
     fn launch(&mut self, spec: AgentSpec) -> Response {
         match self.supervisor.start(&spec) {
-            Ok(handle) => {
+            Ok(launched) => {
+                let handle = launched.handle;
                 let recorded = self.ledger.append(
                     now(),
                     spec.id.clone(),
                     Event::Started {
                         handle,
-                        program: spec.program.clone(),
+                        // The file that ran, not the spelling that was asked for, so a reviewer
+                        // can tell which binary this was.
+                        program: launched.program.display().to_string(),
                     },
                 );
                 if let Err(e) = recorded {
@@ -253,11 +257,16 @@ impl Daemon {
     }
 }
 
-/// Reads the program allowlist.
-pub fn allowlist(run_dir: &Path) -> Result<Vec<String>> {
+/// Reads the program allowlist and resolves every entry to a real path.
+///
+/// Resolving at load means a relative or missing entry stops the daemon starting, rather than
+/// sitting there until the launch it was supposed to govern. A rule nobody can act on is not
+/// a safe default, it is a rule that fails open the first time it matters.
+pub fn allowlist(run_dir: &Path) -> Result<Allowlist> {
     let path = run_dir.join("allowed-programs.json");
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("no allowlist at {}", path.display()))?;
-    serde_json::from_str(&text)
-        .with_context(|| format!("{} is not a JSON array of strings", path.display()))
+    let entries: Vec<String> = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not a JSON array of strings", path.display()))?;
+    Ok(Allowlist::resolve(entries)?)
 }

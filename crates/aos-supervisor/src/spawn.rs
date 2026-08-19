@@ -3,10 +3,10 @@
 //! Split from the supervisor because these are two different jobs. This decides how a
 //! process is allowed to come into existence. The supervisor tracks a set of them.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use aos_core::{AgentSpec, Error, ProcessHandle, Result};
+use aos_core::{AgentSpec, Allowlist, Error, ProcessHandle, Result};
 
 use crate::proc;
 
@@ -16,22 +16,20 @@ use crate::proc;
 /// meaning anything the moment the supervisor is not there to watch it.
 pub fn launch(
     spec: &AgentSpec,
-    allowed: &[String],
+    allowed: &Allowlist,
     log_dir: &Path,
     log_file: &Path,
-) -> Result<(Child, ProcessHandle)> {
-    if !allowed.iter().any(|p| p == &spec.program) {
-        return Err(Error::Refused(format!(
-            "{:?} is not an allowed program, allowed are {:?}",
-            spec.program, allowed
-        )));
-    }
+) -> Result<(Child, ProcessHandle, PathBuf)> {
+    // The resolved path, not the spelling that was asked for. Spawning the string would let
+    // `$PATH` or the working directory pick the file, which is the gate naming one thing and
+    // the kernel running another. See bug 7.
+    let program = allowed.resolve_program(&spec.program)?;
 
     let log = open_log(log_dir, log_file)?;
 
     // Arguments go straight to execve as a list. No shell, so a semicolon or a pipe inside
     // an argument stays literal text.
-    let child = Command::new(&spec.program)
+    let child = Command::new(&program)
         .args(&spec.args)
         // The child must not inherit our stdin. On the Windows AOS a child inherited the
         // protocol pipe and ate the parent's messages.
@@ -54,7 +52,7 @@ pub fn launch(
         ))
     })?;
 
-    Ok((child, ProcessHandle { pid, start_token }))
+    Ok((child, ProcessHandle { pid, start_token }, program))
 }
 
 /// Opens an agent's log for appending, creating the directory on first use.

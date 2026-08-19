@@ -34,16 +34,17 @@ pub fn run(run_dir: &Path, spec_path: &Path) -> Result<()> {
     // Append, then act. A refusal is written too, because a log that only records what
     // worked hides exactly the calls worth reviewing.
     let handle = match sup.start(&spec) {
-        Ok(handle) => {
+        Ok(launched) => {
             ledger.append(
                 now(),
                 spec.id.clone(),
                 Event::Started {
-                    handle,
-                    program: spec.program.clone(),
+                    handle: launched.handle,
+                    // The file that ran, not the spelling asked for.
+                    program: launched.program.display().to_string(),
                 },
             )?;
-            handle
+            launched.handle
         }
         Err(err) => {
             ledger.append(

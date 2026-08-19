@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | The allowlist was compared by string equality and the same string was handed to `Command::new`, so a bare name got a `$PATH` search and a relative one resolved against the daemon's working directory. The gate named one file and the kernel ran another. | Never fired. Reproduced: allowlist `["probetool"]` with the probe directory on `PATH` ran a binary the allowlist never named, and the ledger recorded only `"program":"probetool"`. | `a_bare_name_is_refused_at_load`, `a_relative_entry_with_a_slash_is_refused_at_load`, `a_different_file_with_the_same_name_is_refused`, `two_hard_linked_coreutils_stay_distinct_entries` |
 
 ## bug 5, in full
 
@@ -196,3 +197,58 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+The allowlist is the gate that decides which binary may start. It was comparing spellings.
+
+`spawn::launch` tested `allowed.iter().any(|p| p == &spec.program)`, a string equality, and
+then passed that same string to `Command::new`. Nothing in between touched the filesystem, so
+nothing ever established that the string named a particular file. Two ways that goes wrong,
+and both were reproduced rather than reasoned about.
+
+A name with no slash makes `Command::new` search `$PATH` at exec time. Allowlist
+`["probetool"]`, the probe directory prepended to `PATH`, and the agent ran
+`<scratch>/lab/bin/probetool`, a file the allowlist never named. A relative name with a slash
+resolves against the process working directory instead, so the same allowlist file named
+different binaries depending on where `aosd` happened to be started from.
+
+The audit side was just as bad. `Event::Started` recorded `spec.program.clone()`, the
+unresolved spelling, so `events.jsonl` could not say which file ran even afterwards.
+
+Fix. `aos_core::Allowlist` resolves every entry once at load, refusing any that is not
+absolute and any that does not exist. `resolve_program` canonicalizes the requested program
+and compares real paths. The resolved path is what gets spawned and what gets recorded.
+
+Refusing a relative entry at load rather than at launch is deliberate. A relative entry is not
+a narrower permission, it is an ambiguous one, and an ambiguous rule should be rejected before
+anything has been decided by it rather than at the moment it was supposed to govern something.
+
+The interesting part is what this machine taught about the alternative. The issue suggested
+comparing device and inode instead, to also catch hard links. That would have been a disaster
+here. `/usr/bin/echo` and `/usr/bin/sleep` canonicalize to
+`/usr/lib/cargo/bin/coreutils/echo` and `.../sleep`, which are two names for **one inode**,
+because uutils ships a single multi-call binary hard linked under every utility name. Under an
+inode comparison, allowing `echo` would have allowed `sleep`, `rm` and everything else in that
+binary, while the allowlist file still looked exactly as restrictive as before. Comparing
+canonical paths keeps them distinct. The cost is that a hard link to an allowed binary under
+another path is refused, which is the right way round.
+
+That is checked, not just written down. `two_hard_linked_coreutils_stay_distinct_entries`
+confirms the two really do share an inode on this host and that an entry naming only `echo`
+still refuses `sleep`. It returns early rather than failing where the layout differs, since it
+is asserting something about the machine rather than about this crate.
+
+One more thing follows from multi-call binaries and is easy to undo by accident. The caller
+spawns the resolved path, so `argv[0]` is the file that was actually checked and the binary
+behaves as that. Passing the requested spelling as `arg0` would look like a tidy way to
+preserve behaviour and would reopen the hole: a symlink named `rm` pointing at an allowed
+`echo` would pass the check and then behave as `rm`. There is a comment on
+`resolve_program` saying so.
+
+Guard. Seven tests on `Allowlist`, four of them named in the table above. Verified against the
+real binary both ways: with allowlist `["probetool"]` and the probe directory on `PATH`,
+`aos run` now refuses at load with a message naming `$PATH`, and no agent log is created
+because nothing ran. With allowlist `["/usr/bin/echo"]` and a request naming `/bin/echo`, it
+runs and the ledger records `/usr/lib/cargo/bin/coreutils/echo`, the file that actually ran,
+where before it would have recorded `/bin/echo`.
