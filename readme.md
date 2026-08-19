@@ -105,8 +105,60 @@ Phases 0, 1 and 2. Contracts, the supervisor, the event log with replay, adoptio
 that outlived their supervisor, `aosd` with `list` and `stop` working from any terminal, and
 policy with the plan then commit handshake.
 
-Phase 3 is next: capability servers over MCP, which is the protocol Claude Code already
-speaks. Files first, then a policy gated command runner. Never a raw shell.
+Phase 3a as well: `aos-files`, the file capability server, spoken over MCP. Every call is
+gated by root, policy and the same plan then commit handshake, and every gated call is
+recorded including the refusals.
+
+3b, the command runner, is not started. It is the harder half, because an allowlist bounds
+which binary starts and not what that binary then does. Never a raw shell.
+
+## the file server
+
+MCP is the protocol Claude Code already speaks, so a capability server is the way an agent
+gets to touch files without ever being handed a shell.
+
+```sh
+mkdir -p run/work
+cp examples/policy.toml run/policy.toml
+
+./target/debug/aos-files \
+  --root "$PWD/run/work" \
+  --policy "$PWD/run/policy.toml" \
+  --log "$PWD/run/events.jsonl"
+```
+
+`--root` is the only directory it may touch and has to exist already. `--policy` decides what
+is allowed. `--log` is optional, and leaving it out means nothing is recorded, which is almost
+never what you want. `--agent` defaults to `claude-code` and is the name the policy singles
+out in its `[agents]` table.
+
+It speaks MCP on stdio, so running it by hand gets you a server waiting for JSON on its input
+rather than anything to look at. To give it to Claude Code, add it as an MCP server:
+
+```sh
+claude mcp add aos-files -- \
+  /absolute/path/to/target/debug/aos-files \
+  --root /absolute/path/to/run/work \
+  --policy /absolute/path/to/run/policy.toml \
+  --log /absolute/path/to/run/events.jsonl
+```
+
+Absolute paths throughout, because the server is started by Claude Code from a working
+directory you did not choose.
+
+| capability | tier | needs a commit under the default policy |
+|---|---|---|
+| `list_dir` | read | no |
+| `read_file` | read | no |
+| `find` | read | no |
+| `write_file` | write | yes |
+| `make_dir` | write | yes |
+| `move_file` | write | yes |
+| `delete_file` | destructive | yes |
+
+The read three run freely because they change nothing. Everything else returns a plan the
+first time and acts only when a second call quotes that plan's id, which is the same handshake
+`aos start` uses and for the same reason.
 
 ## before you edit
 
