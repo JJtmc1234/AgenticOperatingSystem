@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `Ledger::append` called `flush` on a `std::fs::File`, which does nothing, because a `File` holds no userspace buffer. Every record stopped at the page cache, so a power loss could drop a `Started` record for a process that was genuinely running. | Never fired. Found by reading `append` against the readme's claim that the log is durable. | `every_append_is_synced_after_it_is_written`, `a_failed_sync_fails_the_append_and_does_not_burn_the_number` |
 
 ## bug 5, in full
 
@@ -196,3 +197,46 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+The readme says `run/events.jsonl` is the only durable state. It was not durable.
+
+`append` did `write_all` and then `flush`. `Write::flush` on a `std::fs::File` is a no op, and
+not by accident: a `File` is a thin wrapper over a file descriptor with no userspace buffer,
+so there is nothing to flush. The bytes went to the kernel page cache and the call returned.
+Everything downstream then treated the record as written.
+
+That is the one failure this whole design exists to prevent. `believed_running` is a fold over
+the log, and the append first rule is there so the log can never claim less than actually
+happened. A `Started` record sitting in the page cache when the machine loses power gives you
+exactly the opposite: an agent genuinely running and no record that it was ever launched, so
+nothing can find it, adopt it or stop it.
+
+Fix. A `Durable` trait, which is `Write` plus `sync`, implemented for `File` as `sync_data`.
+`Ledger` holds a `Box<dyn Durable>` and `append` syncs before it reports success, and before
+`next_seq` moves, so a failed sync leaves the number unused rather than handing it to a record
+the caller was never told about.
+
+`sync_data` rather than `sync_all`, because the contents have to survive and the metadata does
+not. A log with a stale mtime is still a log that reads correctly.
+
+Making it a trait rather than a bare `self.file.sync_data()?` is the part that matters. "It
+reached the disk" cannot be observed from a test, and this list does not take an entry without
+one. Through the trait it can: the guard hands the ledger a sink that records what was done to
+it and checks the tape.
+
+Guard. `every_append_is_synced_after_it_is_written` appends two records over a counting sink
+and asserts the tape reads `wsws`. Checking the ordering and not just the totals is deliberate,
+because counting alone would pass against a version that wrote both records and synced twice at
+the end, leaving the first one exposed in between.
+`a_failed_sync_fails_the_append_and_does_not_burn_the_number` checks that a sink whose sync
+fails makes the append fail, and that the sequence number is still available afterwards.
+
+Verified by putting `flush` back where `sync` is. Both failed, the first with `left: "ww"`
+against `right: "wsws"`, which is precisely the bug: written twice, synced never.
+
+Cost. About 590 microseconds per append on ext4 against 9 without, over 200 appends. That is
+65 times slower and it is still the right trade, because this log takes a handful of records
+per agent rather than being a hot path. Written up in `infrastructure.md` under what durable
+actually means here, along with what the log does and does not survive.

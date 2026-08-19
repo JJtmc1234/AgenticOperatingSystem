@@ -5,12 +5,33 @@ use std::path::Path;
 
 use crate::{AgentId, Event, Record, Result};
 
+/// Something the log can be written to and forced onto the device.
+///
+/// `Write::flush` is not enough and on a `File` it is not anything at all, because a `File`
+/// holds no userspace buffer to flush. The bytes reach the kernel page cache and stop there,
+/// so a power loss or a panic can drop a record for a process that is genuinely running. That
+/// is the exact disagreement between the log and the world that appending first exists to
+/// prevent, so the sync is part of what a ledger sink is rather than something a caller
+/// remembers to do afterwards.
+pub trait Durable: std::io::Write {
+    /// Returns once the bytes already written are on the device, not merely accepted.
+    fn sync(&mut self) -> std::io::Result<()>;
+}
+
+impl Durable for std::fs::File {
+    fn sync(&mut self) -> std::io::Result<()> {
+        // `sync_data` rather than `sync_all`. The contents have to survive. The metadata does
+        // not, because a log with the wrong mtime is still a log that can be read.
+        self.sync_data()
+    }
+}
+
 /// One JSON object per line, only ever appended to.
 ///
 /// Text rather than SQLite on purpose. The log has to be readable with `cat` when the thing
 /// that writes it is the thing that is broken.
 pub struct Ledger {
-    file: std::fs::File,
+    sink: Box<dyn Durable>,
     next_seq: u64,
 }
 
@@ -26,7 +47,18 @@ impl Ledger {
             .create(true)
             .append(true)
             .open(path)?;
-        Ok(Self { file, next_seq })
+        Ok(Self {
+            sink: Box::new(file),
+            next_seq,
+        })
+    }
+
+    /// A ledger over any durable sink, starting the sequence at `next_seq`.
+    ///
+    /// Exists so the two things a real file will not do on demand can be reached on purpose: a
+    /// write that fails, and a sync that can be counted. A guard nobody can trigger is a guess.
+    pub fn to_sink(sink: Box<dyn Durable>, next_seq: u64) -> Self {
+        Self { sink, next_seq }
     }
 
     pub fn append(&mut self, at: u64, agent: AgentId, event: Event) -> Result<Record> {
@@ -37,9 +69,11 @@ impl Ledger {
             event,
         };
         // One write call, so two writers appending cannot interleave a partial line.
-        self.file
+        self.sink
             .write_all(format!("{}\n", serde_json::to_string(&record)?).as_bytes())?;
-        self.file.flush()?;
+        // Before `next_seq` moves, so a failed sync leaves the number unused rather than
+        // handing it to a record the caller was told nothing about.
+        self.sink.sync()?;
         self.next_seq += 1;
         Ok(record)
     }
@@ -76,6 +110,87 @@ mod tests {
 
     fn id(name: &str) -> AgentId {
         AgentId::new(name).unwrap()
+    }
+
+    /// What the ledger actually did to its sink, in order. 'w' per write and 's' per sync, so
+    /// the ordering can be checked and not just the totals.
+    type Seen = std::rc::Rc<std::cell::RefCell<String>>;
+
+    /// Records every call rather than keeping the bytes. The ledger owns its sink, so the tape
+    /// is shared through an `Rc` and the test keeps its own handle on it.
+    struct Counting(Seen);
+
+    impl std::io::Write for Counting {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.borrow_mut().push('w');
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Durable for Counting {
+        fn sync(&mut self) -> std::io::Result<()> {
+            self.0.borrow_mut().push('s');
+            Ok(())
+        }
+    }
+
+    /// A sink whose sync fails, which is a full or dying disk.
+    struct SyncRefuses;
+
+    impl std::io::Write for SyncRefuses {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Durable for SyncRefuses {
+        fn sync(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("the device is not accepting writes"))
+        }
+    }
+
+    /// The bug this guards. `append` called `Write::flush`, which on a `File` does nothing at
+    /// all, because a `File` holds no userspace buffer. Every record reached the page cache and
+    /// stopped there, so a power loss could drop a `Started` record for a process that was
+    /// genuinely running, which is the one disagreement the whole append then act rule exists
+    /// to prevent.
+    #[test]
+    fn every_append_is_synced_after_it_is_written() {
+        let seen = Seen::default();
+        let mut ledger = Ledger::to_sink(Box::new(Counting(seen.clone())), 1);
+
+        ledger.append(1, id("a"), started(10)).unwrap();
+        ledger.append(2, id("b"), started(11)).unwrap();
+
+        // Two records, each written and then synced, in that order. Counting alone would pass
+        // against a version that synced twice at the end and left the first record exposed in
+        // between, so the tape checks the ordering too.
+        assert_eq!(
+            *seen.borrow(),
+            "wsws",
+            "every record must be synced immediately after its own write"
+        );
+    }
+
+    /// A record that could not be forced to the device is not a record. Reporting it as written
+    /// would let the caller act on a log entry that a crash can still take away.
+    #[test]
+    fn a_failed_sync_fails_the_append_and_does_not_burn_the_number() {
+        let mut ledger = Ledger::to_sink(Box::new(SyncRefuses), 1);
+
+        assert!(ledger.append(1, id("a"), started(10)).is_err());
+
+        // The sequence must not have moved. If it had, the next record to be written would
+        // carry seq 2 with nothing holding seq 1, and the log would have a hole it could not
+        // explain.
+        let mut ledger = Ledger::to_sink(Box::new(Counting(Seen::default())), ledger.next_seq);
+        assert_eq!(ledger.append(2, id("b"), started(11)).unwrap().seq, 1);
     }
 
     #[test]
