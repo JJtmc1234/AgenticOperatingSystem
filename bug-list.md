@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `aos run` started an agent with no policy check at all. Only the daemon called the gate, so a policy denying every tier was ignored by one of the two ways to start an agent. | Never fired. Found by reading, then reproduced: with every tier plus `hello` set to deny, `aos run` started the child, exited 0, and wrote a `Started` record. | `a_denying_policy_refuses_aos_run`, `a_prompt_tier_refuses_aos_run_and_points_at_the_daemon` |
 
 ## bug 5, in full
 
@@ -196,3 +197,52 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+The worst kind of hole: not a mistake inside a guard, but a whole entry point that never
+reached one.
+
+`aos start` goes to the daemon, and `Daemon::gate` decides before anything reaches the
+supervisor. Its doc comment says nothing reaches the supervisor without passing through the
+gate, and inside the daemon that is true. `aos run` is the other way to start an agent. It is
+standalone, does not involve the daemon, and went straight from `load_spec` to `sup.start`.
+`grep -rn "Policy\|Verdict\|PlanLedger" crates/aos-cli/src` returned nothing at all.
+
+So the policy applied to one of the two ways to start an agent, on the same machine, with the
+same allowlist and the same log. Which rules held came down to which subcommand somebody
+typed. Reproduced before fixing: with every tier plus `hello` explicitly set to deny, `aos run`
+started the child, exited 0, and wrote a `Started` record.
+
+Fix. The deciding half of the gate moved into `aos-core` as `Gate`, returning a `Decision`
+rather than a `Response`, and both entry points now go through it. Recording stayed with the
+callers, because a refusal on a socket and a refusal on a terminal do not look the same and
+the log each writes to belongs to the caller.
+
+`Gate` has two entry points and the second one is the interesting part. `decide` is the full
+handshake, for a caller that can hold a plan between two calls. `decide_without_handshake` is
+for a caller that cannot, and `aos run` is exactly that: one process that starts an agent and
+waits for it, so a plan it offered would die with it and there is no second call that could
+quote one. Offering a plan there would be a lie, so anything above allow is refused and
+pointed at the daemon. It takes `&self` rather than `&mut self`, which makes it impossible for
+that path to leave a proposed plan behind.
+
+The temptation was to give `aos run` a `--commit` flag for symmetry. That would have been
+wrong. There is nothing to commit against, because the plan ledger it would have to consult
+lives in whichever process issued the plan, and this process did not exist when that happened.
+
+Guard. Three tests in `runtime.rs`, driving `run` against a real temporary run directory.
+`a_denying_policy_refuses_aos_run` is the bug: a deny policy must produce an error and a
+`Refused` record, and no `Started` record.
+`a_prompt_tier_refuses_aos_run_and_points_at_the_daemon` checks the message names `aos start`
+rather than silently doing nothing useful.
+`an_allowed_agent_still_runs_to_completion` is the one that stops the fix being a denial of
+service, and it checks the log reads exactly started then exited. Five more in `gate.rs` cover
+the decision table itself, including that both entry points agree about read and that a per
+agent deny beats an allowed tier on both.
+
+Verified by disabling the new gate call and running the suite. The two refusal tests failed
+and the allowed one still passed, which is the right shape: the guard fires on the hole and
+not on ordinary use. Then the fix was restored and the shipped binary was pointed at the
+issue's own repro, which now prints `policy denies hello at tier read`, exits 1, and writes a
+`refused` record where it used to write a `started` one.

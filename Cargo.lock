@@ -67,6 +67,7 @@ dependencies = [
  "aos-supervisor",
  "clap",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
