@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `Root::for_writing` tested `exists()`, which follows a symlink, so a link inside the root whose target did not exist yet was treated as an ordinary new file and the write followed it outside the root. | Never fired. Found by reading, then reproduced against the real server: `write_file` on a dangling link reported success while writing outside the root. | `a_dangling_symlink_pointing_outside_the_root_is_refused`, `a_dangling_symlink_pointing_inside_the_root_is_refused_too` |
 
 ## bug 5, in full
 
@@ -196,3 +197,49 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+The root check had two paths and only one of them could see what it was looking at.
+
+`existing` canonicalizes and then checks the result is inside the root, which resolves any
+symlink on the way and is correct. `for_writing` cannot do that, because the file being
+created does not exist yet and an unresolvable path cannot be canonicalized. So it asks
+whether the path is already there, and if not it checks the parent instead.
+
+The question it asked was `joined.exists()`. `exists` follows symlinks, so for a link it
+answers about the target rather than about the name. A link inside the root pointing at
+something that does not exist yet therefore answered false. That took the parent branch, the
+parent is the root, the root is inside itself, and `for_writing` handed back
+`<root>/<linkname>`. `std::fs::write` then followed the link and created the file wherever it
+pointed.
+
+The existing symlink test did not catch it because it links to a directory that already
+exists. `exists()` is true there, the checked path is taken, and it passes. The dangling case
+is the one nobody wrote down.
+
+Real shapes this takes are ordinary rather than exotic. A checkout carrying
+`config -> ../../.ssh/authorized_keys`. A stale `latest -> builds/2026-08-18/out.log` left
+behind after the build directory was cleaned. Neither looks like an attack and both are enough.
+
+Fix. `std::fs::symlink_metadata(&joined).is_ok()` rather than `joined.exists()`.
+`symlink_metadata` does not follow the link, so it answers about the name, which is the
+question actually being asked. A dangling link now takes the `existing` branch, where
+`canonicalize` fails and the call is refused.
+
+That refuses a dangling link pointing inside the root as well, and that narrowing is
+deliberate rather than collateral. The target cannot be canonicalized, so it cannot be proven
+to be inside the root, and this component does not guess. Refusing something harmless is the
+price of never allowing something that is not. There is a second test saying so, on purpose,
+so nobody later reads it as an oversight and loosens it.
+
+Guard. `a_dangling_symlink_pointing_outside_the_root_is_refused` builds the exact shape, checks
+the call is refused, and checks the target still does not exist afterwards, because a fix that
+refuses while still creating the file would pass a weaker assertion.
+`a_dangling_symlink_pointing_inside_the_root_is_refused_too` pins the narrowing.
+
+Verified by writing both tests first and watching them fail against the unfixed code, then
+applying the one line change and watching them pass. Then end to end against the real binary:
+`write_file` on a dangling link into a directory outside the root now answers
+`refused: innocent: No such file or directory` and the target is still not there afterwards.
+Before the fix the same call reported writing 5 bytes and the file appeared outside the root.

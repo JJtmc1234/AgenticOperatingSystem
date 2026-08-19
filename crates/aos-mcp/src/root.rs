@@ -68,8 +68,18 @@ impl Root {
     pub fn for_writing(&self, asked: &str) -> Result<PathBuf> {
         let joined = self.join(asked)?;
 
-        // Already there, so it can be checked properly.
-        if joined.exists() {
+        // Anything already at that name, so it can be checked properly.
+        //
+        // `symlink_metadata` rather than `exists`, because `exists` follows the link and so
+        // answers about the target rather than about the name. A link whose target does not
+        // exist yet therefore reported false, took the parent branch below, and was resolved
+        // as though it were an ordinary new file. The parent is inside the root, so that
+        // passed, and the write then followed the link to wherever it pointed. See bug 8.
+        //
+        // Taking this branch means `existing` runs `canonicalize`, which fails on a dangling
+        // link, so it is refused. Refusing a link into empty space inside the root is a
+        // narrowing, and the right one: a path that cannot be resolved cannot be proven safe.
+        if std::fs::symlink_metadata(&joined).is_ok() {
             return self.existing(asked);
         }
 
@@ -234,6 +244,46 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("resolves outside the root"), "{e}");
+    }
+
+    /// The hole the test above did not cover. That one links to a directory which already
+    /// exists, so `exists()` is true and the checked path is taken. A link whose target does
+    /// not exist yet reports false from `exists()`, because `exists()` follows the link, so it
+    /// took the parent branch instead. The parent is the root, the root is inside itself, and
+    /// the write then followed the link to wherever it pointed.
+    ///
+    /// Real shapes this takes: a checkout carrying `config -> ../../.ssh/authorized_keys`, or
+    /// a stale `latest -> builds/2026-08-18/out.log` after the build directory was cleaned.
+    #[test]
+    fn a_dangling_symlink_pointing_outside_the_root_is_refused() {
+        let (d, r) = root();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("not-there-yet.txt");
+        std::os::unix::fs::symlink(&target, d.path().join("innocent")).unwrap();
+
+        assert!(!target.exists(), "the target must not exist for this test");
+
+        let outcome = r.for_writing("innocent");
+        assert!(
+            outcome.is_err(),
+            "a write through a dangling link resolved to {outcome:?}, which is outside the root"
+        );
+
+        // And nothing was created on the way to deciding that.
+        assert!(!target.exists(), "resolving must not create anything");
+    }
+
+    /// A dangling link that stays inside the root is refused too, and that is a deliberate
+    /// narrowing rather than an oversight. The target does not exist, so it cannot be
+    /// canonicalized, and a path that cannot be resolved cannot be proven safe. Refusing
+    /// something harmless is the cost of never guessing about something that is not.
+    #[test]
+    fn a_dangling_symlink_pointing_inside_the_root_is_refused_too() {
+        let (d, r) = root();
+        std::os::unix::fs::symlink(d.path().join("notes/later.txt"), d.path().join("pending"))
+            .unwrap();
+
+        assert!(r.for_writing("pending").is_err());
     }
 
     #[test]
