@@ -101,26 +101,64 @@ pub fn find(root: &Root, contains: &str, limit: usize) -> Result<String> {
             "searching for an empty string would match everything".into(),
         ));
     }
+    // Refused rather than clamped up, because a caller who asked for nothing back has said
+    // something contradictory and should hear about it. `walk` returns immediately on a limit
+    // of zero, so the old answer to `limit: 0` was "nothing matches" for a search that never
+    // read a single directory, which is a confident wrong answer rather than an empty one.
+    // See bug 7.
+    if limit == 0 {
+        return Err(Error::Refused(
+            "a limit of 0 asks for no results, so nothing would be searched. Ask for at least 1"
+                .into(),
+        ));
+    }
+
     let needle = contains.to_lowercase();
     let mut hits = Vec::new();
-    walk(root.path(), &needle, limit, &mut hits)?;
+    let complete = walk(root.path(), &needle, limit, &mut hits)?;
 
     if hits.is_empty() {
         return Ok(format!("nothing under the root matches {contains:?}"));
     }
-    let shown: Vec<String> = hits.iter().map(|p| root.shown(p)).collect();
+    let mut shown: Vec<String> = hits.iter().map(|p| root.shown(p)).collect();
+
+    // Said, not implied. `list_dir` appends "... and N more" and `read_file` appends
+    // "... truncated", and this was the one capability of the three that cut silently. A model
+    // that asked for every match and got the first 200 of 250 will act on those 200 as if they
+    // were all of them.
+    //
+    // The walk order is named too, because it is not sorted and not anything the caller chose,
+    // so "the first 200" means the first 200 the filesystem happened to hand over.
+    if !complete {
+        shown.push(format!(
+            "\n... stopped at the limit of {limit}, and there are more. These are the first \
+             {limit} in filesystem order, not the best or the newest. Search for something \
+             narrower, or ask for a higher limit."
+        ));
+    }
     Ok(shown.join("\n"))
 }
 
-fn walk(dir: &Path, needle: &str, limit: usize, hits: &mut Vec<std::path::PathBuf>) -> Result<()> {
+/// Walks the tree collecting matches. `true` means the whole tree was searched, `false` means
+/// it stopped at the limit and there is more.
+///
+/// Reporting that is the point. Returning the hits alone cannot tell "these are all of them"
+/// from "these are the first `limit` of an unknown number", and those call for different
+/// actions by whoever is reading.
+fn walk(
+    dir: &Path,
+    needle: &str,
+    limit: usize,
+    hits: &mut Vec<std::path::PathBuf>,
+) -> Result<bool> {
     if hits.len() >= limit {
-        return Ok(());
+        return Ok(false);
     }
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         // A directory that cannot be read is skipped rather than fatal. One unreadable folder
         // must not make a search over a whole tree fail.
-        Err(_) => return Ok(()),
+        Err(_) => return Ok(true),
     };
 
     for e in entries.filter_map(|e| e.ok()) {
@@ -129,16 +167,17 @@ fn walk(dir: &Path, needle: &str, limit: usize, hits: &mut Vec<std::path::PathBu
         if name.contains(needle) {
             hits.push(path.clone());
             if hits.len() >= limit {
-                return Ok(());
+                return Ok(false);
             }
         }
         // Only real directories are followed. A symlinked directory could point anywhere,
         // including at a parent of itself, and following those is how a search never returns.
-        if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            walk(&path, needle, limit, hits)?;
+        if e.file_type().map(|t| t.is_dir()).unwrap_or(false) && !walk(&path, needle, limit, hits)?
+        {
+            return Ok(false);
         }
     }
-    Ok(())
+    Ok(true)
 }
 
 pub fn write_file(root: &Root, path: &Path, text: &str) -> Result<String> {
@@ -239,6 +278,73 @@ mod tests {
         let out = read_file(&r, &p).unwrap();
         assert!(out.contains("truncated"), "must not cut silently");
         assert!(out.len() < MAX_READ + 500);
+    }
+
+    /// The bug. `find` walked until it had `limit` hits and returned them with nothing saying
+    /// the search was cut off, so a model that asked for every match and got the first 200 of
+    /// 250 acts on those 200 as if they were all of them.
+    ///
+    /// `list_dir` appends "... and N more" and `read_file` appends "... truncated". `find` was
+    /// the one capability of the three that cut silently.
+    #[test]
+    fn a_search_that_hit_the_limit_says_so() {
+        let (d, r) = root();
+        for i in 0..25 {
+            std::fs::write(d.path().join(format!("report{i:03}.txt")), "x").unwrap();
+        }
+
+        let out = find(&r, "report", 10).unwrap();
+        assert_eq!(
+            out.lines().filter(|l| l.contains("report")).count(),
+            10,
+            "the limit still holds"
+        );
+        assert!(out.contains("stopped at the limit"), "{out}");
+        assert!(
+            out.contains("filesystem order"),
+            "the order is not the caller's and has to be named: {out}"
+        );
+    }
+
+    /// And a search that saw the whole tree says nothing extra, or every answer would carry a
+    /// warning and the warning would stop meaning anything.
+    #[test]
+    fn a_complete_search_is_not_marked_as_cut() {
+        let (d, r) = root();
+        std::fs::write(d.path().join("only-report.txt"), "x").unwrap();
+
+        let out = find(&r, "report", 10).unwrap();
+        assert!(!out.contains("stopped at the limit"), "{out}");
+    }
+
+    /// A limit reached inside a subdirectory has to stop the whole walk, not just that branch.
+    /// Returning to the parent and carrying on would collect past the limit, and reporting the
+    /// search as complete would be the original bug wearing a different hat.
+    #[test]
+    fn a_limit_hit_deep_in_the_tree_stops_everything() {
+        let (d, r) = root();
+        std::fs::create_dir_all(d.path().join("deep/deeper")).unwrap();
+        for i in 0..20 {
+            std::fs::write(d.path().join(format!("deep/deeper/report{i:03}.txt")), "x").unwrap();
+        }
+        std::fs::write(d.path().join("report-at-the-top.txt"), "x").unwrap();
+
+        let out = find(&r, "report", 5).unwrap();
+        assert_eq!(out.lines().filter(|l| l.contains("report")).count(), 5);
+        assert!(out.contains("stopped at the limit"), "{out}");
+    }
+
+    /// `limit: 0` used to answer "nothing matches" for a search that never read a directory,
+    /// which is a confident wrong answer rather than an empty one. The schema permits it, so
+    /// it has to be handled rather than assumed away.
+    #[test]
+    fn a_limit_of_zero_is_refused_rather_than_answered_with_nothing() {
+        let (_d, r) = root();
+        let e = match find(&r, "a.txt", 0) {
+            Err(e) => e.to_string(),
+            Ok(out) => panic!("a search that never ran must not answer: {out}"),
+        };
+        assert!(e.contains("at least 1"), "{e}");
     }
 
     #[test]

@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `files::find` stopped at its limit and returned the hits with nothing saying the search was cut off, so a model that asked for every match and got the first 200 of 250 acts on those as if they were all. `limit: 0` answered "nothing matches" for a search that never read a directory. | Reproduced against the real server: 250 files, no limit given, exactly 200 lines with no mention of more, and `limit: 0` reporting no match for a file that exists. | `a_search_that_hit_the_limit_says_so`, `a_limit_hit_deep_in_the_tree_stops_everything`, `a_limit_of_zero_is_refused_rather_than_answered_with_nothing` |
 
 ## bug 5, in full
 
@@ -196,3 +197,39 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+Two of the three read capabilities say when they cut. The third did not.
+
+`list_dir` appends "... and N more". `read_file` appends "... truncated". `find` walked until it
+had `limit` hits and then returned them, with nothing anywhere saying the search had stopped
+early. A model that asked for every match and got the first 200 of 250 has no way to tell, and
+will act on those 200 as if they were all of them.
+
+The order makes it worse. The hits come back in filesystem walk order, so "the first 200" means
+the first 200 the kernel happened to hand over, not the newest or the closest or anything the
+caller chose. Reproduced against the real server with 250 files: the first two lines were
+`report250.txt` and `report249.txt`.
+
+Fix. `walk` returns whether it saw the whole tree, and `find` appends a line naming the limit
+and saying the order is not the caller's, so the reader knows both that there is more and that
+what they have is not a meaningful selection.
+
+One thing that needed care. The limit can be reached inside a subdirectory, and returning `true`
+from that branch let the parent carry on walking. That collects past the limit and, worse,
+reports the search as complete, which is the original bug wearing a different hat. The recursive
+call now stops the whole walk. There is a test that fills a deep directory and puts a match at
+the top, which fails if only the branch stops.
+
+The second half is `limit: 0`. The schema declares it as a plain integer with no minimum and the
+handler clamped only the top, so `walk` returned before reading a single directory and `find`
+took the empty branch and said "nothing under the root matches", for a file that was sitting
+right there. That is a confident wrong answer rather than an empty one.
+
+Refused rather than clamped up to 1. A caller who asked for no results has said something
+contradictory, and quietly giving them one result is a different answer from the one they asked
+for. Refusing says what happened.
+
+Verified against the real binary. 250 files, no limit given: 200 hits plus the marker, and the
+marker says so. `limit: 0` now refuses instead of denying a file that exists.
