@@ -17,9 +17,19 @@ use crate::daemon::Daemon;
 use crate::listen;
 
 pub fn run(run_dir: &Path) -> Result<()> {
-    let mut daemon = Daemon::boot(run_dir)?;
+    // Bound before anything is booted, and the order is the whole point.
+    //
+    // `bind` is what enforces one daemon per run directory. `boot` replays the log and appends
+    // a `lost_while_unsupervised` record for every agent it finds gone. Booting first meant a
+    // second `aosd` wrote those records and only then discovered a live daemon and exited, so
+    // it had already spent sequence numbers the live daemon believed were still free. The live
+    // daemon's cached `next_seq` was then permanently behind, and every record it wrote from
+    // that point collided with one already in the file. See bug 8.
+    //
+    // Nothing touches the ledger until this process has proved it is the only supervisor here.
     let socket = Daemon::socket_path(run_dir);
     let listener = listen::bind(&socket)?;
+    let mut daemon = Daemon::boot(run_dir)?;
 
     let shutdown = install_signal_handler()?;
     eprintln!("aosd listening on {}", socket.display());

@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `serve::run` booted the daemon before binding the socket, so a second `aosd` replayed the log and appended records before discovering a live daemon and exiting. It spent sequence numbers the live daemon believed were free, and every record that daemon wrote afterwards collided. | Reproduced: a second `aosd` printed "1 lost while unsupervised", appended a record, then failed with "a daemon is already listening", and the live daemon's next record reused the same number. | `a_second_writer_is_refused_rather_than_forking_the_sequence`, `reopening_a_damaged_log_never_goes_backwards`, `the_lock_is_released_when_the_ledger_is_dropped` |
 
 ## bug 5, in full
 
@@ -196,3 +197,53 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+Three separate holes, all letting two processes write one log.
+
+`serve::run` called `Daemon::boot` and then `listen::bind`. `bind` is the thing that enforces
+one daemon per run directory, and `boot` replays the log and appends a
+`lost_while_unsupervised` record for every agent it finds gone. So a second `aosd` did its
+whole boot, wrote those records, and only then discovered a live daemon and exited.
+
+By then it had spent sequence numbers the live daemon believed were still free. `Ledger::open`
+caches `next_seq` once, so the live daemon never noticed, and every record it wrote from that
+point carried a number already in the file.
+
+That is the worst shape of corruption available here. Two writers tearing a line would at least
+produce something unparseable that a reader can complain about. Forking the numbering produces
+records that are all individually well formed, in a file that is no longer an ordering, and
+nothing downstream can tell.
+
+Fix, in three parts, because closing only the route that was reported would leave the same
+failure reachable by other doors.
+
+`bind` moved above `boot`. Nothing touches the ledger until this process has proved it is the
+only supervisor for that directory. That closes the reported route.
+
+`next_seq` comes from the maximum sequence in the file rather than from the last record. `last`
+assumes the file is in order, and the reason this bug exists is a file that was not. Taking the
+maximum means a reopen can only move forwards, so a log that has already been damaged stops
+getting worse.
+
+`Ledger::open` takes an exclusive `flock`, non blocking, and refuses if it cannot have it. That
+closes every remaining door, including `aos run` against a directory a daemon already owns.
+`flock` is per open file description, so the lock lives exactly as long as the `Ledger` and is
+released by the kernel if the process dies, which is why this rather than a lock file: there is
+nothing to clean up after a crash.
+
+**A real behaviour change, worth knowing before this merges.** `aos run` against a run directory
+that a daemon already owns now fails, where before it appeared to work. It never really worked:
+that is the exact case that forked the numbering. But anybody in the habit of doing it will see
+a new error.
+
+An existing test also had to change. `sequence_continues_across_reopening` opened a second
+`Ledger` while the first was still in scope, to stand for a restart. With the lock that is
+refused, and correctly: holding both at once is not a restart, it is two daemons. It now drops
+the first, which is what a restart actually is, and the case it used to accidentally cover has
+its own test.
+
+Verified end to end. A second `aosd` on a live directory now fails at `bind`, writes nothing,
+and leaves the log at two records with no duplicate numbers. Before the fix it wrote a third
+and the live daemon then reused that number.
