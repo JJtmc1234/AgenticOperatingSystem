@@ -30,7 +30,7 @@ impl PidFd {
     /// it is open. Without the recheck, the process could have been replaced in the gap
     /// between the first check and the open.
     pub fn open(handle: ProcessHandle) -> Option<Self> {
-        if !proc::is_still(handle) {
+        if !proc::is_still(&handle) {
             return None;
         }
 
@@ -44,7 +44,7 @@ impl PidFd {
         // Safety: the syscall just handed us this descriptor and nothing else owns it.
         let fd = unsafe { OwnedFd::from_raw_fd(raw as RawFd) };
 
-        if !proc::is_still(handle) {
+        if !proc::is_still(&handle) {
             // Dropping fd closes it. Whatever holds that pid now, it is not ours.
             return None;
         }
@@ -53,7 +53,7 @@ impl PidFd {
     }
 
     pub fn handle(&self) -> ProcessHandle {
-        self.handle
+        self.handle.clone()
     }
 
     /// Sends a signal to the pinned process.
@@ -94,6 +94,7 @@ mod tests {
         ProcessHandle {
             pid,
             start_token: proc::start_token(pid).expect("process should exist"),
+            boot: proc::boot_id(),
         }
     }
 
@@ -116,7 +117,8 @@ mod tests {
         assert!(
             PidFd::open(ProcessHandle {
                 pid: u32::MAX,
-                start_token: 1
+                start_token: 1,
+                boot: None,
             })
             .is_none()
         );

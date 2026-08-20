@@ -20,6 +20,27 @@ pub enum Started {
     Unknown,
 }
 
+/// This machine's boot identity, from `/proc/sys/kernel/random/boot_id`.
+///
+/// A start token counts clock ticks since boot, so a pid and token pair only identifies a
+/// process within one boot. The run directory outlives a boot, so without this a record from
+/// before a power loss can match an unrelated process after it. `None` when the file cannot be
+/// read, which is treated as not knowing rather than as a match.
+pub fn boot_id() -> Option<String> {
+    std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// What a pid is actually running, from `readlink /proc/<pid>/exe`.
+///
+/// `None` when it cannot be read, which includes a process that has gone and one this user may
+/// not look at. Not knowing is not the same as matching.
+pub fn program_of(pid: u32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
 /// Start time of a process in clock ticks since boot, field 22 of `/proc/<pid>/stat`.
 pub fn started(pid: u32) -> Started {
     // Bytes, not a `String`. The kernel escapes only newline and backslash in the comm field,
@@ -59,7 +80,7 @@ pub fn start_token(pid: u32) -> Option<u64> {
 /// three mean the same thing to a caller about to send a signal: do not touch that pid. A
 /// caller deciding whether an agent is *lost* needs `started` instead, because writing an
 /// agent off is not the same as declining to signal it.
-pub fn is_still(handle: ProcessHandle) -> bool {
+pub fn is_still(handle: &ProcessHandle) -> bool {
     started(handle.pid) == Started::At(handle.start_token)
 }
 
@@ -163,13 +184,15 @@ mod tests {
         let me = std::process::id();
         let real = start_token(me).unwrap();
 
-        assert!(is_still(ProcessHandle {
+        assert!(is_still(&ProcessHandle {
             pid: me,
-            start_token: real
+            start_token: real,
+            boot: None,
         }));
-        assert!(!is_still(ProcessHandle {
+        assert!(!is_still(&ProcessHandle {
             pid: me,
-            start_token: real + 1
+            start_token: real + 1,
+            boot: None,
         }));
     }
 }

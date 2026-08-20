@@ -69,6 +69,7 @@ mod tests {
             handle: ProcessHandle {
                 pid,
                 start_token: pid as u64 * 7,
+                boot: None,
             },
             program: "/usr/bin/sleep".into(),
         }

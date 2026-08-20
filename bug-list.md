@@ -131,6 +131,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
 | 7 | `start_token` collapsed every `/proc` read failure into `None`, and `None` meant "the process is gone". A comm field that is not UTF-8 makes `read_to_string` fail, so a live agent was written off, dropped from `believed_running` on every later boot, and put beyond `stop` and `stop-all`. An agent could escape the kill switch by renaming itself. | Reproduced on this machine with `prctl(PR_SET_NAME, "\xff\xfe-agent")`. | `a_name_that_is_not_utf8_does_not_hide_the_start_time`, `an_agent_that_cannot_be_checked_is_neither_adopted_nor_written_off`, `a_gone_agent_is_still_lost_rather_than_unknown` |
+| 8 | Adoption trusted a pid and start token and nothing else. A token counts ticks since boot, so the pair means nothing across a reboot, and adoption never checked what the pid was running nor whether it is still allowed. A stale record could adopt a stranger, which `stop_all` then SIGKILLs. | Reproduced by pointing a log at a live process the supervisor never started: `alive` of 1, `is_adopted` true, and `stop` killed it. On this machine 87 processes share start token 18. | `a_handle_from_another_boot_is_lost_rather_than_matched`, `refuses_to_adopt_a_pid_running_a_different_program`, `refuses_to_adopt_a_program_the_allowlist_no_longer_permits` |
 
 ## bug 5, in full
 
@@ -238,3 +239,49 @@ new case.
 
 Verified by putting the UTF-8 first parse back. The non UTF-8 test failed and every other test
 passed, which is the right shape.
+
+## bug 8, in full
+
+The comment on `ProcessHandle` said the pid and token pair is unique "for as long as the machine
+has been up". That was true, documented, and unenforced, and the run directory outlives a boot.
+
+So a record written before a power loss could be compared against a machine that had since
+restarted, where the pair means nothing. Early boot is where that bites rather than being a
+remote possibility: the startup sequence is mostly deterministic and mostly runs in the same few
+ticks, so on this machine 87 processes share start token 18 and 14 share token 19. A stale
+handle matching a stranger is adopted under an agent id, and `stop_all` then SIGKILLs it.
+
+There is a second harm that needs no collision at all, and it is the easier one to trigger.
+Adoption never looked at what the pid was running. `Event::Started` records the program and
+nothing ever read it back. Nor did adoption consult the allowlist. So taking a program off
+`allowed-programs.json` and restarting the daemon adopted the running agent straight back in,
+under a rule that no longer permits it.
+
+Fix, in three parts.
+
+`ProcessHandle` carries the boot, from `/proc/sys/kernel/random/boot_id`. Optional, so a log
+written before this field existed still reads, and `None` means the boot is unknown rather than
+known to match. A different boot is `Gone`, because that agent certainly did not survive. An
+unknown boot is `CannotTell`, so it is neither adopted nor written off, which is the bucket bug
+7 added. Writing those off instead would lose a live agent on the first upgrade.
+
+`adopt_from` compares the recorded program against `readlink /proc/<pid>/exe`, canonicalising
+both so a symlinked path does not read as a mismatch, and checks the program is still on the
+allowlist. Neither check passing means not adopted.
+
+A refused agent moves to `unknown` rather than being dropped or called lost. Something is on
+that pid and this supervisor will not touch it, which a person needs to know, and calling it
+lost would write a record saying it ended when it may well be running.
+
+That cost `ProcessHandle` its `Copy`, which rippled through about a dozen call sites. Worth it:
+the boot is part of the identity, so it belongs in the handle rather than beside it, and a
+handle that can be copied around freely is part of how the identity got treated as smaller than
+it is.
+
+Guard. Two tests on the boot, one for a different boot being lost and one for a missing boot
+being unknown. Two on the program, both driving a real live process the supervisor never
+started, which is how the issue reproduced it. Verified by disabling the program check: both
+program tests failed and the five existing adoption tests kept passing.
+
+Not covered: an actual reboot. The boot check is exercised with two synthetic ids rather than by
+restarting the machine, which no test can arrange.

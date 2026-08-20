@@ -54,7 +54,16 @@ pub fn launch(
         ))
     })?;
 
-    Ok((child, ProcessHandle { pid, start_token }))
+    Ok((
+        child,
+        ProcessHandle {
+            pid,
+            start_token,
+            // Stamped at launch, because it can only be read from a running machine and a
+            // record written now has to be checkable after a reboot.
+            boot: proc::boot_id(),
+        },
+    ))
 }
 
 /// Opens an agent's log for appending, creating the directory on first use.

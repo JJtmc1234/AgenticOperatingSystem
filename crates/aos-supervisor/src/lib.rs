@@ -24,6 +24,17 @@ pub use tracked::Tracked;
 
 /// Owns every agent this supervisor is responsible for. Dropping it does not kill them,
 /// because a supervisor that takes its agents down when the caller goes away cannot be a
+/// What each agent was last recorded as being started with.
+fn started_programs(records: &[Record]) -> BTreeMap<AgentId, String> {
+    let mut out = BTreeMap::new();
+    for record in records {
+        if let aos_core::Event::Started { program, .. } = &record.event {
+            out.insert(record.agent.clone(), program.clone());
+        }
+    }
+    out
+}
+
 /// daemon later.
 pub struct Supervisor {
     agents: BTreeMap<AgentId, Tracked>,
@@ -63,8 +74,13 @@ impl Supervisor {
         let log_file = self.log_path(&spec.id);
         let (child, handle) = spawn::launch(spec, &self.allowed, &self.log_dir, &log_file)?;
 
-        self.agents
-            .insert(spec.id.clone(), Tracked::Spawned { child, handle });
+        self.agents.insert(
+            spec.id.clone(),
+            Tracked::Spawned {
+                child,
+                handle: handle.clone(),
+            },
+        );
         Ok(handle)
     }
 
@@ -76,10 +92,10 @@ impl Supervisor {
         if self.agents.contains_key(&id) {
             return Err(Error::Refused(format!("{id} is already tracked")));
         }
+        let pid = handle.pid;
         let pinned = PidFd::open(handle).ok_or_else(|| {
             Error::Refused(format!(
-                "{id} is not running as pid {}, so it will not be adopted",
-                handle.pid
+                "{id} is not running as pid {pid}, so it will not be adopted"
             ))
         })?;
 
@@ -93,13 +109,79 @@ impl Supervisor {
     /// lost while nobody was supervising. Closing that gap in the log is the caller's job,
     /// because only the caller holds the ledger.
     pub fn adopt_from(&mut self, records: &[Record]) -> Recovered {
-        let recovered = recover(records);
+        let mut recovered = recover(records);
+
+        // What each agent was recorded as running, so adoption can check the pid is still that
+        // program. The handle alone says which process; it says nothing about what it is.
+        let programs = started_programs(records);
+
+        let mut refused = Vec::new();
         for (id, handle) in &recovered.alive {
+            if let Some(why) = self.wrong_program(id, handle, &programs) {
+                eprintln!("WARNING: not adopting {id}: {why}");
+                refused.push(id.clone());
+                continue;
+            }
             // A failure here means it died between recovery and adoption. Rare, and the agent
             // simply stays untracked, which is the safe outcome.
-            let _ = self.adopt(id.clone(), *handle);
+            let _ = self.adopt(id.clone(), handle.clone());
+        }
+
+        // Moved rather than dropped. Something is on that pid and this supervisor will not
+        // touch it, which a person needs to know, and calling it lost would write a record
+        // saying it ended when it may not have.
+        for id in refused {
+            if let Some(handle) = recovered.alive.remove(&id) {
+                recovered.unknown.push((id, handle));
+            }
         }
         recovered
+    }
+
+    /// Why this pid should not be adopted under this agent id, if there is a reason.
+    ///
+    /// Two checks the old code did neither of. The handle identifies a process and says nothing
+    /// about what that process is, so adoption used to re-admit anything that happened to be on
+    /// the pid, including a program the allowlist no longer permits. That needs no pid
+    /// collision at all: take a program off the allowlist, restart the daemon, and the running
+    /// agent is adopted straight back. See bug 8.
+    fn wrong_program(
+        &self,
+        id: &AgentId,
+        handle: &ProcessHandle,
+        programs: &BTreeMap<AgentId, String>,
+    ) -> Option<String> {
+        let recorded = programs.get(id)?;
+
+        // The allowlist is the current rule, not the one that applied when this started.
+        if !self.allowed.iter().any(|p| p == recorded) {
+            return Some(format!(
+                "it was started as {recorded}, which is no longer an allowed program"
+            ));
+        }
+
+        match proc::program_of(handle.pid) {
+            // Compared after resolving both, so a symlinked path does not read as a mismatch.
+            Some(running) => {
+                let recorded_real = std::fs::canonicalize(recorded).ok();
+                let running_real = std::fs::canonicalize(&running).ok();
+                if recorded_real.is_some() && recorded_real == running_real {
+                    None
+                } else {
+                    Some(format!(
+                        "pid {} is running {}, not the {recorded} it was recorded as",
+                        handle.pid,
+                        running.display()
+                    ))
+                }
+            }
+            // Cannot see what it is running. Not adopting is the safe answer, for the same
+            // reason an unreadable `/proc` is not treated as a dead agent.
+            None => Some(format!(
+                "pid {} cannot be read, so what it is running is unknown",
+                handle.pid
+            )),
+        }
     }
 
     /// Current state of one agent, reaping it if it has already exited.

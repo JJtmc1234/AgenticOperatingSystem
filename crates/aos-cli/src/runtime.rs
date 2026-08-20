@@ -39,7 +39,7 @@ pub fn run(run_dir: &Path, spec_path: &Path) -> Result<()> {
                 now(),
                 spec.id.clone(),
                 Event::Started {
-                    handle,
+                    handle: handle.clone(),
                     program: spec.program.clone(),
                 },
             )?;

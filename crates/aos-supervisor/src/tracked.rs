@@ -25,7 +25,7 @@ pub enum Tracked {
 impl Tracked {
     pub fn handle(&self) -> ProcessHandle {
         match self {
-            Tracked::Spawned { handle, .. } => *handle,
+            Tracked::Spawned { handle, .. } => handle.clone(),
             Tracked::Adopted { pinned } => pinned.handle(),
         }
     }

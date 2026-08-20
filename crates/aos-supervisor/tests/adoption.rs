@@ -49,6 +49,7 @@ fn make_orphan(seconds: &str) -> ProcessHandle {
             return ProcessHandle {
                 pid,
                 start_token: proc::start_token(pid).unwrap(),
+                boot: proc::boot_id(),
             };
         }
         assert!(Instant::now() < deadline, "no orphaned sleeper appeared");
@@ -117,15 +118,13 @@ fn adopts_a_real_orphan_and_reports_it_running() {
     let (mut s, _dir) = sup();
     let handle = make_orphan("511");
 
-    s.adopt(id("orphan"), handle).unwrap();
+    let pid = handle.pid;
+    s.adopt(id("orphan"), handle.clone()).unwrap();
     assert!(s.is_adopted(&id("orphan")));
-    assert_eq!(
-        s.state(&id("orphan")).unwrap(),
-        AgentState::Running { pid: handle.pid }
-    );
+    assert_eq!(s.state(&id("orphan")).unwrap(), AgentState::Running { pid });
 
     s.stop(&id("orphan"), Duration::from_secs(3)).unwrap();
-    assert!(!proc::is_still(handle), "the orphan should be gone");
+    assert!(!proc::is_still(&handle), "the orphan should be gone");
 }
 
 /// The point of the whole exercise. A process we never spawned, stopped safely.
@@ -133,14 +132,14 @@ fn adopts_a_real_orphan_and_reports_it_running() {
 fn stops_an_adopted_orphan_through_its_descriptor() {
     let (mut s, _dir) = sup();
     let handle = make_orphan("512");
-    s.adopt(id("target"), handle).unwrap();
+    s.adopt(id("target"), handle.clone()).unwrap();
 
     let state = s.stop(&id("target"), Duration::from_secs(3)).unwrap();
 
     // No exit code, and that is correct. Init reaped it, so the code went there. Inventing a
     // zero here would be a lie that looks like success.
     assert_eq!(state, AgentState::Stopped { code: None });
-    assert!(!proc::is_still(handle));
+    assert!(!proc::is_still(&handle));
     assert!(s.list().is_empty());
 }
 
@@ -149,7 +148,7 @@ fn stops_an_adopted_orphan_through_its_descriptor() {
 fn refuses_to_adopt_a_handle_with_the_wrong_token() {
     let (mut s, _dir) = sup();
     let mut handle = make_orphan("513");
-    let real = handle;
+    let real = handle.clone();
     handle.start_token += 1;
 
     let err = s.adopt(id("impostor"), handle).unwrap_err();
@@ -157,8 +156,8 @@ fn refuses_to_adopt_a_handle_with_the_wrong_token() {
     assert!(s.list().is_empty());
 
     // And the real process was left completely alone.
-    assert!(proc::is_still(real));
-    let _ = aos_supervisor::PidFd::open(real).map(|p| p.send(libc::SIGKILL));
+    assert!(proc::is_still(&real));
+    let _ = aos_supervisor::PidFd::open(real.clone()).map(|p| p.send(libc::SIGKILL));
 }
 
 #[test]
@@ -170,6 +169,7 @@ fn refuses_to_adopt_a_process_that_is_gone() {
             ProcessHandle {
                 pid: u32::MAX,
                 start_token: 1,
+                boot: proc::boot_id(),
             },
         )
         .unwrap_err();
@@ -200,6 +200,7 @@ fn adopt_from_a_log_picks_up_the_survivor_and_names_the_lost() {
                 handle: ProcessHandle {
                     pid: u32::MAX,
                     start_token: 1,
+                    boot: proc::boot_id(),
                 },
                 program: "/usr/bin/sleep".into(),
             },
@@ -214,4 +215,101 @@ fn adopt_from_a_log_picks_up_the_survivor_and_names_the_lost() {
     assert!(s.is_adopted(&id("survivor")));
 
     s.stop(&id("survivor"), Duration::from_secs(3)).unwrap();
+}
+
+/// The half of bug 8 that needs no pid collision at all.
+///
+/// Adoption trusted the pid and token and never looked at what the pid was running, nor at the
+/// allowlist. So a log naming an agent, pointed at any live process, adopted that process under
+/// the agent's id, and `stop_all` would then SIGKILL it. Take a program off the allowlist and
+/// restart the daemon, and the running agent is adopted straight back in.
+///
+/// Reproduced the way the issue reports it: a record claiming an agent ran one program at a pid
+/// that is genuinely running something else.
+#[test]
+fn refuses_to_adopt_a_pid_running_a_different_program() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Supervisor::new(["/usr/bin/sleep".to_string()], dir.path());
+
+    // A real live process this supervisor never started.
+    let mut stranger = std::process::Command::new("/usr/bin/sleep")
+        .arg("30")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = stranger.id();
+    let handle = ProcessHandle {
+        pid,
+        start_token: proc::start_token(pid).unwrap(),
+        boot: proc::boot_id(),
+    };
+
+    // The record claims it is a different program, which is what a stale log looks like after
+    // the pid has been handed to somebody else.
+    let records = [Record {
+        seq: 1,
+        at: 1,
+        agent: id("worker"),
+        event: Event::Started {
+            handle,
+            program: "/usr/bin/true".into(),
+        },
+    }];
+
+    let out = s.adopt_from(&records);
+
+    assert!(
+        out.alive.is_empty(),
+        "a pid running something else is not our agent"
+    );
+    assert!(
+        !s.is_adopted(&id("worker")),
+        "and it must not be tracked, or stop_all would signal it"
+    );
+    assert_eq!(out.unknown.len(), 1, "it is unknown rather than lost");
+
+    // Left completely alone, which is the point.
+    assert!(
+        proc::start_token(pid).is_some(),
+        "the stranger must still be running"
+    );
+    let _ = stranger.kill();
+    let _ = stranger.wait();
+}
+
+/// And a program that is no longer on the allowlist is not re admitted by a restart.
+#[test]
+fn refuses_to_adopt_a_program_the_allowlist_no_longer_permits() {
+    let dir = tempfile::tempdir().unwrap();
+    // The allowlist has changed since this agent started.
+    let mut s = Supervisor::new(["/usr/bin/true".to_string()], dir.path());
+
+    let mut running = std::process::Command::new("/usr/bin/sleep")
+        .arg("30")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = running.id();
+    let records = [Record {
+        seq: 1,
+        at: 1,
+        agent: id("worker"),
+        event: Event::Started {
+            handle: ProcessHandle {
+                pid,
+                start_token: proc::start_token(pid).unwrap(),
+                boot: proc::boot_id(),
+            },
+            program: "/usr/bin/sleep".into(),
+        },
+    }];
+
+    let out = s.adopt_from(&records);
+    assert!(out.alive.is_empty());
+    assert!(!s.is_adopted(&id("worker")));
+
+    let _ = running.kill();
+    let _ = running.wait();
 }

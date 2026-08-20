@@ -52,7 +52,9 @@ impl Daemon {
             ledger.append(
                 now(),
                 agent.clone(),
-                Event::LostWhileUnsupervised { handle: *handle },
+                Event::LostWhileUnsupervised {
+                    handle: handle.clone(),
+                },
             )?;
         }
 
@@ -202,7 +204,7 @@ impl Daemon {
                     now(),
                     spec.id.clone(),
                     Event::Started {
-                        handle,
+                        handle: handle.clone(),
                         program: spec.program.clone(),
                     },
                 );
