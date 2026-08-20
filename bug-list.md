@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `read_file` read the whole file with `std::fs::read` and then cloned the buffer for the utf8 check, so peak memory was twice the file size. `MAX_READ` bounded the reply and not the read, so a large file inside the root took the process down with the OOM killer. | Never fired. Measured: reading an 80 MB file grew peak resident memory by 161,740 kB. | `reading_a_large_file_does_not_pull_it_all_into_memory` |
 
 ## bug 5, in full
 
@@ -196,3 +197,50 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+`MAX_READ` is 200 kB and it was applied to the wrong thing.
+
+`read_file` called `std::fs::read`, which allocates the whole file, then `String::from_utf8`
+on `bytes.clone()`, a second full copy, because `bytes` had to stay alive for the lossy branch.
+Only then was `MAX_READ` applied, to the decoded string. So the cap bounded the reply and did
+nothing at all about the read. Peak memory was twice the size of whatever file was named.
+
+The root is a directory an agent may name anything inside. A multi gigabyte log, a database
+dump or a core file sitting in there needs roughly twice its size before a single byte is
+truncated, and the OOM killer takes the process down. That drops the whole MCP session, not
+just the one call, so every other capability goes with it.
+
+Measured rather than argued: reading an 80 MB file grew peak resident memory by 161,740 kB.
+
+Fix. Stat for the size, then read at most `READ_CAP` bytes through `Read::take`, so the read
+is bounded by the same order as the reply. The clone is gone as well: matching on
+`std::str::from_utf8(&bytes)` borrows, and the lossy branch borrows the same buffer.
+
+`READ_CAP` is `MAX_READ + 4`, and the four bytes are load bearing. They are one utf8 character,
+which is what makes it possible to tell a cut this code made from a file that is genuinely not
+utf8. `Utf8Error::error_len` is `None` only for input that ran out part way through a
+character. If the read stopped early then that is where the character went, so the valid prefix
+is used and nothing is said about the file. Reporting it as mangled would have an agent
+reasoning about damage that is not there, which is the exact failure the note exists to
+prevent.
+
+The truncation note now reports the size from the metadata rather than the length of the text,
+because the text is no longer the whole file and the note would otherwise always claim the file
+is exactly as long as the cap.
+
+Guard, and it is worth being exact about what each test covers, because only one of the four
+guards the bug itself.
+
+`reading_a_large_file_does_not_pull_it_all_into_memory` is the bug. It writes 80 MB, reads it,
+and compares `VmHWM` from `/proc/self/status` before and after. It asserts on what the process
+did to the machine rather than on how the function is written, which is the property that
+actually matters. Against the previous code it fails with the 161,740 kB figure above.
+
+The other three guard hazards this fix introduces rather than the one it removes, and they pass
+against the old code as well. That is not a weakness in them, it is what they are for.
+`a_cut_through_a_character_is_not_reported_as_a_broken_file` and
+`the_truncation_note_gives_the_real_file_size` both describe things that could not go wrong
+while the whole file was being read, and can now. `a_genuinely_invalid_file_is_still_reported`
+pins the behaviour the first of those must not have swallowed.

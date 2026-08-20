@@ -5,6 +5,7 @@
 //! an agent and turns it into a path. If it did, the boundary would have two implementations
 //! and one of them would eventually be wrong.
 
+use std::io::Read;
 use std::path::Path;
 
 use crate::{Error, Result, Root};
@@ -14,6 +15,17 @@ use crate::{Error, Result, Root};
 /// A capability server that streams a two gigabyte log into a context window has not helped
 /// anybody. Truncation says so rather than quietly cutting.
 const MAX_READ: usize = 200_000;
+
+/// How much is actually read off the disk.
+///
+/// `MAX_READ` bounds the reply. This bounds the read, and they are not the same thing: the
+/// old code read the whole file and only then truncated the string, so a multi gigabyte log
+/// sitting inside the root took the process down with the OOM killer, which drops the whole
+/// MCP session rather than failing the one call. See bug 7.
+///
+/// The four extra bytes are one utf8 character, which is what makes it possible to tell a
+/// cut this code made from a file that is genuinely not utf8.
+const READ_CAP: u64 = MAX_READ as u64 + 4;
 
 /// How many entries to list before giving up on being useful.
 const MAX_ENTRIES: usize = 1_000;
@@ -62,20 +74,41 @@ pub fn read_file(root: &Root, path: &Path) -> Result<String> {
             root.shown(path)
         )));
     }
-    let bytes = std::fs::read(path)?;
+    // The size is asked for separately so the reply can say how much was left, without the
+    // whole file having to be read to find out.
+    let size = std::fs::metadata(path)?.len();
+
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(READ_CAP)
+        .read_to_end(&mut bytes)?;
+    let short_read = (bytes.len() as u64) < size;
 
     // Told, not guessed at. An agent handed mangled text with no warning will reason about
     // the mangling as though it were content.
-    let (text, note) = match String::from_utf8(bytes.clone()) {
-        Ok(t) => (t, None),
+    let (text, note) = match std::str::from_utf8(&bytes) {
+        Ok(t) => (t.to_string(), None),
+        // `error_len` is `None` only for input that ran out part way through a character. If
+        // this code stopped reading early then that is where the character went, so it is a
+        // cut this code made rather than a file that is broken, and saying otherwise would
+        // have an agent reasoning about damage that is not there.
+        Err(e) if short_read && e.error_len().is_none() => {
+            let valid = e.valid_up_to();
+            (
+                std::str::from_utf8(&bytes[..valid])
+                    .unwrap_or_default()
+                    .to_string(),
+                None,
+            )
+        }
         Err(_) => (
             String::from_utf8_lossy(&bytes).into_owned(),
             Some("this file is not valid utf8, so some characters were replaced"),
         ),
     };
 
-    let mut out = if text.len() > MAX_READ {
-        let mut cut = MAX_READ;
+    let mut out = if text.len() > MAX_READ || short_read {
+        let mut cut = text.len().min(MAX_READ);
         while cut > 0 && !text.is_char_boundary(cut) {
             cut -= 1;
         }
@@ -83,7 +116,7 @@ pub fn read_file(root: &Root, path: &Path) -> Result<String> {
             "{}\n\n... truncated, {} bytes of {} shown",
             &text[..cut],
             cut,
-            text.len()
+            size
         )
     } else {
         text
@@ -204,6 +237,102 @@ mod tests {
         std::fs::write(d.path().join("b.txt"), "world").unwrap();
         let r = Root::open(d.path()).unwrap();
         (d, r)
+    }
+
+    /// Peak resident memory of this process, in kB, from `/proc/self/status`.
+    fn peak_rss_kb() -> u64 {
+        let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+        status
+            .lines()
+            .find_map(|l| l.strip_prefix("VmHWM:"))
+            .and_then(|v| v.split_whitespace().next()?.parse().ok())
+            .unwrap_or(0)
+    }
+
+    /// The bug. `std::fs::read` pulled the whole file in and `bytes.clone()` made a second
+    /// copy for the utf8 check, so peak memory was twice the file size and `MAX_READ` bounded
+    /// only the reply. A large log inside the root took the process down with the OOM killer,
+    /// which drops the whole MCP session rather than failing the one call.
+    ///
+    /// Measures rather than asserts on the implementation, because the property that matters
+    /// is what the process actually does to the machine.
+    #[test]
+    fn reading_a_large_file_does_not_pull_it_all_into_memory() {
+        let (d, r) = root();
+        let big = d.path().join("big.log");
+
+        // 80 MB, which is 400 times MAX_READ and small enough not to be unkind to a test run.
+        let chunk = "x".repeat(1024 * 1024);
+        {
+            use std::io::Write;
+            let mut f = std::fs::File::create(&big).unwrap();
+            for _ in 0..80 {
+                f.write_all(chunk.as_bytes()).unwrap();
+            }
+        }
+
+        let before = peak_rss_kb();
+        let out = read_file(&r, &r.existing("big.log").unwrap()).unwrap();
+        let after = peak_rss_kb();
+
+        assert!(out.len() < MAX_READ + 500, "reply was {} bytes", out.len());
+        assert!(out.contains("truncated"), "a cut reply has to say so");
+
+        // Against the old code this grew by roughly the file size. A few MB of slack, because
+        // the decoded string and the reply are both real and both bounded by MAX_READ.
+        let grew_kb = after.saturating_sub(before);
+        assert!(
+            grew_kb < 8 * 1024,
+            "peak memory grew by {grew_kb} kB reading an 80 MB file, so it is still being \
+             read whole"
+        );
+    }
+
+    /// A cut can land in the middle of a character, and that is this code's doing rather than
+    /// the file's. Saying the file is not utf8 would have an agent reasoning about damage that
+    /// is not there.
+    #[test]
+    fn a_cut_through_a_character_is_not_reported_as_a_broken_file() {
+        let (d, r) = root();
+        let p = d.path().join("wide.txt");
+
+        // Three byte characters, so the cap lands mid character rather than between two.
+        let text = "\u{4e2d}".repeat(MAX_READ);
+        std::fs::write(&p, &text).unwrap();
+
+        let out = read_file(&r, &r.existing("wide.txt").unwrap()).unwrap();
+        assert!(out.contains("truncated"), "{}", &out[out.len() - 80..]);
+        assert!(
+            !out.contains("not valid utf8"),
+            "our own cut was reported as the file being broken"
+        );
+    }
+
+    /// And a file that really is not utf8 still says so, which is the behaviour the case above
+    /// must not have swallowed.
+    #[test]
+    fn a_genuinely_invalid_file_is_still_reported() {
+        let (d, r) = root();
+        std::fs::write(d.path().join("raw.bin"), [0xff, 0xfe, 0x00, 0x41]).unwrap();
+
+        let out = read_file(&r, &r.existing("raw.bin").unwrap()).unwrap();
+        assert!(out.contains("not valid utf8"), "{out}");
+    }
+
+    /// The truncation note reports the size of the file, not the size of the part that was
+    /// read, or it would always claim the file is exactly as long as the cap.
+    #[test]
+    fn the_truncation_note_gives_the_real_file_size() {
+        let (d, r) = root();
+        let size = MAX_READ + 123_456;
+        std::fs::write(d.path().join("big2.txt"), "y".repeat(size)).unwrap();
+
+        let out = read_file(&r, &r.existing("big2.txt").unwrap()).unwrap();
+        assert!(
+            out.contains(&format!("of {size} shown")),
+            "{}",
+            &out[out.len() - 80..]
+        );
     }
 
     #[test]
