@@ -24,12 +24,18 @@ pub fn believed_running(records: &[Record]) -> BTreeMap<AgentId, ProcessHandle> 
             Event::Started { handle, .. } => {
                 live.insert(record.agent.clone(), *handle);
             }
-            Event::Exited { .. }
-            | Event::Stopped { .. }
-            | Event::Refused { .. }
-            | Event::LostWhileUnsupervised { .. } => {
+            Event::Exited { .. } | Event::Stopped { .. } | Event::LostWhileUnsupervised { .. } => {
                 live.remove(&record.agent);
             }
+            // A refusal is a launch that never happened, so it cannot have ended one that
+            // did. It sat in the arm above, which meant refusing a start because the agent
+            // was already running erased that live agent from the log's belief. The process
+            // kept going and nothing could find it, adopt it or stop it, including the kill
+            // switch. See bug 7.
+            //
+            // Still recorded, because a refusal nobody wrote down is the half of the log
+            // worth having. It is what the record means that changes, not whether it exists.
+            Event::Refused { .. } => {}
             // An offer, not an outcome. Nothing about the machine changed.
             Event::Planned { .. } => {}
             // A capability call is something an agent did, not something that happened to
@@ -105,6 +111,51 @@ mod tests {
                 reason: "not allowed".into(),
             },
         )];
+        assert!(believed_running(&records).is_empty());
+    }
+
+    /// The bug. Refusing a start for an agent that is already running writes a `Refused`
+    /// record against that agent's id, and `Refused` used to clear the live set. So the second
+    /// `aos start` erased the first one's process from the log's belief while it kept running.
+    ///
+    /// The consequence is the worst available: `aos status` reported nothing running, a
+    /// restarted daemon adopted nothing and wrote no `LostWhileUnsupervised`, and `stop-all`
+    /// said "nothing was running" while the process carried on. The kill switch had a
+    /// permanent survivor it could not see.
+    #[test]
+    fn a_refusal_does_not_erase_an_agent_that_is_already_running() {
+        let records = [
+            record(1, "worker", started(10)),
+            record(
+                2,
+                "worker",
+                Event::Refused {
+                    reason: "worker is already running".into(),
+                },
+            ),
+        ];
+        assert_eq!(
+            believed_running(&records)[&id("worker")],
+            handle(10),
+            "the refused second start must not end the first one"
+        );
+    }
+
+    /// And the refusal still has to be inert rather than reviving something that ended, or
+    /// the fix would have swapped one wrong answer for another.
+    #[test]
+    fn a_refusal_after_an_exit_leaves_the_agent_ended() {
+        let records = [
+            record(1, "worker", started(10)),
+            record(2, "worker", Event::Exited { code: Some(0) }),
+            record(
+                3,
+                "worker",
+                Event::Refused {
+                    reason: "no".into(),
+                },
+            ),
+        ];
         assert!(believed_running(&records).is_empty());
     }
 

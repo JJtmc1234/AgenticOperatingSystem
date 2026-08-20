@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `believed_running` treated `Event::Refused` as an ending, so refusing a start because the agent was already running erased that live agent from the log's belief. Nothing could then find, adopt or stop it, including the kill switch. | Never fired. Reproduced: a second `aos start` made `aos status` report nothing running while the process was alive, and `stop-all` said "nothing was running". | `a_refusal_does_not_erase_an_agent_that_is_already_running`, `a_refusal_after_an_exit_leaves_the_agent_ended` |
 
 ## bug 5, in full
 
@@ -196,3 +197,46 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+One variant in the wrong arm of a match, and the kill switch got a survivor it could not see.
+
+`believed_running` folds the log into the set of agents still running. `Event::Refused` sat in
+the same arm as `Exited`, `Stopped` and `LostWhileUnsupervised`, all of which call
+`live.remove`. A refusal is not any of those. It is a launch that never happened, so it cannot
+have ended one that did.
+
+The path to it is ordinary rather than exotic. Start an agent. Start it again. The supervisor
+answers "worker is already running", the daemon records that refusal against the agent id,
+which is right, and the fold then removed the live agent because of it.
+
+After that the log believes nothing is running while the process carries on. `aos status`
+reported nothing left running. A restarted daemon adopted nothing and wrote no
+`LostWhileUnsupervised`, because from the log's point of view there was nothing to lose.
+`stop-all` said "nothing was running". The one action the whole design promises can always be
+taken could no longer reach it, and a second `aos start` is the most likely thing anybody
+would type.
+
+Fix. `Event::Refused` gets its own arm that does nothing, next to `Planned`. Both are records
+of something that did not change the machine.
+
+The other option was to skip writing the record when the agent is already running, and that
+would have been the wrong half to give up. Refusals are the interesting half of an audit log:
+a log holding only what happened cannot answer what somebody tried to do and was stopped from
+doing. What the record means changes here, not whether it exists.
+
+Guard. `a_refusal_does_not_erase_an_agent_that_is_already_running` is the bug: started then
+refused, and the agent must still be live with its original handle.
+`a_refusal_after_an_exit_leaves_the_agent_ended` is the other side, because a fix that made
+`Refused` inert could have been written as one that revives an ended agent instead.
+
+Worth noting why the existing tests missed it. `a_refusal_never_marks_an_agent_running` tests a
+refusal with no start before it, and `every_ending_event_clears_the_agent` lists the three real
+endings and, correctly, does not include `Refused`. Neither of them puts a start and a refusal
+together, which is the only order in which this shows.
+
+Verified by putting `Refused` back in the ending arm and watching the first test fail while the
+second still passed. Then end to end against the real daemon: after the refused second start,
+`aos status` prints `alive worker pid 3903717` and `stop-all` prints `stopped worker`, where
+before both claimed there was nothing there.
