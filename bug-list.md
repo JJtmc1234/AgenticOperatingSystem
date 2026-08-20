@@ -131,6 +131,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
 | 7 | The `PlanRequired` arm of `aos start` printed the plan and returned `Ok(())`, so the process exited 0 having started nothing. A script could not tell "the gate stopped this" from "the agent is running". | Reproduced: `aos start examples/risky.json` printed "nothing has run" and exited 0, with only a `planned` record in the log. | The end to end check in the entry below, plus `cargo test` for the rest |
+| 8 | The commit command `aos start` prints was built from the spec path and plan id only, so on any run directory other than the default it named the wrong daemon. The spec path was relative too, so it also failed from any other working directory. | Reproduced: copying the printed line verbatim gave "cannot read examples/risky.json" from `/tmp`. | The end to end check in the entry below |
 
 ## bug 5, in full
 
@@ -227,3 +228,38 @@ a partial no op as a failure, and it is, but not as the same kind of failure.
 Verified against a live daemon. `aos start examples/risky.json` prints "tier destructive needs a
 commit, so nothing has run." and exits **2**, with only a `planned` record in the log. A read
 tier spec still exits 0 and starts.
+
+## bug 8, in full
+
+The remedy the tool hands you, for the one flow with a deadline on it, did not work when copied.
+
+Above tier read, `aos start` prints a line to rerun with `--commit`. It was built from the spec
+path and the plan id. `--run-dir` is global and defaults to `run`, so on any other run directory
+the printed command pointed at the wrong daemon. The default plan ttl is 120 seconds, so the
+round trip spent working out what was missing can expire the plan and force the whole handshake
+again.
+
+The run directory is what the issue asked for, and adding it was not enough, which is the part
+worth keeping.
+
+The issue's justification was that the line should be copy and paste safe. With the run
+directory added it still was not:
+
+```
+  aos --run-dir /tmp/aos-24 start examples/risky.json --commit 66d4ab71...
+```
+
+Run that from anywhere but the directory it was printed in and it fails with "cannot read
+examples/risky.json", because the spec path is relative too. Fixing one and not the other leaves
+the same failure reachable by walking to a different directory instead of forgetting a flag.
+
+So both paths are resolved. `absolute` canonicalizes and falls back to the path as given, which
+is the right answer for something that will not resolve: a line that is still wrong beats one
+that is wrong and pretends otherwise.
+
+Always rather than only when the value differs from the default, which is what the issue asked
+for and is right. A line that is sometimes complete is a line nobody can trust without reading
+it, and the conditional is one more thing to get wrong.
+
+Verified by copying the printed line verbatim and running it from `/tmp`. Before: "cannot read
+examples/risky.json". After: "risky started as pid 261291".
