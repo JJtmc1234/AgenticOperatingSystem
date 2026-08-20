@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | The shutdown flag was only checked between connections, and a session blocked in `read_line` until the peer hung up. One client that connected and said nothing made SIGTERM a no op, leaving SIGKILL as the only way to stop the daemon. | Reproduced. Connect, wait a second, send SIGTERM: the unfixed daemon is still alive after ten seconds, the fixed one exits at once. | The end to end check above, and `cargo test` for the rest. See the note on what is not unit tested. |
 
 ## bug 5, in full
 
@@ -196,3 +197,51 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+The kill switch is the thing this design promises always works, and it could not stop the
+supervisor.
+
+`serve::run` checked the shutdown flag once per trip round the accept loop. Serving a
+connection happens inside that trip, in `session`, which blocked in `read_line` until the peer
+hung up. So while any client was connected, nothing looked at the flag. A client that connected
+and then said nothing held the daemon open indefinitely, and SIGTERM did nothing at all.
+
+The signal handler made it worse in a way that is easy to miss. glibc's `libc::signal` installs
+a handler with `SA_RESTART`, so a read interrupted by a signal simply resumes. The flag was set
+correctly and the blocked read went straight back to waiting, so even the interruption was
+swallowed.
+
+Fix, in four parts, because the failure had four contributing pieces and closing any one of
+them alone still leaves a daemon that is slow or stuck to shut down.
+
+A read timeout on the accepted stream, so `read_line` comes back to the loop.
+
+The shutdown flag checked inside the session loop rather than only between connections.
+
+`sigaction` with no `SA_RESTART` instead of `signal`, so a read that is blocked when the signal
+lands returns `EINTR` at once rather than waiting out the timeout as well.
+
+A read timeout in `client::ask`, so a wedged daemon surfaces as an error rather than a terminal
+that never comes back. Thirty seconds, which is generous because the daemon serves one
+connection at a time on purpose, so a slow neighbour is a real reason to wait.
+
+One detail in the session loop is load bearing and easy to undo. The `String` being read into
+lives outside the loop and is deliberately not cleared on a timeout. `read_line` may have taken
+part of a line before the timeout expired, and starting a fresh buffer would split the request
+in half. That is why this is a manual `read_line` loop rather than `for line in reader.lines()`,
+which drops what it had on an error.
+
+Verified end to end, both ways, with identical timing: connect, wait one second so the daemon is
+genuinely inside `session`, send SIGTERM. The unfixed daemon is still alive after ten seconds.
+The fixed one exits immediately and prints "aosd stopped, agents left running".
+
+The one second wait matters, and getting it wrong the first time is worth recording. Without it
+the signal arrives while the daemon is still in the accept loop, which was never broken, so both
+versions exit at once and the test says nothing. A reproduction that does not reproduce is not
+evidence, and it looked like a pass.
+
+Not unit tested, and that is a real limit. This is the interaction of a signal, a blocking read
+and a process lifetime, and the existing daemon tests drive the real binary over a real socket
+for exactly that reason. The check above belongs with them and is written down here instead.
