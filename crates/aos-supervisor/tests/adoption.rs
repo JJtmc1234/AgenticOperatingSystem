@@ -313,3 +313,67 @@ fn refuses_to_adopt_a_program_the_allowlist_no_longer_permits() {
     let _ = running.kill();
     let _ = running.wait();
 }
+
+/// The bug. `adopt_from` discarded the result of `adopt` with `let _ =`, and the comment said a
+/// failure means the agent died between recovery and adoption, so staying untracked was safe.
+/// That is one cause among several and the only harmless one.
+///
+/// Any other cause leaves a live agent the supervisor is not tracking, while boot reports it
+/// adopted and writes no record at all. `list` cannot see it and `stop-all` cannot reach it.
+/// Worse, its id is free, so a later `aos start` under the same id appends a second `Started`
+/// that supersedes the first, and no later boot looks at the original process again.
+///
+/// Forced here by adopting the id first, so the second adoption is refused for a reason that
+/// has nothing to do with the process being gone.
+#[test]
+fn an_adoption_that_fails_is_reported_rather_than_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Supervisor::new(["/usr/bin/sleep".to_string()], dir.path());
+
+    let mut running = std::process::Command::new("/usr/bin/sleep")
+        .arg("30")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = running.id();
+    let handle = ProcessHandle {
+        pid,
+        start_token: proc::start_token(pid).unwrap(),
+        boot: proc::boot_id(),
+    };
+
+    // Already tracked under that id, so the adoption below is refused while the process is
+    // very much alive.
+    s.adopt(id("worker"), handle.clone()).unwrap();
+
+    let records = [Record {
+        seq: 1,
+        at: 1,
+        agent: id("worker"),
+        event: Event::Started {
+            handle,
+            program: "/usr/bin/sleep".into(),
+        },
+    }];
+
+    let out = s.adopt_from(&records);
+
+    assert!(
+        out.alive.is_empty(),
+        "an agent that was not adopted must not be reported as adopted"
+    );
+    assert_eq!(
+        out.unknown.len(),
+        1,
+        "it has to appear somewhere a person will see it"
+    );
+    assert!(
+        out.lost.is_empty(),
+        "and not as lost, because a live agent must not be recorded as dead"
+    );
+
+    let _ = s.stop(&id("worker"), Duration::from_secs(3));
+    let _ = running.kill();
+    let _ = running.wait();
+}

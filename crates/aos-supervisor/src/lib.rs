@@ -122,14 +122,29 @@ impl Supervisor {
                 refused.push(id.clone());
                 continue;
             }
-            // A failure here means it died between recovery and adoption. Rare, and the agent
-            // simply stays untracked, which is the safe outcome.
-            let _ = self.adopt(id.clone(), handle.clone());
+            // Kept, not dropped. This used to be `let _ =`, and the comment above it said a
+            // failure means the agent died between recovery and adoption, so staying untracked
+            // was safe. That is one cause among several and the only harmless one.
+            //
+            // Any other cause leaves a live agent that the supervisor is not tracking while
+            // boot reports it adopted and writes no record at all. `aos list` cannot see it and
+            // `stop-all` cannot reach it. Worse, its id is free, so a later `aos start` under
+            // the same id appends a second `Started` that supersedes the first in
+            // `believed_running`, and no later boot ever looks at the original process again.
+            //
+            // A kernel or seccomp profile without `pidfd_open` fails every adoption on every
+            // boot. Descriptor pressure does it too, because `PidFd::open` holds a descriptor
+            // across its second check, so one free descriptor is enough to open and not enough
+            // to recheck. See bug 9.
+            if let Err(e) = self.adopt(id.clone(), handle.clone()) {
+                eprintln!("WARNING: not adopting {id}: {e}");
+                refused.push(id.clone());
+            }
         }
 
-        // Moved rather than dropped. Something is on that pid and this supervisor will not
-        // touch it, which a person needs to know, and calling it lost would write a record
-        // saying it ended when it may not have.
+        // Moved rather than dropped, and into `unknown` rather than `lost`, whichever check
+        // refused it. A live agent must not be recorded as dead, and adoption failing does not
+        // say the agent is gone: it says this supervisor could not take it back.
         for id in refused {
             if let Some(handle) = recovered.alive.remove(&id) {
                 recovered.unknown.push((id, handle));
