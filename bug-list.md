@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `ledger::read` collected every line into one `Result`, so a single half written last line made the whole log unreadable and `Ledger::open` inherited that, so the daemon refused to boot at all. | Never fired. Reproduced: chopping 20 bytes off `events.jsonl` made `aosd` exit 1 with a parse error, leaving a live agent that nothing could adopt, stop or record as lost, on that boot or any later one. | `a_torn_final_line_is_dropped_rather_than_making_the_log_unreadable`, `a_torn_log_can_still_be_opened_and_appended_to`, `a_final_record_missing_only_its_newline_is_kept`, `a_corrupt_line_in_the_middle_is_still_an_error` |
 
 ## bug 5, in full
 
@@ -196,3 +197,52 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+The log is the only durable state, and a single interrupted write made it unreadable in full.
+
+`read` ended in `.collect()` into a `Result<Vec<Record>>`, which fails the whole collection if
+any line fails. `Ledger::open` calls `read` to find the next sequence number, so the daemon
+inherited it and refused to start. Reproduced by starting an agent, killing the daemon while
+the agent kept running, and chopping 20 bytes off the end of `events.jsonl`: `aosd` exited 1
+with `EOF while parsing a string`.
+
+The consequence is worse than a failed boot. The agents from the previous run are still on the
+machine. Refusing to boot means nothing adopts them, nothing stops them and nothing records
+them as lost, and that is true of every later boot as well, because the file does not heal.
+The kill switch cannot reach them either. It needs a human editing the log by hand.
+
+Fix, in two halves, because reading and appending fail differently.
+
+`read` now tolerates an unparsable line only when it is both the last line and the file does
+not end in a newline. All three conditions, or it is real corruption. A line that was
+completed once and is now unreadable means the log disagrees with what happened, and skipping
+that quietly is exactly the thing this project refuses to do.
+
+`Ledger::open` repairs the tail before reading, because tolerating a torn line on read is not
+enough on its own: the next append would be written onto the end of it, and one line holding
+half a record followed by a whole one parses as neither, so the good record would be lost too.
+
+The repair has two cases and the second is the one worth writing down. If the trailing bytes
+do not parse, the write was interrupted part way through, there is nothing there to keep, and
+it is truncated away. But if they do parse, the record itself was fully written and only its
+newline was not, so it is a complete record and the newline is added instead. Truncating back
+to the last newline unconditionally is the obvious repair and it would throw that record away.
+`a_final_record_missing_only_its_newline_is_kept` is the test that says so.
+
+What this does not do, and it is worth being exact. It does not recover the torn record. In
+the reproduction above the torn line was the only `started` record, so after the fix the
+daemon boots and reports no agents while the sleeper is still running. The fix makes the log
+readable and appendable again. It cannot invent a record that was never finished. Bug 5, the
+missing `sync_data`, is the one that narrows how often a record is lost at all, and the two
+are separate: an `ENOSPC` part way through `write_all` produces this same file whatever the
+sync policy is.
+
+Guard. Four tests. Three of them fail against the previous code and the fourth,
+`a_corrupt_line_in_the_middle_is_still_an_error`, passes both before and after, which is the
+point of it: it pins the behaviour that must not be loosened while making the tail forgiving.
+
+Verified by putting the old `.collect()` back and removing the repair call. The three failed
+and the fourth passed. Then end to end against the real binary: the daemon that used to exit 1
+over a torn log now starts, listens and answers `list` and `stop-all`.
