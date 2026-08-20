@@ -91,6 +91,30 @@ impl Daemon {
         }
     }
 
+    /// Writes down every agent that has finished since the last check.
+    ///
+    /// Called on a timer by the accept loop rather than only when a client asks something.
+    /// Two things went wrong without it. A finished child stayed a zombie until some request
+    /// happened to arrive, and its exit was never recorded at all, so `believed_running` kept
+    /// calling it live and the next boot wrote `lost_while_unsupervised` for an agent that had
+    /// exited cleanly with code 0. An event that fires on every normal exit stops meaning
+    /// anything. See bug 7.
+    pub fn record_exits(&mut self) {
+        for (id, code) in self.supervisor.reap_finished() {
+            // There is no caller to hand this to. A background tick has nowhere to return an
+            // error, and stopping the daemon over one would be worse than saying so, so it
+            // goes to stderr, which under systemd is journald.
+            if let Err(e) = self
+                .ledger
+                .append(now(), id.clone(), Event::Exited { code })
+            {
+                eprintln!(
+                    "{id} exited and it could not be recorded, so the log now disagrees with the machine: {e}"
+                );
+            }
+        }
+    }
+
     fn list(&mut self) -> Response {
         let agents = self
             .supervisor
@@ -260,4 +284,110 @@ pub fn allowlist(run_dir: &Path) -> Result<Vec<String>> {
         .with_context(|| format!("no allowlist at {}", path.display()))?;
     serde_json::from_str(&text)
         .with_context(|| format!("{} is not a JSON array of strings", path.display()))
+}
+
+/// What the daemon writes down when an agent finishes on its own.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aos_core::{AgentId, RiskTier};
+
+    fn spec(id: &str, program: &str, args: &[&str]) -> AgentSpec {
+        AgentSpec {
+            id: AgentId::new(id).unwrap(),
+            program: program.into(),
+            args: args.iter().map(|a| (*a).to_string()).collect(),
+            ceiling: RiskTier::Read,
+        }
+    }
+
+    /// A daemon over a real run directory, so the ledger can be read back afterwards.
+    fn daemon(dir: &Path) -> Daemon {
+        let policy = Policy::default();
+        Daemon {
+            supervisor: Supervisor::new(
+                ["/usr/bin/true".to_string(), "/usr/bin/sleep".to_string()],
+                dir.join("logs"),
+            ),
+            ledger: Ledger::open(dir.join("events.jsonl")).unwrap(),
+            plans: PlanLedger::new(policy.plan_ttl_secs),
+            policy,
+        }
+    }
+
+    fn events(dir: &Path) -> Vec<String> {
+        aos_core::ledger::read(dir.join("events.jsonl"))
+            .unwrap()
+            .into_iter()
+            .map(|r| match r.event {
+                Event::Started { .. } => "started".to_string(),
+                Event::Exited { code } => format!("exited {code:?}"),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+
+    /// The bug. Reaping only happened as a side effect of a `list` or `ping`, and no `Exited`
+    /// record was ever written by the daemon at all. So a finished child sat as a zombie until
+    /// somebody happened to ask, and the log kept believing it was running, which made the next
+    /// boot write `lost_while_unsupervised` for an agent that had exited cleanly with code 0.
+    #[test]
+    fn an_agent_that_finished_is_recorded_without_anyone_asking() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut daemon = daemon(dir.path());
+
+        // Through the real request path, so the `started` record is written the way it is in
+        // production rather than by reaching past the gate.
+        let started = daemon.handle(Request::Start {
+            spec: Box::new(spec("quick", "/usr/bin/true", &[])),
+            commit: None,
+        });
+        assert!(matches!(started, Response::Started { .. }), "{started:?}");
+
+        // No request of any kind, only the timer the accept loop drives.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            daemon.record_exits();
+            if events(dir.path()).iter().any(|e| e.starts_with("exited")) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        assert_eq!(
+            events(dir.path()),
+            vec!["started".to_string(), "exited Some(0)".to_string()],
+            "a clean exit has to reach the log without a client asking"
+        );
+
+        // And the log now agrees with the machine, which is what stops the next boot calling
+        // this a loss.
+        let records = aos_core::ledger::read(dir.path().join("events.jsonl")).unwrap();
+        assert!(aos_core::believed_running(&records).is_empty());
+    }
+
+    /// A running agent must not be reaped or recorded as exited by the same timer.
+    #[test]
+    fn a_running_agent_is_left_alone_by_the_reaper() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut daemon = daemon(dir.path());
+        let s = spec("slow", "/usr/bin/sleep", &["30"]);
+        let started = daemon.handle(Request::Start {
+            spec: Box::new(s.clone()),
+            commit: None,
+        });
+        assert!(matches!(started, Response::Started { .. }), "{started:?}");
+
+        for _ in 0..5 {
+            daemon.record_exits();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert_eq!(events(dir.path()), vec!["started".to_string()]);
+
+        let records = aos_core::ledger::read(dir.path().join("events.jsonl")).unwrap();
+        assert_eq!(aos_core::believed_running(&records).len(), 1);
+
+        let _ = daemon.supervisor.stop(&s.id, Duration::from_secs(5));
+    }
 }

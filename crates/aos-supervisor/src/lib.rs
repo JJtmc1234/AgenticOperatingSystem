@@ -116,6 +116,22 @@ impl Supervisor {
         Ok(state)
     }
 
+    /// Reaps every agent that has already finished, reporting each one and its exit code.
+    ///
+    /// Reports rather than records, because the log belongs to the caller and this crate does
+    /// not own it. Until this existed the only reaping happened as a side effect of a client
+    /// asking `list` or `ping`, so a child nobody asked about stayed a zombie and its exit
+    /// code was printed once and thrown away. See bug 7.
+    pub fn reap_finished(&mut self) -> Vec<(AgentId, Option<i32>)> {
+        let ids: Vec<_> = self.agents.keys().cloned().collect();
+        ids.into_iter()
+            .filter_map(|id| match self.state(&id) {
+                Ok(AgentState::Stopped { code }) => Some((id, code)),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn list(&mut self) -> Vec<(AgentId, AgentState)> {
         let ids: Vec<_> = self.agents.keys().cloned().collect();
         ids.into_iter()
