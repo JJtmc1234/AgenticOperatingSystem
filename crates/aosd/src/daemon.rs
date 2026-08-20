@@ -64,6 +64,21 @@ impl Daemon {
             );
         }
 
+        // Said loudly, and deliberately not written to the log. An agent `/proc` would not
+        // answer about is neither adopted nor written off: adopting it means signalling a pid
+        // nothing confirmed, and a `lost_while_unsupervised` record would drop it from
+        // `believed_running` on every later boot, putting it out of reach of `stop` and of
+        // `stop-all`. So it stays in the log as running, which is the only claim still true,
+        // and a person is told there is something here that needs looking at. See bug 7.
+        for (agent, handle) in &recovered.unknown {
+            eprintln!(
+                "WARNING: {agent} is recorded as running on pid {} and /proc would not say \
+                 whether it still is. It has not been adopted and has not been written off, \
+                 so it is not reachable by stop or stop-all. Check that pid by hand.",
+                handle.pid
+            );
+        }
+
         Ok(Self {
             supervisor,
             ledger,

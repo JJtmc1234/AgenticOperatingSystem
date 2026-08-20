@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | `start_token` collapsed every `/proc` read failure into `None`, and `None` meant "the process is gone". A comm field that is not UTF-8 makes `read_to_string` fail, so a live agent was written off, dropped from `believed_running` on every later boot, and put beyond `stop` and `stop-all`. An agent could escape the kill switch by renaming itself. | Reproduced on this machine with `prctl(PR_SET_NAME, "\xff\xfe-agent")`. | `a_name_that_is_not_utf8_does_not_hide_the_start_time`, `an_agent_that_cannot_be_checked_is_neither_adopted_nor_written_off`, `a_gone_agent_is_still_lost_rather_than_unknown` |
 
 ## bug 5, in full
 
@@ -196,3 +197,44 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+`ok()?` threw away the difference between "not there" and "could not look", and the whole
+recovery path was built on that difference without anybody noticing it was missing.
+
+`start_token` read `/proc/<pid>/stat` with `read_to_string` and turned any failure into `None`.
+`is_still` turned `None` into "not our process". `recover` turned that into `lost`. Boot writes
+a `lost_while_unsupervised` record for everything in `lost`, and `believed_running` folds over
+that record, so the agent is gone from the log's belief on every later boot as well. It is never
+adopted, and it is unreachable by `stop` and by `stop-all`, which is the kill switch.
+
+The read that fails needs no privilege and no unusual conditions. The kernel escapes only
+newline and backslash in the comm field, so bytes above 0x7f pass through raw and the stat line
+is simply not valid UTF-8. `read_to_string` refuses it. So **an agent that wanted to survive the
+kill switch only had to rename itself**, which is the sharpest way to put what this bug was.
+Descriptor exhaustion inside `aosd` reaches the same end by a different route.
+
+Fix, in three parts, matching the three places the information was lost.
+
+`parse_start_token` works on bytes. It finds the last `)` in the bytes and only converts what
+follows, which is fixed width ASCII, so a name that is not UTF-8 no longer hides the start time.
+
+`started` returns three answers rather than two: `At`, `Gone` for `ENOENT`, and `Unknown` for
+anything else. `start_token` and `is_still` are kept on top of it for callers about to send a
+signal, where all three failures do mean the same thing: do not touch that pid. Deciding whether
+to *write an agent off* is a different question and now has a different function.
+
+`Recovered` grows an `unknown` list, and boot neither adopts those agents nor records them as
+lost. It prints a warning naming the pid instead. Both other answers are actively wrong:
+adopting means signalling a pid nothing confirmed, and recording it lost is the bug. Leaving the
+log saying it is running is the only claim still true, and a person is told to look.
+
+Guard. The parsing test builds a stat line with high bytes in the comm field and asserts it is
+genuinely not UTF-8 before asserting field 22 still comes out, so it cannot quietly stop testing
+what it was written for. The replay tests cover both directions: an agent that cannot be checked
+is in neither list, and one that is genuinely gone is still lost rather than swallowed by the
+new case.
+
+Verified by putting the UTF-8 first parse back. The non UTF-8 test failed and every other test
+passed, which is the right shape.
