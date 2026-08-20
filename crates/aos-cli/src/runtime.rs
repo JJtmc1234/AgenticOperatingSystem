@@ -25,7 +25,7 @@ fn now() -> u64 {
         .unwrap_or_default()
 }
 
-pub fn run(run_dir: &Path, spec_path: &Path) -> Result<()> {
+pub fn run(run_dir: &Path, spec_path: &Path) -> Result<crate::Exit> {
     let spec = load_spec(spec_path)?;
     let allowed = crate::allowlist(run_dir)?;
     let mut ledger = Ledger::open(log_path(run_dir))?;
@@ -68,11 +68,38 @@ pub fn run(run_dir: &Path, spec_path: &Path) -> Result<()> {
         match sup.state(&spec.id)? {
             AgentState::Stopped { code } => {
                 ledger.append(now(), spec.id.clone(), Event::Exited { code })?;
-                println!("{} stopped, exit code {code:?}", spec.id);
-                return Ok(());
+                // Not `{code:?}`. That is Rust `Debug` of an `Option`, so a reader looking for
+                // the number got the literal text `Some(1)` and a script had to parse it back
+                // out of debug syntax. See bug 9.
+                println!("{} stopped, {}", spec.id, describe(code));
+                return Ok(exit_for(code));
             }
             AgentState::Running { .. } => std::thread::sleep(Duration::from_millis(100)),
         }
+    }
+}
+
+/// How an agent's ending reads to a person.
+pub fn describe(code: Option<i32>) -> String {
+    match code {
+        Some(0) => "exit code 0".to_string(),
+        Some(code) => format!("exit code {code}"),
+        // No number to give, because the kernel ended it rather than the program choosing to
+        // stop. Saying so beats printing `None` and leaving somebody to work out what that was.
+        None => "ended by a signal".to_string(),
+    }
+}
+
+/// The status `aos run` should exit with, given what the agent did.
+///
+/// A signal death becomes 128, which is the base of the shell convention of 128 plus the signal
+/// number. The number itself is not available here: `AgentState::Stopped` carries an
+/// `Option<i32>` that is already `None` by the time it arrives, so 128 says "a signal ended it"
+/// and does not pretend to say which.
+fn exit_for(code: Option<i32>) -> crate::Exit {
+    match code {
+        Some(code) => crate::Exit::Agent(u8::try_from(code).unwrap_or(1)),
+        None => crate::Exit::Agent(128),
     }
 }
 

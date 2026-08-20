@@ -131,6 +131,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
 | 7 | The `PlanRequired` arm of `aos start` printed the plan and returned `Ok(())`, so the process exited 0 having started nothing. A script could not tell "the gate stopped this" from "the agent is running". | Reproduced: `aos start examples/risky.json` printed "nothing has run" and exited 0, with only a `planned` record in the log. | The end to end check in the entry below, plus `cargo test` for the rest |
+| 8 | `aos run` supervised the agent in the foreground, printed its exit code, and returned `Ok(())`, so the process exited 0 whatever the agent did. The printed code was Rust `Debug` of an `Option`, so a reader looking for a number got the text `Some(1)`. | Reproduced with a spec running `/usr/bin/false`: `failer stopped, exit code Some(1)` and `EXIT=0`. | The end to end check in the entry below |
 
 ## bug 5, in full
 
@@ -227,3 +228,33 @@ a partial no op as a failure, and it is, but not as the same kind of failure.
 Verified against a live daemon. `aos start examples/risky.json` prints "tier destructive needs a
 commit, so nothing has run." and exits **2**, with only a `planned` record in the log. A read
 tier spec still exits 0 and starts.
+
+## bug 8, in full
+
+A foreground supervisor that did not hand back what it supervised.
+
+`aos run` is the standalone path, which is exactly the shape somebody wraps in a script or a
+systemd unit, and every other foreground supervisor propagates the child's status. This one
+printed the code and returned `Ok(())`, so the process exited 0 whatever the agent did. A cron
+job doing `aos run brief.json || alert` never fires the alert.
+
+The printed line had its own problem. `{code:?}` is Rust `Debug` of an `Option`, so somebody
+looking for the number read the literal text `Some(1)`, and a script trying to recover it had to
+parse it back out of debug syntax. The same shape was in `commands::list`, and both are fixed.
+
+Fix. `Exit` grows an `Agent(u8)` variant carrying the child's status, and `run` returns it.
+Carried through rather than flattened into the existing codes, because the whole point is that
+the number is the agent's rather than this tool's.
+
+A signal death becomes 128, and the reasoning is worth writing down because the obvious choice
+is 128 plus the signal number. That number is not available here: `AgentState::Stopped` carries
+an `Option<i32>` which is already `None` by the time it arrives, so the signal is gone before
+this code sees it. 128 says a signal ended it and does not pretend to say which. Recording the
+signal number would mean changing the event format, which is a larger change than this issue.
+
+`describe` replaces the debug printing: "exit code 1", or "ended by a signal" where there is no
+number, which beats printing `None` and leaving somebody to work out what that meant.
+
+Verified end to end. `/usr/bin/false` gives "exit code 1" and `EXIT=1`. `/usr/bin/true` gives
+"exit code 0" and `EXIT=0`. An agent killed with SIGTERM mid run gives "ended by a signal" and
+`EXIT=128`.

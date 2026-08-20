@@ -48,7 +48,11 @@ pub fn list(run_dir: &Path) -> Result<()> {
         match report.state {
             AgentState::Running { pid } => println!("running  {}  pid {pid}{origin}", report.id),
             AgentState::Stopped { code } => {
-                println!("stopped  {}  exit {code:?}{origin}", report.id)
+                println!(
+                    "stopped  {}  {}{origin}",
+                    report.id,
+                    runtime::describe(code)
+                )
             }
         }
     }
