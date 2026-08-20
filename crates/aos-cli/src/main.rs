@@ -71,18 +71,50 @@ enum Command {
     },
 }
 
-fn main() -> Result<()> {
+/// What the exit status means.
+///
+/// Three answers rather than two, because "the gate stopped this and nothing ran" is neither a
+/// success nor a failure and it is the outcome a caller most needs to branch on: it is the one
+/// where the machine did not change. It used to exit 0, so `aos start x.json && echo up`
+/// printed `up` while nothing had been started. See bug 7.
+///
+/// Distinct from the failure code on purpose. A wrapper script has to be able to tell "needs a
+/// commit", which it can act on by committing, from "the daemon is down", which it cannot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum Exit {
+    /// It happened.
+    Acted = 0,
+    /// Something went wrong.
+    Failed = 1,
+    /// Refused pending a commit, or partly refused. Nothing, or not everything, was done.
+    NeedsAgreement = 2,
+}
+
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(exit) => std::process::ExitCode::from(exit as u8),
+        // Printed the same way `anyhow` would have, since this used to return `Result` from
+        // `main` and the message shape is what people are used to reading.
+        Err(e) => {
+            eprintln!("Error: {e:#}");
+            std::process::ExitCode::from(Exit::Failed as u8)
+        }
+    }
+}
+
+fn run() -> Result<Exit> {
     let cli = Cli::parse();
     let dir = &cli.run_dir;
 
     match cli.command {
-        Command::Validate { spec } => commands::validate(&spec),
-        Command::Status => runtime::status(dir),
-        Command::Run { spec } => runtime::run(dir, &spec),
-        Command::Ping => commands::ping(dir),
-        Command::List => commands::list(dir),
+        Command::Validate { spec } => commands::validate(&spec).map(|()| Exit::Acted),
+        Command::Status => runtime::status(dir).map(|()| Exit::Acted),
+        Command::Run { spec } => runtime::run(dir, &spec).map(|()| Exit::Acted),
+        Command::Ping => commands::ping(dir).map(|()| Exit::Acted),
+        Command::List => commands::list(dir).map(|()| Exit::Acted),
         Command::Start { spec, commit } => commands::start(dir, &spec, commit),
-        Command::Stop { agent, grace } => commands::stop(dir, &agent, grace),
+        Command::Stop { agent, grace } => commands::stop(dir, &agent, grace).map(|()| Exit::Acted),
         Command::StopAll { grace } => commands::stop_all(dir, grace),
     }
 }

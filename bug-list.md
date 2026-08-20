@@ -130,6 +130,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 
 
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
+| 7 | The `PlanRequired` arm of `aos start` printed the plan and returned `Ok(())`, so the process exited 0 having started nothing. A script could not tell "the gate stopped this" from "the agent is running". | Reproduced: `aos start examples/risky.json` printed "nothing has run" and exited 0, with only a `planned` record in the log. | The end to end check in the entry below, plus `cargo test` for the rest |
 
 ## bug 5, in full
 
@@ -196,3 +197,33 @@ The first attempt at that second test scanned the text for bare keys under a hea
 was wrong: `read = "allow"` under `[tiers]` is exactly that and is correct. The test failed
 against the fixed file and caught itself. Checking the parsed structure is the only way to
 see where a key actually landed.
+
+## bug 7, in full
+
+The one outcome a caller most needs to branch on was the one it could not see.
+
+`aos start` on a spec above tier read prints the plan and stops, which is the whole point of the
+handshake. It then returned `Ok(())`, so the process exited 0. To anything reading exit status,
+"the gate refused and nothing ran" was indistinguishable from "the agent is now running".
+
+`aos start x.json && echo up` prints `up`. A wrapper doing `aos start x.json || exit 1` carries
+on believing the agent is supervised, when the daemon deliberately declined to act. That is the
+one case where the machine did not change, so it is the case a script most needs to know about.
+
+Fix. An `Exit` enum in `main`: 0 acted, 1 failed, 2 refused pending agreement.
+
+Two rather than one, deliberately. A script has to tell "needs a commit", which it can act on by
+committing, from "the daemon is down", which it cannot. Collapsing them into a single nonzero
+would replace one indistinguishable pair with another.
+
+`stop_all` keeps its existing `bail` on a partial stop, which is exit 1, and that is not an
+oversight. Some agents did not stop, which is worse than nothing having happened: the machine is
+not quiet and no amount of agreeing fixes it. The issue noted that arm as precedent for treating
+a partial no op as a failure, and it is, but not as the same kind of failure.
+
+`main` returns `ExitCode` rather than `Result`, so the error path prints in the same shape
+`anyhow` used to produce, since that is what people are used to reading.
+
+Verified against a live daemon. `aos start examples/risky.json` prints "tier destructive needs a
+commit, so nothing has run." and exits **2**, with only a `planned` record in the log. A read
+tier spec still exits 0 and starts.

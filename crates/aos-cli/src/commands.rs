@@ -5,6 +5,7 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use aos_core::{AgentId, AgentState, PlanId, Request, Response};
 
+use crate::Exit;
 use crate::client;
 use crate::runtime;
 
@@ -54,7 +55,7 @@ pub fn list(run_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn start(run_dir: &Path, spec_path: &Path, commit: Option<String>) -> Result<()> {
+pub fn start(run_dir: &Path, spec_path: &Path, commit: Option<String>) -> Result<Exit> {
     let spec = runtime::load_spec(spec_path)?;
     let id = spec.id.clone();
 
@@ -66,7 +67,7 @@ pub fn start(run_dir: &Path, spec_path: &Path, commit: Option<String>) -> Result
     match client::demand(run_dir, &request)? {
         Response::Started { handle } => {
             println!("{id} started as pid {}", handle.pid);
-            Ok(())
+            Ok(Exit::Acted)
         }
         // Nothing happened yet. Print what would, and how to say yes.
         Response::PlanRequired {
@@ -81,7 +82,9 @@ pub fn start(run_dir: &Path, spec_path: &Path, commit: Option<String>) -> Result
             println!();
             println!("To go ahead:");
             println!("  aos start {} --commit {plan}", spec_path.display());
-            Ok(())
+            // Not a success. Nothing was started, and a caller that reads only the exit status
+            // could not tell this apart from the agent now running. See bug 7.
+            Ok(Exit::NeedsAgreement)
         }
         other => bail!("unexpected answer to start: {other:?}"),
     }
@@ -105,7 +108,7 @@ pub fn stop(run_dir: &Path, agent: &str, grace: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn stop_all(run_dir: &Path, grace: u64) -> Result<()> {
+pub fn stop_all(run_dir: &Path, grace: u64) -> Result<Exit> {
     let request = Request::StopAll { grace_secs: grace };
     let Response::StoppedAll { stopped, failed } = client::demand(run_dir, &request)? else {
         bail!("unexpected answer to stop-all");
@@ -113,7 +116,7 @@ pub fn stop_all(run_dir: &Path, grace: u64) -> Result<()> {
 
     if stopped.is_empty() && failed.is_empty() {
         println!("nothing was running");
-        return Ok(());
+        return Ok(Exit::Acted);
     }
 
     for id in &stopped {
@@ -126,7 +129,10 @@ pub fn stop_all(run_dir: &Path, grace: u64) -> Result<()> {
     // A partial kill switch is a failure, not a success. Exiting zero here would let a script
     // carry on believing the machine is quiet.
     if !failed.is_empty() {
+        // Deliberately a failure rather than the "needs agreement" code. Some agents did not
+        // stop, which is worse than nothing having happened: the machine is not quiet and the
+        // caller cannot fix it by agreeing to anything.
         bail!("{} agent(s) did not stop", failed.len());
     }
-    Ok(())
+    Ok(Exit::Acted)
 }
