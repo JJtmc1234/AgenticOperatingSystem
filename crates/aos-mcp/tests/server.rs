@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::io::Cursor;
 
 use aos_core::{AgentId, Policy, RiskTier, Verdict};
-use aos_mcp::{Root, Server};
+use aos_mcp::{Root, Scope, Server};
 use serde_json::{Value, json};
 
 /// One server, kept alive across several requests.
@@ -22,10 +22,10 @@ struct Session {
 }
 
 impl Session {
-    fn new(root: &Root, policy: Policy) -> Self {
+    fn new(scope: &Scope, policy: Policy) -> Self {
         Self {
             server: Server::new(
-                root.clone(),
+                scope.clone(),
                 policy,
                 AgentId::new("claude-code").unwrap(),
                 None,
@@ -55,7 +55,7 @@ fn plan_id_in(said: &str) -> String {
 }
 
 /// Runs a batch of requests through a server and returns the replies.
-fn talk(root: &Root, policy: Policy, requests: &[Value]) -> Vec<Value> {
+fn talk(scope: &Scope, policy: Policy, requests: &[Value]) -> Vec<Value> {
     let lines: String = requests
         .iter()
         .map(|r| format!("{r}\n"))
@@ -64,7 +64,7 @@ fn talk(root: &Root, policy: Policy, requests: &[Value]) -> Vec<Value> {
 
     let mut out = Vec::new();
     let mut server = Server::new(
-        root.clone(),
+        scope.clone(),
         policy,
         AgentId::new("claude-code").unwrap(),
         None,
@@ -111,12 +111,18 @@ fn policy(write: Verdict, destructive: Verdict) -> Policy {
     }
 }
 
-fn workspace() -> (tempfile::TempDir, Root) {
+/// A workspace an agent may both read and change all of.
+///
+/// The wide grant, which is what most of these tests are about: they check the gates rather than
+/// the scope, and a narrower one would only make every path in them longer. The narrow grant has
+/// tests of its own further down.
+fn workspace() -> (tempfile::TempDir, Scope) {
     let d = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(d.path().join("notes")).unwrap();
     std::fs::write(d.path().join("notes/a.txt"), "hello").unwrap();
-    let r = Root::open(d.path()).unwrap();
-    (d, r)
+    let root = Root::open(d.path()).unwrap();
+    let scope = Scope::granting(root, d.path()).unwrap();
+    (d, scope)
 }
 
 #[test]
@@ -399,4 +405,173 @@ fn an_unknown_method_is_a_protocol_error() {
         &[json!({"jsonrpc":"2.0","id":1,"method":"resources/list"})],
     );
     assert!(out[0].get("error").is_some());
+}
+
+/// A project with one task workspace inside it, which is what a lead grants a worker.
+fn narrow() -> (tempfile::TempDir, Scope) {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(d.path().join("src")).unwrap();
+    std::fs::create_dir_all(d.path().join("task")).unwrap();
+    std::fs::write(d.path().join("src/main.rs"), "fn main() {}").unwrap();
+    std::fs::create_dir_all(d.path().join(".ssh")).unwrap();
+    std::fs::write(d.path().join(".ssh/id_rsa"), "not yours").unwrap();
+
+    let root = Root::open(d.path()).unwrap();
+    let scope = Scope::granting(root, d.path().join("task")).unwrap();
+    (d, scope)
+}
+
+/// The whole grant, driven the way a worker would drive it. Wide read, one place to write, and
+/// nothing else reachable however the request is spelled.
+#[test]
+fn a_worker_can_read_the_project_and_write_only_its_own_workspace() {
+    let (d, scope) = narrow();
+    let mut session = Session::new(&scope, policy(Verdict::Prompt, Verdict::Prompt));
+
+    let read = session.send(json!({
+        "jsonrpc":"2.0","id":1,"method":"tools/call",
+        "params":{"name":"read_file","arguments":{"path":"src/main.rs"}}
+    }));
+    assert!(
+        read["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("fn main")
+    );
+
+    let offered = session.send(json!({
+        "jsonrpc":"2.0","id":2,"method":"tools/call",
+        "params":{"name":"write_file","arguments":{"path":"task/result.txt","text":"done"}}
+    }));
+    let plan = plan_id_in(offered["result"]["content"][0]["text"].as_str().unwrap());
+
+    let done = session.send(json!({
+        "jsonrpc":"2.0","id":3,"method":"tools/call",
+        "params":{"name":"write_file",
+                  "arguments":{"path":"task/result.txt","text":"done","plan_id":plan}}
+    }));
+    assert!(done["error"].is_null(), "{done}");
+    assert_eq!(
+        std::fs::read_to_string(d.path().join("task/result.txt")).unwrap(),
+        "done"
+    );
+}
+
+/// Every way out of the workspace, refused at the far end of the protocol rather than only in
+/// the unit tests. A gate that works in isolation and is not wired up is not a gate.
+#[test]
+fn nothing_reaches_outside_the_workspace_however_it_is_asked_for() {
+    let (d, scope) = narrow();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret"), "not yours").unwrap();
+    std::os::unix::fs::symlink(outside.path(), d.path().join("task/elsewhere")).unwrap();
+
+    for path in [
+        "src/main.rs",               // readable, and still not writable
+        "escape.txt",                // beside the workspace
+        "../escape.txt",             // out of the project
+        "/tmp/escape.txt",           // absolute
+        "task/../../escape.txt",     // up and around
+        "task/elsewhere/escape.txt", // through a link
+        ".ssh/id_rsa",               // a secret inside the project
+    ] {
+        let out = talk(
+            &scope,
+            policy(Verdict::Allow, Verdict::Allow),
+            &[json!({
+                "jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"write_file","arguments":{"path":path,"text":"x"}}
+            })],
+        );
+        let said = format!("{}", out[0]);
+        assert!(said.contains("refused"), "{path} was not refused: {said}");
+    }
+
+    assert!(!outside.path().join("escape.txt").exists());
+    assert!(!d.path().join("escape.txt").exists());
+}
+
+/// Allowed by policy and still refused by the scope, because they are different gates and a
+/// worker whose lead widened the policy has not thereby been given the whole disk.
+#[test]
+fn a_policy_that_allows_everything_does_not_widen_the_scope() {
+    let (_d, scope) = narrow();
+    let out = talk(
+        &scope,
+        policy(Verdict::Allow, Verdict::Allow),
+        &[json!({
+            "jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":"delete_file","arguments":{"path":"src/main.rs"}}
+        })],
+    );
+    let said = format!("{}", out[0]);
+    assert!(said.contains("refused"), "{said}");
+}
+
+/// There is no capability that runs anything, and none that reads the environment. Both of
+/// those would be every tier at once, which is why neither can be described to a policy.
+#[test]
+fn there_is_no_way_to_run_a_command_or_read_the_environment() {
+    let (_d, scope) = workspace();
+    let out = talk(
+        &scope,
+        policy(Verdict::Allow, Verdict::Allow),
+        &[json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})],
+    );
+
+    let tools = out[0]["result"]["tools"].as_array().unwrap();
+    let listed = serde_json::to_string(tools).unwrap().to_lowercase();
+    for word in [
+        "shell", "exec", "bash", "command", "run_", "spawn", "env", "sudo", "process",
+    ] {
+        assert!(
+            !listed.contains(word),
+            "{word} appears in the catalogue: {listed}"
+        );
+    }
+
+    for name in [
+        "run",
+        "exec",
+        "shell",
+        "bash",
+        "getenv",
+        "environment",
+        "sudo",
+    ] {
+        let said = format!(
+            "{}",
+            talk(
+                &scope,
+                policy(Verdict::Allow, Verdict::Allow),
+                &[json!({
+                    "jsonrpc":"2.0","id":1,"method":"tools/call",
+                    "params":{"name":name,"arguments":{}}
+                })],
+            )[0]
+        );
+        assert!(said.contains("no capability called"), "{name}: {said}");
+    }
+}
+
+/// A plan for something that can never happen is a plan somebody may sit and agree to, and it
+/// still will not happen. Worse, it answers "pending approval" to a request whose real answer is
+/// "never", which tells an agent to keep trying.
+#[test]
+fn a_write_outside_the_workspace_is_refused_before_any_plan_is_offered() {
+    let (_d, scope) = narrow();
+    let out = talk(
+        &scope,
+        policy(Verdict::Prompt, Verdict::Prompt),
+        &[json!({
+            "jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":"write_file","arguments":{"path":"src/main.rs","text":"x"}}
+        })],
+    );
+    let said = out[0]["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(said.contains("readable but not writable"), "{said}");
+    assert!(
+        !said.contains("plan_id set to"),
+        "it was offered a plan: {said}"
+    );
 }

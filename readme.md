@@ -106,8 +106,9 @@ that outlived their supervisor, `aosd` with `list` and `stop` working from any t
 policy with the plan then commit handshake.
 
 Phase 3a as well: `aos-files`, the file capability server, spoken over MCP. Every call is
-gated by root, policy and the same plan then commit handshake, and every gated call is
-recorded including the refusals.
+gated by scope, policy and the same plan then commit handshake, and every gated call is
+recorded including the refusals. The scope is two directories rather than one: everything an
+agent may read, and the narrower place its changes may land.
 
 3b, the command runner, is not started. It is the harder half, because an allowlist bounds
 which binary starts and not what that binary then does. Never a raw shell.
@@ -118,19 +119,37 @@ MCP is the protocol Claude Code already speaks, so a capability server is the wa
 gets to touch files without ever being handed a shell.
 
 ```sh
-mkdir -p run/work
+mkdir -p run/work/task
 cp examples/policy.toml run/policy.toml
 
 ./target/debug/aos-files \
   --root "$PWD/run/work" \
+  --write-root "$PWD/run/work/task" \
   --policy "$PWD/run/policy.toml" \
   --log "$PWD/run/events.jsonl"
 ```
 
-`--root` is the only directory it may touch and has to exist already. `--policy` decides what
-is allowed. `--log` is optional, and leaving it out means nothing is recorded, which is almost
-never what you want. `--agent` defaults to `claude-code` and is the name the policy singles
-out in its `[agents]` table.
+`--root` is everything it may read and has to exist already. `--write-root` is the one
+directory inside it where changes may land, and it has to exist too. Leaving it out means
+nothing may be changed at all, which is the safe default rather than an oversight: defaulting
+to the whole read root would make forgetting the flag look exactly like deciding to allow it.
+
+Reading and changing are separate grants because they are separate sizes. A worker is given a
+project to read, since work that cannot see the code around it is work done blind, and one task
+workspace to change, since a worker that can write anywhere it can read is a worker whose
+mistake is unbounded.
+
+`--policy` decides what is allowed. `--log` is optional, and leaving it out means nothing is
+recorded, which is almost never what you want. `--agent` defaults to `claude-code` and is the
+name the policy singles out in its `[agents]` table.
+
+Some names are refused wherever they sit, whatever the roots say. A private key inside a project
+directory is inside the root by every check the path resolver makes, and handing it over would
+still be the worst thing this server could do. `.ssh`, `.aws`, `.gnupg`, `.env`, `.netrc`,
+`.npmrc`, `.git-credentials`, `credentials`, `secrets`, `.carl`, `.claude`, anything starting
+`id_rsa` or `id_ed25519`, and anything ending `.pem`, `.key`, `.p12`, `.pfx` or `.keystore`. The
+check is on the name asked for and on the name it resolves to, so a link called `notes.txt`
+landing on `id_rsa` is caught as well.
 
 It speaks MCP on stdio, so running it by hand gets you a server waiting for JSON on its input
 rather than anything to look at. To give it to Claude Code, add it as an MCP server:
@@ -139,6 +158,7 @@ rather than anything to look at. To give it to Claude Code, add it as an MCP ser
 claude mcp add aos-files -- \
   /absolute/path/to/target/debug/aos-files \
   --root /absolute/path/to/run/work \
+  --write-root /absolute/path/to/run/work/task \
   --policy /absolute/path/to/run/policy.toml \
   --log /absolute/path/to/run/events.jsonl
 ```

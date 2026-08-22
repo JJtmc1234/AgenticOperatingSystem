@@ -9,7 +9,7 @@
 //!
 //! | | |
 //! |---|---|
-//! | `root` | the path is inside the directory this server is allowed to touch |
+//! | `scope` | the path is inside what may be read, and a change is inside the narrower place changes may land |
 //! | `tools` | the capability exists at all, and declares how much damage it could do |
 //! | `policy` | that tier is allowed, for this agent |
 //! | `plan` | anything above Read was agreed to before it happened |
@@ -20,10 +20,12 @@
 pub mod files;
 pub mod root;
 pub mod rpc;
+pub mod scope;
 pub mod server;
 pub mod tools;
 
 pub use root::Root;
+pub use scope::Scope;
 pub use server::Server;
 
 #[derive(Debug, thiserror::Error)]

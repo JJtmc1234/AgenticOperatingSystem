@@ -6,7 +6,8 @@
 //!     +-- does the capability exist            tools.rs, and no shell is in the table
 //!     +-- what does the policy say about it    policy.rs, by tier and by agent
 //!     +-- was it agreed to                     plan.rs, for anything above Read
-//!     +-- is the path inside the root          root.rs, checked after resolution
+//!     +-- is the path inside what may be read  root.rs, checked after resolution
+//!     +-- and inside what may be changed       scope.rs, which is a narrower directory
 //!     |
 //!   do it, and append what happened to the log
 //! ```
@@ -14,16 +15,36 @@
 //! They are separate because they fail for different reasons and a caller needs to know
 //! which. "Denied by policy" and "that path is outside the root" are both refusals and
 //! nothing else about them is the same.
+//!
+//! Reading and changing go through different resolvers, and deleting goes through the changing
+//! one. A delete used to be resolved as though it were a read, which is the sort of thing that
+//! looks right because the file has to exist either way.
 
 use std::io::{BufRead, Write};
 
 use aos_core::{AgentId, AgentSpec, Ledger, Plan, PlanId, PlanLedger, Policy, RiskTier, Verdict};
 use serde_json::{Value, json};
 
-use crate::{Error, Result, Root, files, rpc, tools};
+use crate::{Error, Result, Scope, files, rpc, tools};
+
+/// Where one call would land, once every path in it has been through the scope.
+///
+/// Not an argument list. It exists so that resolving happens once and its answer can be carried
+/// to whoever needs it, rather than being repeated in a second place that slowly disagrees.
+enum Resolved {
+    Read(std::path::PathBuf),
+    Change(std::path::PathBuf),
+    Remove(std::path::PathBuf),
+    Move {
+        from: std::path::PathBuf,
+        to: std::path::PathBuf,
+    },
+    /// The whole read scope, for the capability that searches it rather than naming a path.
+    Whole,
+}
 
 pub struct Server {
-    root: Root,
+    scope: Scope,
     policy: Policy,
     plans: PlanLedger,
     ledger: Option<Ledger>,
@@ -32,10 +53,10 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(root: Root, policy: Policy, agent: AgentId, ledger: Option<Ledger>) -> Self {
+    pub fn new(scope: Scope, policy: Policy, agent: AgentId, ledger: Option<Ledger>) -> Self {
         let ttl = policy.plan_ttl_secs;
         Self {
-            root,
+            scope,
             policy,
             plans: PlanLedger::new(ttl),
             ledger,
@@ -121,6 +142,15 @@ impl Server {
             Verdict::Allow | Verdict::Prompt => {}
         }
 
+        // The paths are resolved before a plan is offered, not only before the work is done. A
+        // plan for something that can never happen is a plan somebody may sit and agree to, and
+        // it still will not happen. Worse, it answers "pending approval" to a request whose real
+        // answer is "never", which tells an agent to keep trying.
+        if let Err(e) = self.resolve(name, &args) {
+            self.record(name, tool.tier, &format!("refused: {e}"));
+            return rpc::tool_error(e.to_string());
+        }
+
         // Gate three. Anything above Read has to have been agreed to first.
         if !tool.tier.allows_implicit_commit()
             && self.policy.verdict(&self.agent, tool.tier) == Verdict::Prompt
@@ -178,6 +208,38 @@ impl Server {
         }
     }
 
+    /// Every path a call would touch, resolved through the scope, changing nothing.
+    ///
+    /// One place resolves, so the check made before offering a plan and the check made before
+    /// acting cannot come to disagree. Two lists of which arguments are paths is how a capability
+    /// added later gets planned against one gate and run against another.
+    fn resolve(&self, name: &str, args: &Value) -> Result<Resolved> {
+        let s = |key: &str| -> Result<String> {
+            args.get(key)
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .ok_or_else(|| Error::Refused(format!("{name} needs a {key}")))
+        };
+
+        Ok(match name {
+            "list_dir" => Resolved::Read(self.scope.to_read(&s("path").unwrap_or_default())?),
+            "read_file" => Resolved::Read(self.scope.to_read(&s("path")?)?),
+            "find" => Resolved::Whole,
+            "write_file" | "make_dir" => Resolved::Change(self.scope.to_change(&s("path")?)?),
+            // The source is resolved for changing rather than for reading, because a move takes
+            // the file away from where it was. Only the destination being writable would let an
+            // agent empty a directory it was given to read.
+            "move_file" => Resolved::Move {
+                from: self.scope.to_remove(&s("from")?)?,
+                to: self.scope.to_change(&s("to")?)?,
+            },
+            "delete_file" => Resolved::Remove(self.scope.to_remove(&s("path")?)?),
+            other => {
+                return Err(Error::Refused(format!("no such capability: {other}")));
+            }
+        })
+    }
+
     fn run(&self, name: &str, args: &Value) -> Result<String> {
         let s = |key: &str| -> Result<String> {
             args.get(key)
@@ -186,41 +248,27 @@ impl Server {
                 .ok_or_else(|| Error::Refused(format!("{name} needs a {key}")))
         };
 
-        match name {
-            "list_dir" => {
-                let p = self.root.existing(&s("path").unwrap_or_default())?;
-                files::list_dir(&self.root, &p)
-            }
-            "read_file" => {
-                let p = self.root.existing(&s("path")?)?;
-                files::read_file(&self.root, &p)
-            }
-            "find" => {
+        let where_ = self.resolve(name, args)?;
+        match (name, where_) {
+            ("list_dir", Resolved::Read(p)) => files::list_dir(self.scope.read(), &p),
+            ("read_file", Resolved::Read(p)) => files::read_file(self.scope.read(), &p),
+            ("find", _) => {
                 let limit = args
                     .get("limit")
                     .and_then(|l| l.as_u64())
                     .unwrap_or(200)
                     .min(2_000) as usize;
-                files::find(&self.root, &s("contains")?, limit)
+                files::find(self.scope.read(), &s("contains")?, limit)
             }
-            "write_file" => {
-                let p = self.root.for_writing(&s("path")?)?;
-                files::write_file(&self.root, &p, &s("text")?)
+            ("write_file", Resolved::Change(p)) => {
+                files::write_file(self.scope.read(), &p, &s("text")?)
             }
-            "make_dir" => {
-                let p = self.root.for_writing(&s("path")?)?;
-                files::make_dir(&self.root, &p)
+            ("make_dir", Resolved::Change(p)) => files::make_dir(self.scope.read(), &p),
+            ("move_file", Resolved::Move { from, to }) => {
+                files::move_file(self.scope.read(), &from, &to)
             }
-            "move_file" => {
-                let from = self.root.existing(&s("from")?)?;
-                let to = self.root.for_writing(&s("to")?)?;
-                files::move_file(&self.root, &from, &to)
-            }
-            "delete_file" => {
-                let p = self.root.existing(&s("path")?)?;
-                files::delete_file(&self.root, &p)
-            }
-            other => Err(Error::Refused(format!("no such capability: {other}"))),
+            ("delete_file", Resolved::Remove(p)) => files::delete_file(self.scope.read(), &p),
+            (other, _) => Err(Error::Refused(format!("no such capability: {other}"))),
         }
     }
 
