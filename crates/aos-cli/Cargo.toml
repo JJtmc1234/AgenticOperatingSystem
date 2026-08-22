@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lib]
+name = "aos_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "aos"
 path = "src/main.rs"

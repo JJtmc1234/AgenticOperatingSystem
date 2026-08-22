@@ -94,6 +94,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aos-panel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aos-cli",
+ "aos-core",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "aos-supervisor"
 version = "0.1.0"
 dependencies = [

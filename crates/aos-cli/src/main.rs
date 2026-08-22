@@ -4,7 +4,7 @@
 //! `aosd`, which is the only thing that owns agents. Two owners would mean two answers to
 //! "what is running", and the whole point of the log is that there is one.
 
-mod client;
+use aos_cli::client;
 mod commands;
 mod runtime;
 

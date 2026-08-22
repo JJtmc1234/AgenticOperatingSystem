@@ -1,4 +1,4 @@
-/target
+target/
 **/*.rs.bk
 
 # Runtime state. Allowlist, audit log, agent output, sockets. Never committed.
