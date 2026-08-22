@@ -1,4 +1,4 @@
-# aos
+# Agentic Operating System (AOS)
 
 Agent native layer over Linux. Rust, developed on Ubuntu 26.04.
 
