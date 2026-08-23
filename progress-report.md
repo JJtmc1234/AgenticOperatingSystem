@@ -1,6 +1,14 @@
 # progress report
 
-Where the plan stands. Updated 2026 08 07.
+Where the plan stands. Updated 2026 08 23.
+
+## what AOS is, in one line
+
+AOS decides what a running agent is allowed to do. Carl decides what work happens. ME OS is a
+separate operating system project.
+
+The name causes the confusion and is worth being blunt about: AOS is not an operating system.
+It is a runtime and a set of gates that runs on Linux.
 
 ## summary
 

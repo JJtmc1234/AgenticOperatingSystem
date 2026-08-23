@@ -1,12 +1,39 @@
 # Agentic Operating System (AOS)
 
-Agent native layer over Linux. Rust, developed on Ubuntu 26.04.
+Agent runtime and safety layer over Linux. Rust, developed on Ubuntu 26.04.
 
 Agents are supervised like processes. The runtime starts them, bounds what they may run,
 records every attempt including refusals, and can stop all of them at once.
 
 This is the second AOS. The first targeted Windows in C sharp and is archived here as
 `old-windows-code.zip`. Its safety design carried over. Its platform did not.
+
+## AOS, Carl and ME OS
+
+Three separate projects that keep being read as one. The name is the reason: AOS has the word
+operating system in it and is not one.
+
+| | owns | does not own |
+|---|---|---|
+| **AOS** | execution. Which programs may start, what they may read and change, what needs a commit first, what gets recorded, and how to stop all of it | any opinion about whether the work was worth doing |
+| **Carl** | work. What should happen, who does it, who reviews it, what reaches a person | processes, and what a process may touch |
+| **ME OS** | a computer. Boot, display, input | agents, and everything on this page |
+
+**AOS decides what a running agent is allowed to do. Carl decides what work happens. ME OS is a
+separate operating system project.**
+
+AOS holds no opinion about work on purpose. There is no task, no queue, no priority and no
+reviewer anywhere in it, and nothing here should grow one. A runtime that also decided what was
+worth doing would be judging the work it is meant to be bounding, and the boundary is the only
+thing it is for.
+
+That separation is also the security answer. Carl records that a lead allowed a worker one
+directory. `aos-files` is what refuses the path, in a different process, and it would refuse it
+just the same if Carl were wrong, confused or compromised. A capability that only holds while
+the thing above it behaves correctly is not a capability.
+
+Carl's side of this, and the one workflow both are aimed at over the next year, is in
+`carl/docs/flagship-workflow.md`.
 
 ## docs
 

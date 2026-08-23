@@ -3,6 +3,28 @@
 The idea broken into chunks. Effort assumes part time solo work. Dates are targets, not
 commitments.
 
+## what AOS is for, next to Carl
+
+AOS owns execution. Carl owns work. ME OS is a separate operating system project and nothing
+here depends on it.
+
+Both halves of that are load bearing. AOS has no task, no queue and no reviewer, and adding one
+would make it judge the work it exists to bound. Carl has no way to enforce anything, and it
+should not grow one, because a capability that holds only while the layer above it behaves is
+not a capability.
+
+The flagship for the next year is Carl running ME's own research and engineering work, written
+up in `carl/docs/flagship-workflow.md`. AOS's part of it is stage 5 of that workflow: a lead
+records a grant in Carl, and something in this repository refuses everything outside it.
+
+That join is the thing to build. `aos-files` already enforces a read root, a narrower write
+root, a refused name list and the plan then commit handshake, and it has never been pointed at
+a workspace Carl granted. Two correct halves, not yet joined.
+
+The phase that carries it is 3b, and the ordering below does not change: the command runner is
+the harder half and comes before resource limits, because an allowlist bounds which binary
+starts and not what that binary then does.
+
 ## principles that order the phases
 
 Build the part with the highest cost of being wrong first. That is the supervisor, because it
