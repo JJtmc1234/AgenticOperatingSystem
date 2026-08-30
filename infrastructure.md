@@ -276,11 +276,11 @@ on the list and were removed for exactly this reason. Do not add them back.
 
 | primitive | state |
 |---|---|
-| tool design | not started, phase 3 |
-| permissions and authorization | partial. Allowlist and tiers exist, policy verdicts do not. |
+| tool design | partial. The file capability server is done. The command runner is phase 3b. |
+| permissions and authorization | done for the supervisor and file server. Allowlist, tiers, policy verdicts and plan then commit are enforced. |
 | observability and tracing | done. Append only JSONL, one record per attempt including refusals. |
 | memory and state | partial. The log replays, so state survives a crash. Agent memory is phase 5. |
-| human in the loop | not started, phase 2 |
+| human in the loop | done for gated actions. The first call returns a plan and only a matching, unexpired commit may act. |
 | verification | partial. Every bug has a regression test. Post conditions are not built. |
 | agent loop, planning, orchestration | not started, phase 5 and beyond |
 

@@ -1,13 +1,37 @@
 [package]
 name = "aos-panel"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "aos_panel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "aos-panel"
+path = "src/main.rs"
 
 [dependencies]
-aos-core = { path = "../aos-core" }
+aos-core.workspace = true
+# The protocol client, borrowed rather than reimplemented. A second copy of a wire format is
+# a second thing that can drift from the daemon it is talking to.
 aos-cli = { path = "../aos-cli" }
-anyhow = "1"
-serde_json = "1"
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+# Pure Rust, so it needs nothing installed on the machine. Tauri wants webkit2gtk and gtk-rs
+# wants the gtk development packages, and neither is here. `default_fonts` is not optional:
+# without it egui loads no font at all, every shape still draws, and the panel comes up
+# looking exactly like black text on a black background when in fact there is no text.
+eframe = { version = "0.29", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true

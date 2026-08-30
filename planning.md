@@ -48,7 +48,8 @@ Nothing is called done on a compile. Done means `cargo fmt`, `cargo clippy --all
 | 1a | adoption, so a restart re-takes its surviving agents | 1 session | done |
 | 1b | the daemon and its socket | 1 session | done |
 | 2 | policy engine and the plan then commit handshake | 1 session | done |
-| 3 | capability servers over MCP, files and shell first | 1 to 2 weeks | not started |
+| 3a | file capability server over MCP | 1 session | done |
+| 3b | policy gated command runner, never a raw shell | 1 to 2 weeks | not started |
 | 4 | resource limits through cgroups | 1 week | not started |
 | 5 | routines and a scheduler, starting with a daily brief | 1 to 2 weeks | not started |
 | 6 | sensors, so agents react to the machine rather than to prompts | 2 weeks | not started |
