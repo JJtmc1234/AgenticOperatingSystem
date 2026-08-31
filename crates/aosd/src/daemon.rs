@@ -309,6 +309,15 @@ mod tests {
         }
     }
 
+    // A sink that will not take a write will not put one on the device either. Never
+    // reached in these tests, because the write fails first, but a Durable that quietly
+    // says yes here would be a lie waiting for the next test to trip over.
+    impl aos_core::ledger::Durable for Refusing {
+        fn sync(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("no space left on device"))
+        }
+    }
+
     fn spec(id: &str, args: &[&str], ceiling: RiskTier) -> AgentSpec {
         AgentSpec {
             id: AgentId::new(id).unwrap(),

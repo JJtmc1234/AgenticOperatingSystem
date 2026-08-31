@@ -25,6 +25,24 @@ One difference. His kernel uses SQLite. This uses one JSON object per line, beca
 has to be readable with `cat` at the moment the thing that writes it is the thing that is
 broken.
 
+### what durable actually means here
+
+Every append is followed by `sync_data` before it is reported as written, so a record that
+`append` returned successfully is on the device and not merely in the kernel page cache. The
+log therefore survives the process dying, being killed, or the machine losing power. It does
+not survive the drive lying about its own write cache, which nothing at this layer can check.
+
+That sync is the whole guarantee, and it used to be a `flush`, which on a `std::fs::File` does
+nothing at all because a `File` holds no userspace buffer to flush. See bug 7.
+
+It costs about 590 microseconds per append on ext4, against 9 without, measured over 200
+appends on the machine this is developed on. Worth stating because 65 times slower sounds
+alarming and is not: the log records agent lifecycle events, a handful per agent, so even a
+hundred agents starting at once spends about 60 milliseconds in total. If this ever becomes a
+hot path the answer is to batch the syncs, not to drop them, because an unsynced `Started`
+record is the exact disagreement between the log and the world that the append first rule
+exists to prevent.
+
 | event | meaning |
 |---|---|
 | `started` | launched, and believed running from here on |

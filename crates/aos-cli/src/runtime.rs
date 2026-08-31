@@ -175,6 +175,15 @@ mod tests {
         }
     }
 
+    // A sink that will not take a write will not put one on the device either. Never
+    // reached in these tests, because the write fails first, but a Durable that quietly
+    // says yes here would be a lie waiting for the next test to trip over.
+    impl aos_core::ledger::Durable for Refusing {
+        fn sync(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("no space left on device"))
+        }
+    }
+
     /// Every live process whose command line mentions `marker`.
     ///
     /// Read from `/proc` rather than shelled out to `pgrep`, so the test depends on nothing

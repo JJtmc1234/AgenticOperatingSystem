@@ -133,6 +133,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 7 | Three of the daemon's four ledger appends threw the error away with `let _ =`, so a refusal or a stop could go unrecorded while the caller was told everything worked. | Reading `crates/aosd/src/daemon.rs` against its own module doc, which claimed every mutation is written down first. | `a_refusal_that_could_not_be_written_reports_both`, `a_plan_that_could_not_be_recorded_is_not_offered`, `a_stop_that_could_not_be_recorded_is_reported_as_unrecorded`, `stop_all_reports_an_agent_it_stopped_but_could_not_record` |
 | 8 | `aos run` started the child, then appended the `Started` record with a bare `?`, so a log that would not take the write left a process running that nothing had recorded. | Reading `crates/aos-cli/src/runtime.rs` against the comment directly above it, which said "Append, then act". | `a_start_that_cannot_be_recorded_leaves_no_surviving_child` |
 | 9 | `aos run` started an agent with no policy check at all. Only the daemon called the gate, so a policy denying every tier was ignored by one of the two ways to start an agent. | Never fired. Found by reading, then reproduced: with every tier plus `hello` set to deny, `aos run` started the child, exited 0, and wrote a `Started` record. | `a_denying_policy_refuses_aos_run`, `a_prompt_tier_refuses_aos_run_and_points_at_the_daemon` |
+| 10 | `Ledger::append` called `flush` on a `std::fs::File`, which does nothing, because a `File` holds no userspace buffer. Every record stopped at the page cache, so a power loss could drop a `Started` record for a process that was genuinely running. | Never fired. Found by reading `append` against the readme's claim that the log is durable. | `every_append_is_synced_after_it_is_written`, `a_failed_sync_fails_the_append_and_does_not_burn_the_number` |
 
 ## bug 5, in full
 
@@ -362,3 +363,46 @@ and the allowed one still passed, which is the right shape: the guard fires on t
 not on ordinary use. Then the fix was restored and the shipped binary was pointed at the
 issue's own repro, which now prints `policy denies hello at tier read`, exits 1, and writes a
 `refused` record where it used to write a `started` one.
+
+## bug 10, in full
+
+The readme says `run/events.jsonl` is the only durable state. It was not durable.
+
+`append` did `write_all` and then `flush`. `Write::flush` on a `std::fs::File` is a no op, and
+not by accident: a `File` is a thin wrapper over a file descriptor with no userspace buffer,
+so there is nothing to flush. The bytes went to the kernel page cache and the call returned.
+Everything downstream then treated the record as written.
+
+That is the one failure this whole design exists to prevent. `believed_running` is a fold over
+the log, and the append first rule is there so the log can never claim less than actually
+happened. A `Started` record sitting in the page cache when the machine loses power gives you
+exactly the opposite: an agent genuinely running and no record that it was ever launched, so
+nothing can find it, adopt it or stop it.
+
+Fix. A `Durable` trait, which is `Write` plus `sync`, implemented for `File` as `sync_data`.
+`Ledger` holds a `Box<dyn Durable>` and `append` syncs before it reports success, and before
+`next_seq` moves, so a failed sync leaves the number unused rather than handing it to a record
+the caller was never told about.
+
+`sync_data` rather than `sync_all`, because the contents have to survive and the metadata does
+not. A log with a stale mtime is still a log that reads correctly.
+
+Making it a trait rather than a bare `self.file.sync_data()?` is the part that matters. "It
+reached the disk" cannot be observed from a test, and this list does not take an entry without
+one. Through the trait it can: the guard hands the ledger a sink that records what was done to
+it and checks the tape.
+
+Guard. `every_append_is_synced_after_it_is_written` appends two records over a counting sink
+and asserts the tape reads `wsws`. Checking the ordering and not just the totals is deliberate,
+because counting alone would pass against a version that wrote both records and synced twice at
+the end, leaving the first one exposed in between.
+`a_failed_sync_fails_the_append_and_does_not_burn_the_number` checks that a sink whose sync
+fails makes the append fail, and that the sequence number is still available afterwards.
+
+Verified by putting `flush` back where `sync` is. Both failed, the first with `left: "ww"`
+against `right: "wsws"`, which is precisely the bug: written twice, synced never.
+
+Cost. About 590 microseconds per append on ext4 against 9 without, over 200 appends. That is
+65 times slower and it is still the right trade, because this log takes a handful of records
+per agent rather than being a hot path. Written up in `infrastructure.md` under what durable
+actually means here, along with what the log does and does not survive.
