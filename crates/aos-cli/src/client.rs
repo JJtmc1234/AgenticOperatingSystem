@@ -11,6 +11,13 @@ pub fn socket_path(run_dir: &Path) -> PathBuf {
     run_dir.join("aosd.sock")
 }
 
+/// How long to wait for the daemon to answer before calling it stuck.
+///
+/// Generous, because the daemon serves one connection at a time on purpose, so a slow
+/// neighbour is a real reason to wait. Finite, because a terminal that never returns is worse
+/// than an error that says what happened.
+const ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Sends one request and reads one response.
 ///
 /// A missing socket is reported as "no daemon" rather than as a file error, because that is
@@ -25,12 +32,29 @@ pub fn ask(run_dir: &Path, request: &Request) -> Result<Response> {
         )
     })?;
 
+    // A wedged daemon should be an error rather than a terminal that never comes back. The
+    // daemon serves one connection at a time, so a slow neighbour is a real reason to wait a
+    // little, and no reason to wait forever. See bug 9 in the AOS bug list.
+    stream.set_read_timeout(Some(ANSWER_WITHIN))?;
+
     let mut writer = stream.try_clone()?;
     writeln!(writer, "{}", serde_json::to_string(request)?)?;
     writer.flush()?;
 
     let mut line = String::new();
-    let read = BufReader::new(stream).read_line(&mut line)?;
+    let read = BufReader::new(stream).read_line(&mut line).map_err(|e| {
+        if matches!(
+            e.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ) {
+            anyhow::anyhow!(
+                "the daemon did not answer within {ANSWER_WITHIN:?}. It may be stuck, or busy \
+                 with another connection, since it serves one at a time"
+            )
+        } else {
+            e.into()
+        }
+    })?;
     if read == 0 {
         bail!("the daemon closed the connection without answering");
     }
