@@ -77,7 +77,7 @@ fn supervise(mut ledger: Ledger, mut sup: Supervisor, spec: AgentSpec) -> Result
                 now(),
                 spec.id.clone(),
                 Event::Started {
-                    handle: launched.handle,
+                    handle: launched.handle.clone(),
                     // The file that ran, not the spelling asked for.
                     program: launched.program.display().to_string(),
                 },

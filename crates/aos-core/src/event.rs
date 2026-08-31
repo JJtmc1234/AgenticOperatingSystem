@@ -15,10 +15,24 @@ use crate::AgentId;
 /// `start_token` is the process start time in clock ticks since boot, field 22 of
 /// `/proc/<pid>/stat`. The kernel assigns it once and never changes it, so the pair is
 /// unique for as long as the machine has been up.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// For as long as the machine has been up is the whole of it, and the log outlives that. The
+/// run directory survives a reboot, so a record written before a power loss can be compared
+/// against a machine that has since restarted, where the same pair means nothing. Early boot
+/// is the dangerous part rather than a remote one: on the machine this was written on, 87
+/// processes share start token 18 and 14 share token 19, because the startup sequence is
+/// mostly deterministic and mostly runs in the same few ticks. So the boot is part of the
+/// identity. See bug 8.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessHandle {
     pub pid: u32,
     pub start_token: u64,
+    /// Which boot this pid and token belong to, from `/proc/sys/kernel/random/boot_id`.
+    ///
+    /// Optional so a log written before this field existed still reads. `None` means the boot
+    /// is unknown rather than known to match, and an unknown boot is not adopted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boot: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,6 +98,7 @@ mod tests {
         ProcessHandle {
             pid: 4242,
             start_token: 9_219_785,
+            boot: None,
         }
     }
 

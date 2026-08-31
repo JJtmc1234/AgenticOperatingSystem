@@ -144,6 +144,8 @@ mod tests {
         ProcessHandle {
             pid: 4242,
             start_token: 991,
+            // The panel only ever reads a handle, so which boot it came from does not matter here.
+            boot: None,
         }
     }
 

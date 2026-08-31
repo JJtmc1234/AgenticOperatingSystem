@@ -219,6 +219,8 @@ mod tests {
             handle: ProcessHandle {
                 pid,
                 start_token: pid as u64 * 7,
+                // The panel only ever reads a handle, so which boot it came from does not matter here.
+                boot: None,
             },
             program: "/usr/bin/sleep".into(),
         }

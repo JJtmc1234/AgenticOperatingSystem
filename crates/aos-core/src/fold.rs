@@ -22,7 +22,7 @@ pub fn believed_running(records: &[Record]) -> BTreeMap<AgentId, ProcessHandle> 
         // agent stopped. This way a new event type fails to compile until someone decides.
         match &record.event {
             Event::Started { handle, .. } => {
-                live.insert(record.agent.clone(), *handle);
+                live.insert(record.agent.clone(), handle.clone());
             }
             Event::Exited { .. } | Event::Stopped { .. } | Event::LostWhileUnsupervised { .. } => {
                 live.remove(&record.agent);
@@ -55,6 +55,7 @@ mod tests {
         ProcessHandle {
             pid,
             start_token: pid as u64 * 7,
+            boot: None,
         }
     }
 

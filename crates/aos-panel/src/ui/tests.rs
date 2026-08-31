@@ -75,6 +75,8 @@ fn a_frame_draws_the_agents_the_ledger_and_the_refusal() {
                     handle: ProcessHandle {
                         pid: 4242,
                         start_token: 9_219_785,
+                        // The panel only ever reads a handle, so which boot it came from does not matter here.
+                        boot: None,
                     },
                     program: "/usr/bin/python3".into(),
                 },

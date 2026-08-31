@@ -143,6 +143,9 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 17 | `read_file` read the whole file with `std::fs::read` and then cloned the buffer for the utf8 check, so peak memory was twice the file size. `MAX_READ` bounded the reply and not the read, so a large file inside the root took the process down with the OOM killer. | Never fired. Measured: reading an 80 MB file grew peak resident memory by 161,740 kB. | `reading_a_large_file_does_not_pull_it_all_into_memory` |
 | 18 | `ledger::read` collected every line into one `Result`, so a single half written last line made the whole log unreadable and `Ledger::open` inherited that, so the daemon refused to boot at all. | Never fired. Reproduced: chopping 20 bytes off `events.jsonl` made `aosd` exit 1 with a parse error, leaving a live agent that nothing could adopt, stop or record as lost, on that boot or any later one. | `a_torn_final_line_is_dropped_rather_than_making_the_log_unreadable`, `a_torn_log_can_still_be_opened_and_appended_to`, `a_final_record_missing_only_its_newline_is_kept`, `a_corrupt_line_in_the_middle_is_still_an_error` |
 | 19 | The allowlist was compared by string equality and the same string was handed to `Command::new`, so a bare name got a `$PATH` search and a relative one resolved against the daemon's working directory. The gate named one file and the kernel ran another. | Never fired. Reproduced: allowlist `["probetool"]` with the probe directory on `PATH` ran a binary the allowlist never named, and the ledger recorded only `"program":"probetool"`. | `a_bare_name_is_refused_at_load`, `a_relative_entry_with_a_slash_is_refused_at_load`, `a_different_file_with_the_same_name_is_refused`, `two_hard_linked_coreutils_stay_distinct_entries` |
+| 20 | `start_token` collapsed every `/proc` read failure into `None`, and `None` meant "the process is gone". A comm field that is not UTF-8 makes `read_to_string` fail, so a live agent was written off, dropped from `believed_running` on every later boot, and put beyond `stop` and `stop-all`. An agent could escape the kill switch by renaming itself. | Reproduced on this machine with `prctl(PR_SET_NAME, "\xff\xfe-agent")`. | `a_name_that_is_not_utf8_does_not_hide_the_start_time`, `an_agent_that_cannot_be_checked_is_neither_adopted_nor_written_off`, `a_gone_agent_is_still_lost_rather_than_unknown` |
+| 21 | Adoption trusted a pid and start token and nothing else. A token counts ticks since boot, so the pair means nothing across a reboot, and adoption never checked what the pid was running nor whether it is still allowed. A stale record could adopt a stranger, which `stop_all` then SIGKILLs. | Reproduced by pointing a log at a live process the supervisor never started: `alive` of 1, `is_adopted` true, and `stop` killed it. On this machine 87 processes share start token 18. | `a_handle_from_another_boot_is_lost_rather_than_matched`, `refuses_to_adopt_a_pid_running_a_different_program`, `refuses_to_adopt_a_program_the_allowlist_no_longer_permits` |
+| 22 | `adopt_from` discarded the result of `adopt` with `let _ =`. An agent that recovery placed in `alive` but adoption then refused was in neither half of the outcome, so boot wrote no record, tracked nothing, and printed that it had adopted it. | Reproduced with one free descriptor and a real orphan: `alive [worker]`, `lost 0`, `is_adopted false`, `list` empty, boot printing "adopted 1 agent(s)", and no record written. | `an_adoption_that_fails_is_reported_rather_than_dropped` |
 
 ## bug 5, in full
 
@@ -839,3 +842,129 @@ real binary both ways: with allowlist `["probetool"]` and the probe directory on
 because nothing ran. With allowlist `["/usr/bin/echo"]` and a request naming `/bin/echo`, it
 runs and the ledger records `/usr/lib/cargo/bin/coreutils/echo`, the file that actually ran,
 where before it would have recorded `/bin/echo`.
+
+## bug 20, in full
+
+`ok()?` threw away the difference between "not there" and "could not look", and the whole
+recovery path was built on that difference without anybody noticing it was missing.
+
+`start_token` read `/proc/<pid>/stat` with `read_to_string` and turned any failure into `None`.
+`is_still` turned `None` into "not our process". `recover` turned that into `lost`. Boot writes
+a `lost_while_unsupervised` record for everything in `lost`, and `believed_running` folds over
+that record, so the agent is gone from the log's belief on every later boot as well. It is never
+adopted, and it is unreachable by `stop` and by `stop-all`, which is the kill switch.
+
+The read that fails needs no privilege and no unusual conditions. The kernel escapes only
+newline and backslash in the comm field, so bytes above 0x7f pass through raw and the stat line
+is simply not valid UTF-8. `read_to_string` refuses it. So **an agent that wanted to survive the
+kill switch only had to rename itself**, which is the sharpest way to put what this bug was.
+Descriptor exhaustion inside `aosd` reaches the same end by a different route.
+
+Fix, in three parts, matching the three places the information was lost.
+
+`parse_start_token` works on bytes. It finds the last `)` in the bytes and only converts what
+follows, which is fixed width ASCII, so a name that is not UTF-8 no longer hides the start time.
+
+`started` returns three answers rather than two: `At`, `Gone` for `ENOENT`, and `Unknown` for
+anything else. `start_token` and `is_still` are kept on top of it for callers about to send a
+signal, where all three failures do mean the same thing: do not touch that pid. Deciding whether
+to *write an agent off* is a different question and now has a different function.
+
+`Recovered` grows an `unknown` list, and boot neither adopts those agents nor records them as
+lost. It prints a warning naming the pid instead. Both other answers are actively wrong:
+adopting means signalling a pid nothing confirmed, and recording it lost is the bug. Leaving the
+log saying it is running is the only claim still true, and a person is told to look.
+
+Guard. The parsing test builds a stat line with high bytes in the comm field and asserts it is
+genuinely not UTF-8 before asserting field 22 still comes out, so it cannot quietly stop testing
+what it was written for. The replay tests cover both directions: an agent that cannot be checked
+is in neither list, and one that is genuinely gone is still lost rather than swallowed by the
+new case.
+
+Verified by putting the UTF-8 first parse back. The non UTF-8 test failed and every other test
+passed, which is the right shape.
+
+
+## bug 21, in full
+
+The comment on `ProcessHandle` said the pid and token pair is unique "for as long as the machine
+has been up". That was true, documented, and unenforced, and the run directory outlives a boot.
+
+So a record written before a power loss could be compared against a machine that had since
+restarted, where the pair means nothing. Early boot is where that bites rather than being a
+remote possibility: the startup sequence is mostly deterministic and mostly runs in the same few
+ticks, so on this machine 87 processes share start token 18 and 14 share token 19. A stale
+handle matching a stranger is adopted under an agent id, and `stop_all` then SIGKILLs it.
+
+There is a second harm that needs no collision at all, and it is the easier one to trigger.
+Adoption never looked at what the pid was running. `Event::Started` records the program and
+nothing ever read it back. Nor did adoption consult the allowlist. So taking a program off
+`allowed-programs.json` and restarting the daemon adopted the running agent straight back in,
+under a rule that no longer permits it.
+
+Fix, in three parts.
+
+`ProcessHandle` carries the boot, from `/proc/sys/kernel/random/boot_id`. Optional, so a log
+written before this field existed still reads, and `None` means the boot is unknown rather than
+known to match. A different boot is `Gone`, because that agent certainly did not survive. An
+unknown boot is `CannotTell`, so it is neither adopted nor written off, which is the bucket bug
+7 added. Writing those off instead would lose a live agent on the first upgrade.
+
+`adopt_from` compares the recorded program against `readlink /proc/<pid>/exe`, canonicalising
+both so a symlinked path does not read as a mismatch, and checks the program is still on the
+allowlist. Neither check passing means not adopted.
+
+A refused agent moves to `unknown` rather than being dropped or called lost. Something is on
+that pid and this supervisor will not touch it, which a person needs to know, and calling it
+lost would write a record saying it ended when it may well be running.
+
+That cost `ProcessHandle` its `Copy`, which rippled through about a dozen call sites. Worth it:
+the boot is part of the identity, so it belongs in the handle rather than beside it, and a
+handle that can be copied around freely is part of how the identity got treated as smaller than
+it is.
+
+Guard. Two tests on the boot, one for a different boot being lost and one for a missing boot
+being unknown. Two on the program, both driving a real live process the supervisor never
+started, which is how the issue reproduced it. Verified by disabling the program check: both
+program tests failed and the five existing adoption tests kept passing.
+
+Not covered: an actual reboot. The boot check is exercised with two synthetic ids rather than by
+restarting the machine, which no test can arrange.
+
+
+## bug 22, in full
+
+A comment that was true about one cause, applied to all of them.
+
+`adopt_from` ended with `let _ = self.adopt(...)`, and the comment above it said a failure there
+means the agent died between recovery and adoption, so staying untracked is safe. That is
+correct for that one cause and it is the only harmless one.
+
+Every other cause leaves a live agent that the supervisor is not tracking while boot reports it
+adopted and writes no record at all. `aos list` cannot see it. `stop-all` cannot reach it. And
+because the id is now free, a later `aos start` under the same name appends a second `Started`
+that supersedes the first in `believed_running`, so no later boot ever looks at the original
+process again. It is running, unsupervised, and unreferenced.
+
+The causes are not exotic. A kernel or a container seccomp profile without `pidfd_open` fails
+every adoption on every boot. Descriptor pressure does it too, and in a way worth knowing about:
+`PidFd::open` holds a descriptor across its second `is_still` check, so one free descriptor is
+enough for the open and not enough for the recheck.
+
+Fix. The result is kept. A refused adoption goes into `unknown`, next to the agents `/proc`
+would not answer about and the ones running the wrong program, all of which mean the same thing:
+something is on that pid, this supervisor will not touch it, and a person needs to look.
+
+Into `unknown` and not into `lost`, deliberately, and the issue was explicit about why. Adoption
+failing does not say the agent is gone. It says this supervisor could not take it back. Writing
+a `lost_while_unsupervised` record would state that it ended, which is a claim nothing has
+established and which `believed_running` would then act on forever.
+
+This is the third bug in this file from the same shape, after the ledger appends and the `/proc`
+read: a `Result` or an `Option` carrying an answer that was thrown away, with a comment
+explaining why one of its cases was harmless.
+
+Guard. The failure is forced by adopting the id first, so the second adoption is refused for a
+reason that has nothing to do with the process being gone, which is the whole point. It asserts
+all three: not in `alive`, present in `unknown`, and not in `lost`. Verified by putting
+`let _ =` back, where it fails on the first of those.
