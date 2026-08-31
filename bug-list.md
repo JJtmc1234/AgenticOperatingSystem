@@ -141,6 +141,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 15 | `Root::for_writing` tested `exists()`, which follows a symlink, so a link inside the root whose target did not exist yet was treated as an ordinary new file and the write followed it outside the root. | Never fired. Found by reading, then reproduced against the real server: `write_file` on a dangling link reported success while writing outside the root. | `a_dangling_symlink_pointing_outside_the_root_is_refused`, `a_dangling_symlink_pointing_inside_the_root_is_refused_too` |
 | 16 | `Policy::load` treats a missing file as a request for the built in default, and `aos-files` used it for `--policy`, a required argument. A typo or a relative path silently replaced the operator's rules with more permissive ones, and the banner never named the policy. | Never fired. Reproduced: the real path denied `delete_file`, one changed character in the filename started fine and answered with a plan id. | `a_named_policy_that_is_missing_is_an_error_not_the_default`, `an_unnamed_missing_policy_is_still_the_safe_default`, `a_malformed_named_policy_is_still_an_error`, `the_summary_uses_the_words_the_policy_file_uses` |
 | 17 | `read_file` read the whole file with `std::fs::read` and then cloned the buffer for the utf8 check, so peak memory was twice the file size. `MAX_READ` bounded the reply and not the read, so a large file inside the root took the process down with the OOM killer. | Never fired. Measured: reading an 80 MB file grew peak resident memory by 161,740 kB. | `reading_a_large_file_does_not_pull_it_all_into_memory` |
+| 18 | `ledger::read` collected every line into one `Result`, so a single half written last line made the whole log unreadable and `Ledger::open` inherited that, so the daemon refused to boot at all. | Never fired. Reproduced: chopping 20 bytes off `events.jsonl` made `aosd` exit 1 with a parse error, leaving a live agent that nothing could adopt, stop or record as lost, on that boot or any later one. | `a_torn_final_line_is_dropped_rather_than_making_the_log_unreadable`, `a_torn_log_can_still_be_opened_and_appended_to`, `a_final_record_missing_only_its_newline_is_kept`, `a_corrupt_line_in_the_middle_is_still_an_error` |
 
 ## bug 5, in full
 
@@ -733,3 +734,52 @@ against the old code as well. That is not a weakness in them, it is what they ar
 `the_truncation_note_gives_the_real_file_size` both describe things that could not go wrong
 while the whole file was being read, and can now. `a_genuinely_invalid_file_is_still_reported`
 pins the behaviour the first of those must not have swallowed.
+
+## bug 18, in full
+
+The log is the only durable state, and a single interrupted write made it unreadable in full.
+
+`read` ended in `.collect()` into a `Result<Vec<Record>>`, which fails the whole collection if
+any line fails. `Ledger::open` calls `read` to find the next sequence number, so the daemon
+inherited it and refused to start. Reproduced by starting an agent, killing the daemon while
+the agent kept running, and chopping 20 bytes off the end of `events.jsonl`: `aosd` exited 1
+with `EOF while parsing a string`.
+
+The consequence is worse than a failed boot. The agents from the previous run are still on the
+machine. Refusing to boot means nothing adopts them, nothing stops them and nothing records
+them as lost, and that is true of every later boot as well, because the file does not heal.
+The kill switch cannot reach them either. It needs a human editing the log by hand.
+
+Fix, in two halves, because reading and appending fail differently.
+
+`read` now tolerates an unparsable line only when it is both the last line and the file does
+not end in a newline. All three conditions, or it is real corruption. A line that was
+completed once and is now unreadable means the log disagrees with what happened, and skipping
+that quietly is exactly the thing this project refuses to do.
+
+`Ledger::open` repairs the tail before reading, because tolerating a torn line on read is not
+enough on its own: the next append would be written onto the end of it, and one line holding
+half a record followed by a whole one parses as neither, so the good record would be lost too.
+
+The repair has two cases and the second is the one worth writing down. If the trailing bytes
+do not parse, the write was interrupted part way through, there is nothing there to keep, and
+it is truncated away. But if they do parse, the record itself was fully written and only its
+newline was not, so it is a complete record and the newline is added instead. Truncating back
+to the last newline unconditionally is the obvious repair and it would throw that record away.
+`a_final_record_missing_only_its_newline_is_kept` is the test that says so.
+
+What this does not do, and it is worth being exact. It does not recover the torn record. In
+the reproduction above the torn line was the only `started` record, so after the fix the
+daemon boots and reports no agents while the sleeper is still running. The fix makes the log
+readable and appendable again. It cannot invent a record that was never finished. Bug 5, the
+missing `sync_data`, is the one that narrows how often a record is lost at all, and the two
+are separate: an `ENOSPC` part way through `write_all` produces this same file whatever the
+sync policy is.
+
+Guard. Four tests. Three of them fail against the previous code and the fourth,
+`a_corrupt_line_in_the_middle_is_still_an_error`, passes both before and after, which is the
+point of it: it pins the behaviour that must not be loosened while making the tail forgiving.
+
+Verified by putting the old `.collect()` back and removing the repair call. The three failed
+and the fourth passed. Then end to end against the real binary: the daemon that used to exit 1
+over a torn log now starts, listens and answers `list` and `stop-all`.
