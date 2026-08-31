@@ -135,6 +135,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 9 | `aos run` started an agent with no policy check at all. Only the daemon called the gate, so a policy denying every tier was ignored by one of the two ways to start an agent. | Never fired. Found by reading, then reproduced: with every tier plus `hello` set to deny, `aos run` started the child, exited 0, and wrote a `Started` record. | `a_denying_policy_refuses_aos_run`, `a_prompt_tier_refuses_aos_run_and_points_at_the_daemon` |
 | 10 | `Ledger::append` called `flush` on a `std::fs::File`, which does nothing, because a `File` holds no userspace buffer. Every record stopped at the page cache, so a power loss could drop a `Started` record for a process that was genuinely running. | Never fired. Found by reading `append` against the readme's claim that the log is durable. | `every_append_is_synced_after_it_is_written`, `a_failed_sync_fails_the_append_and_does_not_burn_the_number` |
 | 11 | `believed_running` treated `Event::Refused` as an ending, so refusing a start because the agent was already running erased that live agent from the log's belief. Nothing could then find, adopt or stop it, including the kill switch. | Never fired. Reproduced: a second `aos start` made `aos status` report nothing running while the process was alive, and `stop-all` said "nothing was running". | `a_refusal_does_not_erase_an_agent_that_is_already_running`, `a_refusal_after_an_exit_leaves_the_agent_ended` |
+| 12 | The daemon reaped a finished child only as a side effect of a `list` or `ping`, and never appended `Event::Exited` at all. Children stayed zombies until somebody asked, and a clean exit was later reported as `lost_while_unsupervised`. | Never fired. Reproduced: an agent running `sleep 1` under `aosd` left a `Z [sleep] <defunct>` under the daemon, and the log kept only the `started` record. | `an_agent_that_finished_is_recorded_without_anyone_asking`, `a_running_agent_is_left_alone_by_the_reaper` |
 
 ## bug 5, in full
 
@@ -450,3 +451,43 @@ Verified by putting `Refused` back in the ending arm and watching the first test
 second still passed. Then end to end against the real daemon: after the refused second start,
 `aos status` prints `alive worker pid 3903717` and `stop-all` prints `stopped worker`, where
 before both claimed there was nothing there.
+
+## bug 12, in full
+
+The daemon never wrote down that an agent finished. `Event::Exited` was produced in exactly one
+place in the workspace, `aos-cli/src/runtime.rs`, which is the foreground `aos run` path. The
+daemon, which is the thing that actually owns agents, wrote none.
+
+Reaping was just as accidental. `Supervisor::state` removes an agent once it reports `Stopped`,
+and the only callers were `list` and `ping`. So a finished child was reaped when a client
+happened to ask and not before, and until then it sat as a zombie holding its process table
+entry. Reproduced: an agent running `sleep 1` left `Z [sleep] <defunct>` under the daemon with
+no request having arrived.
+
+The consequence downstream is the one that matters. `believed_running` is a fold over the log,
+and with no `exited` record the log kept calling the agent live. The next boot then found a pid
+that was gone and wrote `lost_while_unsupervised`, which is meant to mean something went wrong,
+for an agent that had exited cleanly with code 0. An alarm that fires on every normal exit is
+an alarm nobody reads.
+
+Fix. `Supervisor::reap_finished` reaps everything that has already stopped and reports each one
+with its exit code. It reports rather than records, because the log belongs to the daemon and
+the supervisor crate does not own it. `Daemon::record_exits` writes an `Exited` record for each,
+and the accept loop calls it every time round, which is already every 20ms when idle.
+
+One thing there is not clean and is worth naming rather than hiding. `record_exits` runs on a
+timer, so there is no caller to hand an append failure back to. It goes to stderr, which under
+systemd is journald. Stopping the daemon over it would be worse, and dropping it silently is
+what bug 5 in the daemon was about, so saying so out loud is the least bad of three.
+
+Guard. `an_agent_that_finished_is_recorded_without_anyone_asking` starts a real `/usr/bin/true`
+through the daemon's own request path, then drives only the timer, never a client request, and
+asserts the log reads `started` then `exited Some(0)` and that `believed_running` is empty
+afterwards. That last assertion is the one tied to the real damage, since it is what stops the
+next boot calling this a loss. `a_running_agent_is_left_alone_by_the_reaper` is the other half,
+because a reaper that recorded exits for agents that had not exited would pass the first test.
+
+Verified by making `record_exits` iterate an empty list instead. The first test failed and the
+second still passed, which is the right shape. Then end to end against a real daemon: an agent
+running `sleep 1`, three seconds of no client requests at all, no zombie under the daemon, and
+the log holding both `started` and `exited` with code 0.

@@ -148,12 +148,21 @@ pub fn fold(records: &[Record]) -> Vec<AgentRow> {
                     at,
                 };
             }
+            // A refusal is a launch that never happened, so it cannot end one that did.
+            // `aos_core::fold` stopped treating it as an ending in bug 11, and two folds
+            // disagreeing about what is running would be worse than either being wrong on
+            // its own. The refusal is still counted above and still shown in the feed.
+            //
+            // An agent whose only history is a refusal has nothing else to say, so that row
+            // still reads REFUSED rather than staying blank.
             Event::Refused { .. } => {
-                row.life = Life::Ended {
-                    how: Ending::Refused,
-                    code: None,
-                    at,
-                };
+                if matches!(row.life, Life::NeverRan) {
+                    row.life = Life::Ended {
+                        how: Ending::Refused,
+                        code: None,
+                        at,
+                    };
+                }
             }
             Event::LostWhileUnsupervised { .. } => {
                 row.life = Life::Ended {
@@ -287,21 +296,51 @@ mod tests {
         assert!(rows[0].life.detail().contains("nothing was launched"));
     }
 
-    /// A refusal after a run ends the agent, exactly as `aos_core::fold` treats it. Two folds
-    /// disagreeing about what is running would be worse than either being wrong.
+    /// A refusal leaves a running agent running, exactly as `aos_core::fold` treats it. Two
+    /// folds disagreeing about what is running would be worse than either being wrong.
+    ///
+    /// This test used to assert the opposite, because both folds used to end the agent. Bug
+    /// 11 is what that cost: refusing a start because the agent was already running erased
+    /// the live one, and nothing could then find or stop it. The core fold was fixed and this
+    /// one was not, so the panel would have shown a running agent as REFUSED.
     #[test]
-    fn a_refusal_ends_a_running_agent_the_same_way_the_core_fold_does() {
+    fn a_refusal_leaves_a_running_agent_running_the_same_way_the_core_fold_does() {
         let records = [
             record(1, "brief", started(9)),
             record(
                 2,
                 "brief",
                 Event::Refused {
-                    reason: "denied".into(),
+                    reason: "brief is already running".into(),
                 },
             ),
         ];
-        assert!(!fold(&records)[0].life.is_running());
+        assert!(
+            fold(&records)[0].life.is_running(),
+            "the refused second start must not end the first one"
+        );
+        assert_eq!(fold(&records)[0].refusals, 1, "and it is still counted");
+        assert!(!aos_core::believed_running(&records).is_empty());
+    }
+
+    /// And a refusal after an ending must not revive anything, or the fix would have swapped
+    /// one wrong answer for another. `aos_core::fold` has the same pair of tests.
+    #[test]
+    fn a_refusal_after_an_exit_leaves_the_agent_ended() {
+        let records = [
+            record(1, "brief", started(9)),
+            record(2, "brief", Event::Exited { code: Some(0) }),
+            record(
+                3,
+                "brief",
+                Event::Refused {
+                    reason: "no".into(),
+                },
+            ),
+        ];
+        let rows = fold(&records);
+        assert!(!rows[0].life.is_running());
+        assert_eq!(rows[0].life.word(), "EXITED", "not REFUSED");
         assert!(aos_core::believed_running(&records).is_empty());
     }
 

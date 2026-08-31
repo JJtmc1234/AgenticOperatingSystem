@@ -29,6 +29,10 @@ pub fn run(run_dir: &Path) -> Result<()> {
     listener.set_nonblocking(true)?;
 
     while !shutdown.load(Ordering::Relaxed) {
+        // Before accepting, so an agent that finished while nothing was connected is reaped
+        // and written down on the next tick rather than whenever somebody next asks.
+        daemon.record_exits();
+
         match listener.accept() {
             Ok((stream, _)) => {
                 stream.set_nonblocking(false)?;
