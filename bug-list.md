@@ -147,6 +147,8 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 21 | Adoption trusted a pid and start token and nothing else. A token counts ticks since boot, so the pair means nothing across a reboot, and adoption never checked what the pid was running nor whether it is still allowed. A stale record could adopt a stranger, which `stop_all` then SIGKILLs. | Reproduced by pointing a log at a live process the supervisor never started: `alive` of 1, `is_adopted` true, and `stop` killed it. On this machine 87 processes share start token 18. | `a_handle_from_another_boot_is_lost_rather_than_matched`, `refuses_to_adopt_a_pid_running_a_different_program`, `refuses_to_adopt_a_program_the_allowlist_no_longer_permits` |
 | 22 | `adopt_from` discarded the result of `adopt` with `let _ =`. An agent that recovery placed in `alive` but adoption then refused was in neither half of the outcome, so boot wrote no record, tracked nothing, and printed that it had adopted it. | Reproduced with one free descriptor and a real orphan: `alive [worker]`, `lost 0`, `is_adopted false`, `list` empty, boot printing "adopted 1 agent(s)", and no record written. | `an_adoption_that_fails_is_reported_rather_than_dropped` |
 | 23 | `files::find` stopped at its limit and returned the hits with nothing saying the search was cut off, so a model that asked for every match and got the first 200 of 250 acts on those as if they were all. `limit: 0` answered "nothing matches" for a search that never read a directory. | Reproduced against the real server: 250 files, no limit given, exactly 200 lines with no mention of more, and `limit: 0` reporting no match for a file that exists. | `a_search_that_hit_the_limit_says_so`, `a_limit_hit_deep_in_the_tree_stops_everything`, `a_limit_of_zero_is_refused_rather_than_answered_with_nothing` |
+| 24 | The `PlanRequired` arm of `aos start` printed the plan and returned `Ok(())`, so the process exited 0 having started nothing. A script could not tell "the gate stopped this" from "the agent is running". | Reproduced: `aos start examples/risky.json` printed "nothing has run" and exited 0, with only a `planned` record in the log. | The end to end check in the entry below, plus `cargo test` for the rest |
+| 25 | The commit command `aos start` prints was built from the spec path and plan id only, so on any run directory other than the default it named the wrong daemon. The spec path was relative too, so it also failed from any other working directory. | Reproduced: copying the printed line verbatim gave "cannot read examples/risky.json" from `/tmp`. | The end to end check in the entry below |
 
 ## bug 5, in full
 
@@ -1005,3 +1007,68 @@ for. Refusing says what happened.
 
 Verified against the real binary. 250 files, no limit given: 200 hits plus the marker, and the
 marker says so. `limit: 0` now refuses instead of denying a file that exists.
+
+## bug 24, in full
+
+The one outcome a caller most needs to branch on was the one it could not see.
+
+`aos start` on a spec above tier read prints the plan and stops, which is the whole point of the
+handshake. It then returned `Ok(())`, so the process exited 0. To anything reading exit status,
+"the gate refused and nothing ran" was indistinguishable from "the agent is now running".
+
+`aos start x.json && echo up` prints `up`. A wrapper doing `aos start x.json || exit 1` carries
+on believing the agent is supervised, when the daemon deliberately declined to act. That is the
+one case where the machine did not change, so it is the case a script most needs to know about.
+
+Fix. An `Exit` enum in `main`: 0 acted, 1 failed, 2 refused pending agreement.
+
+Two rather than one, deliberately. A script has to tell "needs a commit", which it can act on by
+committing, from "the daemon is down", which it cannot. Collapsing them into a single nonzero
+would replace one indistinguishable pair with another.
+
+`stop_all` keeps its existing `bail` on a partial stop, which is exit 1, and that is not an
+oversight. Some agents did not stop, which is worse than nothing having happened: the machine is
+not quiet and no amount of agreeing fixes it. The issue noted that arm as precedent for treating
+a partial no op as a failure, and it is, but not as the same kind of failure.
+
+`main` returns `ExitCode` rather than `Result`, so the error path prints in the same shape
+`anyhow` used to produce, since that is what people are used to reading.
+
+Verified against a live daemon. `aos start examples/risky.json` prints "tier destructive needs a
+commit, so nothing has run." and exits **2**, with only a `planned` record in the log. A read
+tier spec still exits 0 and starts.
+
+## bug 25, in full
+
+The remedy the tool hands you, for the one flow with a deadline on it, did not work when copied.
+
+Above tier read, `aos start` prints a line to rerun with `--commit`. It was built from the spec
+path and the plan id. `--run-dir` is global and defaults to `run`, so on any other run directory
+the printed command pointed at the wrong daemon. The default plan ttl is 120 seconds, so the
+round trip spent working out what was missing can expire the plan and force the whole handshake
+again.
+
+The run directory is what the issue asked for, and adding it was not enough, which is the part
+worth keeping.
+
+The issue's justification was that the line should be copy and paste safe. With the run
+directory added it still was not:
+
+```
+  aos --run-dir /tmp/aos-24 start examples/risky.json --commit 66d4ab71...
+```
+
+Run that from anywhere but the directory it was printed in and it fails with "cannot read
+examples/risky.json", because the spec path is relative too. Fixing one and not the other leaves
+the same failure reachable by walking to a different directory instead of forgetting a flag.
+
+So both paths are resolved. `absolute` canonicalizes and falls back to the path as given, which
+is the right answer for something that will not resolve: a line that is still wrong beats one
+that is wrong and pretends otherwise.
+
+Always rather than only when the value differs from the default, which is what the issue asked
+for and is right. A line that is sometimes complete is a line nobody can trust without reading
+it, and the conditional is one more thing to get wrong.
+
+Verified by copying the printed line verbatim and running it from `/tmp`. Before: "cannot read
+examples/risky.json". After: "risky started as pid 261291".
