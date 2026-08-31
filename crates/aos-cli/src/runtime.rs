@@ -65,7 +65,7 @@ pub fn run(run_dir: &Path, spec_path: &Path) -> Result<crate::Exit> {
 ///
 /// The gate is in `run` and not here. A denied agent must never reach a supervisor at all,
 /// and having one is this function's entire premise.
-fn supervise(mut ledger: Ledger, mut sup: Supervisor, spec: AgentSpec) -> Result<()> {
+fn supervise(mut ledger: Ledger, mut sup: Supervisor, spec: AgentSpec) -> Result<crate::Exit> {
     // A start cannot be written before it happens. The pid and its start token do not exist
     // until the child does, so there is nothing truthful to append beforehand. The rule
     // instead is that a start which could not be recorded is undone, because a running agent
