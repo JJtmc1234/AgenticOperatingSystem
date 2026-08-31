@@ -49,7 +49,13 @@ fn main() -> Result<()> {
     };
     // Read before serving a single call. A capability server that starts with an unreadable
     // policy is a server enforcing nothing while looking perfectly healthy.
-    let policy = Policy::load(&args.policy).context("the policy is not usable")?;
+    //
+    // `load_required`, not `load`. `--policy` is a required argument, so naming a file is a
+    // statement that its rules are the ones to enforce. `load` treats a missing file as a
+    // request for the built in default, which is more permissive than most policies anybody
+    // writes, so a typo or a relative path resolved against a working directory this process
+    // did not choose would quietly loosen the rules. See bug 7.
+    let policy = Policy::load_required(&args.policy).context("the policy is not usable")?;
     let agent = AgentId::new(&args.agent).context("that is not a valid agent id")?;
 
     let ledger = match &args.log {
@@ -57,10 +63,20 @@ fn main() -> Result<()> {
         None => None,
     };
 
+    // The policy is named and summarised, because the failure this replaced was invisible:
+    // the server looked healthy and was enforcing rules nobody had asked for. An operator
+    // reading this line can tell at a glance which file won and what it says.
     eprintln!(
         "aos-files: {}, agent {agent}, {} log",
         scope.describe(),
         if ledger.is_some() { "with a" } else { "no" }
+    );
+    eprintln!(
+        "aos-files: policy {} [{}]",
+        std::fs::canonicalize(&args.policy)
+            .unwrap_or_else(|_| std::path::PathBuf::from(&args.policy))
+            .display(),
+        policy.summary()
     );
 
     let mut server = Server::new(scope, policy, agent, ledger);

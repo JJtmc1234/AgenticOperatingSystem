@@ -139,6 +139,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 13 | The shutdown flag was only checked between connections, and a session blocked in `read_line` until the peer hung up. One client that connected and said nothing made SIGTERM a no op, leaving SIGKILL as the only way to stop the daemon. | Reproduced. Connect, wait a second, send SIGTERM: the unfixed daemon is still alive after ten seconds, the fixed one exits at once. | The end to end check above, and `cargo test` for the rest. See the note on what is not unit tested. |
 | 14 | `serve::run` booted the daemon before binding the socket, so a second `aosd` replayed the log and appended records before discovering a live daemon and exiting. It spent sequence numbers the live daemon believed were free, and every record that daemon wrote afterwards collided. | Reproduced: a second `aosd` printed "1 lost while unsupervised", appended a record, then failed with "a daemon is already listening", and the live daemon's next record reused the same number. | `a_second_writer_is_refused_rather_than_forking_the_sequence`, `reopening_a_damaged_log_never_goes_backwards`, `the_lock_is_released_when_the_ledger_is_dropped` |
 | 15 | `Root::for_writing` tested `exists()`, which follows a symlink, so a link inside the root whose target did not exist yet was treated as an ordinary new file and the write followed it outside the root. | Never fired. Found by reading, then reproduced against the real server: `write_file` on a dangling link reported success while writing outside the root. | `a_dangling_symlink_pointing_outside_the_root_is_refused`, `a_dangling_symlink_pointing_inside_the_root_is_refused_too` |
+| 16 | `Policy::load` treats a missing file as a request for the built in default, and `aos-files` used it for `--policy`, a required argument. A typo or a relative path silently replaced the operator's rules with more permissive ones, and the banner never named the policy. | Never fired. Reproduced: the real path denied `delete_file`, one changed character in the filename started fine and answered with a plan id. | `a_named_policy_that_is_missing_is_an_error_not_the_default`, `an_unnamed_missing_policy_is_still_the_safe_default`, `a_malformed_named_policy_is_still_an_error`, `the_summary_uses_the_words_the_policy_file_uses` |
 
 ## bug 5, in full
 
@@ -638,3 +639,49 @@ applying the one line change and watching them pass. Then end to end against the
 `write_file` on a dangling link into a directory outside the root now answers
 `refused: innocent: No such file or directory` and the target is still not there afterwards.
 Before the fix the same call reported writing 5 bytes and the file appeared outside the root.
+
+## bug 16, in full
+
+One loader used for two questions that only look the same.
+
+"There is no policy file, so use the default" is correct for a run directory. It is documented
+in the readme, it is why `Policy::default` exists, and the default is deliberately strict:
+read runs, everything else needs a human.
+
+"The policy file you named is not there" is a different question with a different answer.
+`aos-files` takes `--policy` as a required argument, so naming a file is a statement that its
+rules are the ones to enforce. It called `Policy::load`, which answered the first question, so
+a path that did not resolve produced the built in default and the server started happily.
+
+The default is more permissive than most policies anybody bothers to write. An operator who
+wrote `destructive = "deny"` got `prompt` instead, which a model can satisfy on its own with a
+plan round trip. So the failure mode is a quiet loosening, from a typo, with nothing said.
+
+Worse than a typo: Claude Code starts an MCP server with its own working directory, not the
+one the operator was standing in. A relative `--policy run/policy.toml` therefore misses
+whenever the client was started from anywhere but the repo root, which is most of the time.
+
+Fix. `Policy::load_required` errors on a missing file. `aos-files` uses it. `Policy::load`
+keeps the defaulting behaviour, because the run directory case is real and wanted, and there
+is a test pinning that so this fix does not get generalised into it later.
+
+The banner is the other half and it is not decoration. The failure was invisible: a server
+enforcing rules nobody asked for while looking perfectly healthy. It now prints the resolved
+policy path and the verdict per tier, so what is in force can be read at a glance:
+
+```
+aos-files: policy /path/to/policy.toml [read=allow write=prompt system=prompt destructive=deny]
+```
+
+`Verdict` grew a `Display` that spells each one the way the policy file spells it, so the
+banner is not a second vocabulary to learn.
+
+Guard. Four tests. The first asserts both halves in one place, that `load` still defaults and
+`load_required` does not, so the distinction cannot be collapsed by accident.
+`an_unnamed_missing_policy_is_still_the_safe_default` pins the behaviour that was correct all
+along.
+
+Verified against the real binary, both halves of the reproduction. With the correct path the
+server starts and prints `destructive=deny`. With one character changed in the filename it
+exits 1 saying the policy could not be read and why a named policy is not optional, where
+before it started and enforced the default.
