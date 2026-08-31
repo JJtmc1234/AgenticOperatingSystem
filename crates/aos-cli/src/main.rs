@@ -81,24 +81,40 @@ enum Command {
 /// Distinct from the failure code on purpose. A wrapper script has to be able to tell "needs a
 /// commit", which it can act on by committing, from "the daemon is down", which it cannot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
 pub enum Exit {
     /// It happened.
-    Acted = 0,
+    Acted,
     /// Something went wrong.
-    Failed = 1,
+    Failed,
     /// Refused pending a commit, or partly refused. Nothing, or not everything, was done.
-    NeedsAgreement = 2,
+    NeedsAgreement,
+    /// The agent's own status, from `aos run`.
+    ///
+    /// Carried through rather than flattened, because `aos run` supervises in the foreground
+    /// and every other foreground supervisor hands the child's status back. Without it,
+    /// `aos run brief.json || alert` never fires the alert whatever the agent did. See bug 9.
+    Agent(u8),
+}
+
+impl Exit {
+    fn code(self) -> u8 {
+        match self {
+            Exit::Acted => 0,
+            Exit::Failed => 1,
+            Exit::NeedsAgreement => 2,
+            Exit::Agent(code) => code,
+        }
+    }
 }
 
 fn main() -> std::process::ExitCode {
     match run() {
-        Ok(exit) => std::process::ExitCode::from(exit as u8),
+        Ok(exit) => std::process::ExitCode::from(exit.code()),
         // Printed the same way `anyhow` would have, since this used to return `Result` from
         // `main` and the message shape is what people are used to reading.
         Err(e) => {
             eprintln!("Error: {e:#}");
-            std::process::ExitCode::from(Exit::Failed as u8)
+            std::process::ExitCode::from(Exit::Failed.code())
         }
     }
 }
@@ -110,7 +126,7 @@ fn run() -> Result<Exit> {
     match cli.command {
         Command::Validate { spec } => commands::validate(&spec).map(|()| Exit::Acted),
         Command::Status => runtime::status(dir).map(|()| Exit::Acted),
-        Command::Run { spec } => runtime::run(dir, &spec).map(|()| Exit::Acted),
+        Command::Run { spec } => runtime::run(dir, &spec),
         Command::Ping => commands::ping(dir).map(|()| Exit::Acted),
         Command::List => commands::list(dir).map(|()| Exit::Acted),
         Command::Start { spec, commit } => commands::start(dir, &spec, commit),
