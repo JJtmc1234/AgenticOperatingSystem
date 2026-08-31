@@ -135,7 +135,9 @@ dependencies = [
  "aos-core",
  "aos-supervisor",
  "clap",
+ "libc",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
