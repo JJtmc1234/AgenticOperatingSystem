@@ -138,6 +138,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 12 | The daemon reaped a finished child only as a side effect of a `list` or `ping`, and never appended `Event::Exited` at all. Children stayed zombies until somebody asked, and a clean exit was later reported as `lost_while_unsupervised`. | Never fired. Reproduced: an agent running `sleep 1` under `aosd` left a `Z [sleep] <defunct>` under the daemon, and the log kept only the `started` record. | `an_agent_that_finished_is_recorded_without_anyone_asking`, `a_running_agent_is_left_alone_by_the_reaper` |
 | 13 | The shutdown flag was only checked between connections, and a session blocked in `read_line` until the peer hung up. One client that connected and said nothing made SIGTERM a no op, leaving SIGKILL as the only way to stop the daemon. | Reproduced. Connect, wait a second, send SIGTERM: the unfixed daemon is still alive after ten seconds, the fixed one exits at once. | The end to end check above, and `cargo test` for the rest. See the note on what is not unit tested. |
 | 14 | `serve::run` booted the daemon before binding the socket, so a second `aosd` replayed the log and appended records before discovering a live daemon and exiting. It spent sequence numbers the live daemon believed were free, and every record that daemon wrote afterwards collided. | Reproduced: a second `aosd` printed "1 lost while unsupervised", appended a record, then failed with "a daemon is already listening", and the live daemon's next record reused the same number. | `a_second_writer_is_refused_rather_than_forking_the_sequence`, `reopening_a_damaged_log_never_goes_backwards`, `the_lock_is_released_when_the_ledger_is_dropped` |
+| 15 | `Root::for_writing` tested `exists()`, which follows a symlink, so a link inside the root whose target did not exist yet was treated as an ordinary new file and the write followed it outside the root. | Never fired. Found by reading, then reproduced against the real server: `write_file` on a dangling link reported success while writing outside the root. | `a_dangling_symlink_pointing_outside_the_root_is_refused`, `a_dangling_symlink_pointing_inside_the_root_is_refused_too` |
 
 ## bug 5, in full
 
@@ -591,3 +592,49 @@ its own test.
 Verified end to end. A second `aosd` on a live directory now fails at `bind`, writes nothing,
 and leaves the log at two records with no duplicate numbers. Before the fix it wrote a third
 and the live daemon then reused that number.
+
+## bug 15, in full
+
+The root check had two paths and only one of them could see what it was looking at.
+
+`existing` canonicalizes and then checks the result is inside the root, which resolves any
+symlink on the way and is correct. `for_writing` cannot do that, because the file being
+created does not exist yet and an unresolvable path cannot be canonicalized. So it asks
+whether the path is already there, and if not it checks the parent instead.
+
+The question it asked was `joined.exists()`. `exists` follows symlinks, so for a link it
+answers about the target rather than about the name. A link inside the root pointing at
+something that does not exist yet therefore answered false. That took the parent branch, the
+parent is the root, the root is inside itself, and `for_writing` handed back
+`<root>/<linkname>`. `std::fs::write` then followed the link and created the file wherever it
+pointed.
+
+The existing symlink test did not catch it because it links to a directory that already
+exists. `exists()` is true there, the checked path is taken, and it passes. The dangling case
+is the one nobody wrote down.
+
+Real shapes this takes are ordinary rather than exotic. A checkout carrying
+`config -> ../../.ssh/authorized_keys`. A stale `latest -> builds/2026-08-18/out.log` left
+behind after the build directory was cleaned. Neither looks like an attack and both are enough.
+
+Fix. `std::fs::symlink_metadata(&joined).is_ok()` rather than `joined.exists()`.
+`symlink_metadata` does not follow the link, so it answers about the name, which is the
+question actually being asked. A dangling link now takes the `existing` branch, where
+`canonicalize` fails and the call is refused.
+
+That refuses a dangling link pointing inside the root as well, and that narrowing is
+deliberate rather than collateral. The target cannot be canonicalized, so it cannot be proven
+to be inside the root, and this component does not guess. Refusing something harmless is the
+price of never allowing something that is not. There is a second test saying so, on purpose,
+so nobody later reads it as an oversight and loosens it.
+
+Guard. `a_dangling_symlink_pointing_outside_the_root_is_refused` builds the exact shape, checks
+the call is refused, and checks the target still does not exist afterwards, because a fix that
+refuses while still creating the file would pass a weaker assertion.
+`a_dangling_symlink_pointing_inside_the_root_is_refused_too` pins the narrowing.
+
+Verified by writing both tests first and watching them fail against the unfixed code, then
+applying the one line change and watching them pass. Then end to end against the real binary:
+`write_file` on a dangling link into a directory outside the root now answers
+`refused: innocent: No such file or directory` and the target is still not there afterwards.
+Before the fix the same call reported writing 5 bytes and the file appeared outside the root.
