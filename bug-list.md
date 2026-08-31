@@ -146,6 +146,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 20 | `start_token` collapsed every `/proc` read failure into `None`, and `None` meant "the process is gone". A comm field that is not UTF-8 makes `read_to_string` fail, so a live agent was written off, dropped from `believed_running` on every later boot, and put beyond `stop` and `stop-all`. An agent could escape the kill switch by renaming itself. | Reproduced on this machine with `prctl(PR_SET_NAME, "\xff\xfe-agent")`. | `a_name_that_is_not_utf8_does_not_hide_the_start_time`, `an_agent_that_cannot_be_checked_is_neither_adopted_nor_written_off`, `a_gone_agent_is_still_lost_rather_than_unknown` |
 | 21 | Adoption trusted a pid and start token and nothing else. A token counts ticks since boot, so the pair means nothing across a reboot, and adoption never checked what the pid was running nor whether it is still allowed. A stale record could adopt a stranger, which `stop_all` then SIGKILLs. | Reproduced by pointing a log at a live process the supervisor never started: `alive` of 1, `is_adopted` true, and `stop` killed it. On this machine 87 processes share start token 18. | `a_handle_from_another_boot_is_lost_rather_than_matched`, `refuses_to_adopt_a_pid_running_a_different_program`, `refuses_to_adopt_a_program_the_allowlist_no_longer_permits` |
 | 22 | `adopt_from` discarded the result of `adopt` with `let _ =`. An agent that recovery placed in `alive` but adoption then refused was in neither half of the outcome, so boot wrote no record, tracked nothing, and printed that it had adopted it. | Reproduced with one free descriptor and a real orphan: `alive [worker]`, `lost 0`, `is_adopted false`, `list` empty, boot printing "adopted 1 agent(s)", and no record written. | `an_adoption_that_fails_is_reported_rather_than_dropped` |
+| 23 | `files::find` stopped at its limit and returned the hits with nothing saying the search was cut off, so a model that asked for every match and got the first 200 of 250 acts on those as if they were all. `limit: 0` answered "nothing matches" for a search that never read a directory. | Reproduced against the real server: 250 files, no limit given, exactly 200 lines with no mention of more, and `limit: 0` reporting no match for a file that exists. | `a_search_that_hit_the_limit_says_so`, `a_limit_hit_deep_in_the_tree_stops_everything`, `a_limit_of_zero_is_refused_rather_than_answered_with_nothing` |
 
 ## bug 5, in full
 
@@ -968,3 +969,39 @@ Guard. The failure is forced by adopting the id first, so the second adoption is
 reason that has nothing to do with the process being gone, which is the whole point. It asserts
 all three: not in `alive`, present in `unknown`, and not in `lost`. Verified by putting
 `let _ =` back, where it fails on the first of those.
+
+## bug 23, in full
+
+Two of the three read capabilities say when they cut. The third did not.
+
+`list_dir` appends "... and N more". `read_file` appends "... truncated". `find` walked until it
+had `limit` hits and then returned them, with nothing anywhere saying the search had stopped
+early. A model that asked for every match and got the first 200 of 250 has no way to tell, and
+will act on those 200 as if they were all of them.
+
+The order makes it worse. The hits come back in filesystem walk order, so "the first 200" means
+the first 200 the kernel happened to hand over, not the newest or the closest or anything the
+caller chose. Reproduced against the real server with 250 files: the first two lines were
+`report250.txt` and `report249.txt`.
+
+Fix. `walk` returns whether it saw the whole tree, and `find` appends a line naming the limit
+and saying the order is not the caller's, so the reader knows both that there is more and that
+what they have is not a meaningful selection.
+
+One thing that needed care. The limit can be reached inside a subdirectory, and returning `true`
+from that branch let the parent carry on walking. That collects past the limit and, worse,
+reports the search as complete, which is the original bug wearing a different hat. The recursive
+call now stops the whole walk. There is a test that fills a deep directory and puts a match at
+the top, which fails if only the branch stops.
+
+The second half is `limit: 0`. The schema declares it as a plain integer with no minimum and the
+handler clamped only the top, so `walk` returned before reading a single directory and `find`
+took the empty branch and said "nothing under the root matches", for a file that was sitting
+right there. That is a confident wrong answer rather than an empty one.
+
+Refused rather than clamped up to 1. A caller who asked for no results has said something
+contradictory, and quietly giving them one result is a different answer from the one they asked
+for. Refusing says what happened.
+
+Verified against the real binary. 250 files, no limit given: 200 hits plus the marker, and the
+marker says so. `limit: 0` now refuses instead of denying a file that exists.
