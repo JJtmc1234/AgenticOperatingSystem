@@ -88,10 +88,11 @@ fn main() -> Result<()> {
 }
 
 /// Reads the program allowlist. Used by the standalone `run` path.
-pub fn allowlist(run_dir: &std::path::Path) -> Result<Vec<String>> {
+pub fn allowlist(run_dir: &std::path::Path) -> Result<aos_core::Allowlist> {
     let path = run_dir.join("allowed-programs.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| anyhow::anyhow!("no allowlist at {} ({e})", path.display()))?;
-    serde_json::from_str(&text)
-        .map_err(|e| anyhow::anyhow!("{} is not a JSON array of strings ({e})", path.display()))
+    let entries: Vec<String> = serde_json::from_str(&text)
+        .map_err(|e| anyhow::anyhow!("{} is not a JSON array of strings ({e})", path.display()))?;
+    Ok(aos_core::Allowlist::resolve(entries)?)
 }

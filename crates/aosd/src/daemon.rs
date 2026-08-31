@@ -15,7 +15,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use aos_core::{AgentReport, AgentSpec, Decision, Event, Gate, Ledger, PlanId, Request, Response};
+use aos_core::{
+    AgentReport, AgentSpec, Allowlist, Decision, Event, Gate, Ledger, PlanId, Request, Response,
+};
 use aos_supervisor::Supervisor;
 
 pub struct Daemon {
@@ -217,13 +219,16 @@ impl Daemon {
     /// be bypassed by a future caller.
     fn launch(&mut self, spec: AgentSpec) -> Response {
         match self.supervisor.start(&spec) {
-            Ok(handle) => {
+            Ok(launched) => {
+                let handle = launched.handle;
                 let recorded = self.ledger.append(
                     now(),
                     spec.id.clone(),
                     Event::Started {
                         handle,
-                        program: spec.program.clone(),
+                        // The file that ran, not the spelling that was asked for, so a reviewer
+                        // can tell which binary this was.
+                        program: launched.program.display().to_string(),
                     },
                 );
                 if let Err(e) = recorded {
@@ -302,13 +307,18 @@ impl Daemon {
     }
 }
 
-/// Reads the program allowlist.
-pub fn allowlist(run_dir: &Path) -> Result<Vec<String>> {
+/// Reads the program allowlist and resolves every entry to a real path.
+///
+/// Resolving at load means a relative or missing entry stops the daemon starting, rather than
+/// sitting there until the launch it was supposed to govern. A rule nobody can act on is not
+/// a safe default, it is a rule that fails open the first time it matters.
+pub fn allowlist(run_dir: &Path) -> Result<Allowlist> {
     let path = run_dir.join("allowed-programs.json");
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("no allowlist at {}", path.display()))?;
-    serde_json::from_str(&text)
-        .with_context(|| format!("{} is not a JSON array of strings", path.display()))
+    let entries: Vec<String> = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not a JSON array of strings", path.display()))?;
+    Ok(Allowlist::resolve(entries)?)
 }
 
 /// What the daemon does when the log will not take a write.
@@ -342,6 +352,13 @@ mod tests {
         }
     }
 
+    /// The allowlist a test runs against. Resolved, because the supervisor takes a resolved
+    /// list now rather than raw strings, which is what stops a name on $PATH deciding which
+    /// binary runs.
+    fn allowed(programs: &[&str]) -> Allowlist {
+        Allowlist::resolve(programs.iter().map(|p| (*p).to_string())).unwrap()
+    }
+
     fn spec(id: &str, program: &str, args: &[&str], ceiling: RiskTier) -> AgentSpec {
         AgentSpec {
             id: AgentId::new(id).unwrap(),
@@ -357,7 +374,7 @@ mod tests {
     /// daemon does, so this builds one rather than setting the two fields it replaced.
     fn refusing(policy: Policy, log_dir: &Path) -> Daemon {
         Daemon {
-            supervisor: Supervisor::new(["/usr/bin/sleep".to_string()], log_dir.to_path_buf()),
+            supervisor: Supervisor::new(allowed(&["/usr/bin/sleep"]), log_dir.to_path_buf()),
             ledger: Ledger::to_sink(Box::new(Refusing), 1),
             gate: Gate::new(policy),
         }
@@ -461,7 +478,7 @@ mod tests {
         let policy = Policy::default();
         Daemon {
             supervisor: Supervisor::new(
-                ["/usr/bin/true".to_string(), "/usr/bin/sleep".to_string()],
+                allowed(&["/usr/bin/true", "/usr/bin/sleep"]),
                 dir.join("logs"),
             ),
             ledger: Ledger::open(dir.join("events.jsonl")).unwrap(),

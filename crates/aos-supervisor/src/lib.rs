@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use aos_core::{AgentId, AgentSpec, AgentState, Error, ProcessHandle, Record, Result};
+use aos_core::{AgentId, AgentSpec, AgentState, Allowlist, Error, ProcessHandle, Record, Result};
 
 pub use pidfd::PidFd;
 pub use replay::{Recovered, recover};
@@ -27,12 +27,27 @@ pub use tracked::Tracked;
 /// daemon later.
 pub struct Supervisor {
     agents: BTreeMap<AgentId, Tracked>,
-    allowed: Vec<String>,
+    allowed: Allowlist,
     log_dir: PathBuf,
 }
 
+/// What a launch produced.
+///
+/// Carries the resolved program alongside the handle, because the spelling the caller asked
+/// for is not necessarily the file that ran, and the audit log has to record the file. See
+/// bug 7.
+#[derive(Debug, Clone)]
+pub struct Launched {
+    pub handle: ProcessHandle,
+    pub program: PathBuf,
+}
+
 impl Supervisor {
-    /// `allowed` is the list of programs that may be launched, matched exactly.
+    /// `allowed` is the set of programs that may be launched, already resolved to real paths.
+    ///
+    /// Resolved rather than spelled, because a name with no slash is looked up on `$PATH` at
+    /// exec time and a relative one against the working directory, so an unresolved allowlist
+    /// names something other than the file that runs. See bug 7.
     ///
     /// Never put an interpreter on it. `python -c` and `node -e` take code on their own
     /// argument vector, so allowing one grants everything the other gates protect.
@@ -40,10 +55,10 @@ impl Supervisor {
     /// `log_dir` receives one combined output file per agent. It is not optional, because the
     /// alternative is a pipe nobody drains, which loses the output and eventually deadlocks
     /// the agent. See bug 1 in `bug-list.md`.
-    pub fn new(allowed: impl IntoIterator<Item = String>, log_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(allowed: Allowlist, log_dir: impl Into<PathBuf>) -> Self {
         Self {
             agents: BTreeMap::new(),
-            allowed: allowed.into_iter().collect(),
+            allowed,
             log_dir: log_dir.into(),
         }
     }
@@ -54,18 +69,19 @@ impl Supervisor {
         self.log_dir.join(format!("{id}.log"))
     }
 
-    /// Launches an agent and returns the handle that identifies its process.
-    pub fn start(&mut self, spec: &AgentSpec) -> Result<ProcessHandle> {
+    /// Launches an agent, reporting what identifies it and which file actually ran.
+    pub fn start(&mut self, spec: &AgentSpec) -> Result<Launched> {
         if self.agents.contains_key(&spec.id) {
             return Err(Error::Refused(format!("{} is already running", spec.id)));
         }
 
         let log_file = self.log_path(&spec.id);
-        let (child, handle) = spawn::launch(spec, &self.allowed, &self.log_dir, &log_file)?;
+        let (child, handle, program) =
+            spawn::launch(spec, &self.allowed, &self.log_dir, &log_file)?;
 
         self.agents
             .insert(spec.id.clone(), Tracked::Spawned { child, handle });
-        Ok(handle)
+        Ok(Launched { handle, program })
     }
 
     /// Takes responsibility for an agent that outlived a previous supervisor.

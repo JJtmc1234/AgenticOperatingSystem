@@ -72,13 +72,14 @@ fn supervise(mut ledger: Ledger, mut sup: Supervisor, spec: AgentSpec) -> Result
     // nobody wrote down is one nothing on this machine can find, stop or account for. `aosd`
     // does the same thing in `Daemon::launch`.
     let handle = match sup.start(&spec) {
-        Ok(handle) => {
+        Ok(launched) => {
             let recorded = ledger.append(
                 now(),
                 spec.id.clone(),
                 Event::Started {
-                    handle,
-                    program: spec.program.clone(),
+                    handle: launched.handle,
+                    // The file that ran, not the spelling asked for.
+                    program: launched.program.display().to_string(),
                 },
             );
             if let Err(e) = recorded {
@@ -93,12 +94,12 @@ fn supervise(mut ledger: Ledger, mut sup: Supervisor, spec: AgentSpec) -> Result
                         Err(e) => format!(
                             ". Stopping it failed too, so pid {} may still be running and \
                              nothing has recorded it: {e}",
-                            handle.pid
+                            launched.handle.pid
                         ),
                     }
                 );
             }
-            handle
+            launched.handle
         }
         Err(err) => {
             ledger.append(
@@ -237,8 +238,10 @@ mod tests {
             args: vec![marker.into()],
             ceiling: RiskTier::Read,
         };
+        // Resolved, because the supervisor takes a resolved allowlist now rather than raw
+        // strings, which is what stops a name on $PATH deciding which binary runs.
         let sup = Supervisor::new(
-            ["/usr/bin/sleep".to_string()],
+            aos_core::Allowlist::resolve(["/usr/bin/sleep".to_string()]).unwrap(),
             dir.path().join("logs").to_path_buf(),
         );
 

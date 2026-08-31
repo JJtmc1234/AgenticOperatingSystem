@@ -20,12 +20,13 @@ fn spec(id: &str, program: &str, args: &[&str]) -> AgentSpec {
 fn sleeper() -> (Supervisor, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let sup = Supervisor::new(
-        [
+        aos_core::Allowlist::resolve([
             "/usr/bin/sleep".to_string(),
             "/usr/bin/true".to_string(),
             "/usr/bin/seq".to_string(),
             "/usr/bin/echo".to_string(),
-        ],
+        ])
+        .unwrap(),
         dir.path(),
     );
     (sup, dir)
@@ -36,7 +37,7 @@ fn starts_lists_and_stops_a_real_process() {
     let (mut sup, _dir) = sleeper();
     let s = spec("sleeper", "/usr/bin/sleep", &["30"]);
 
-    let handle = sup.start(&s).unwrap();
+    let handle = sup.start(&s).unwrap().handle;
     assert!(handle.pid > 0);
     assert!(
         handle.start_token > 0,

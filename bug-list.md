@@ -142,6 +142,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 16 | `Policy::load` treats a missing file as a request for the built in default, and `aos-files` used it for `--policy`, a required argument. A typo or a relative path silently replaced the operator's rules with more permissive ones, and the banner never named the policy. | Never fired. Reproduced: the real path denied `delete_file`, one changed character in the filename started fine and answered with a plan id. | `a_named_policy_that_is_missing_is_an_error_not_the_default`, `an_unnamed_missing_policy_is_still_the_safe_default`, `a_malformed_named_policy_is_still_an_error`, `the_summary_uses_the_words_the_policy_file_uses` |
 | 17 | `read_file` read the whole file with `std::fs::read` and then cloned the buffer for the utf8 check, so peak memory was twice the file size. `MAX_READ` bounded the reply and not the read, so a large file inside the root took the process down with the OOM killer. | Never fired. Measured: reading an 80 MB file grew peak resident memory by 161,740 kB. | `reading_a_large_file_does_not_pull_it_all_into_memory` |
 | 18 | `ledger::read` collected every line into one `Result`, so a single half written last line made the whole log unreadable and `Ledger::open` inherited that, so the daemon refused to boot at all. | Never fired. Reproduced: chopping 20 bytes off `events.jsonl` made `aosd` exit 1 with a parse error, leaving a live agent that nothing could adopt, stop or record as lost, on that boot or any later one. | `a_torn_final_line_is_dropped_rather_than_making_the_log_unreadable`, `a_torn_log_can_still_be_opened_and_appended_to`, `a_final_record_missing_only_its_newline_is_kept`, `a_corrupt_line_in_the_middle_is_still_an_error` |
+| 19 | The allowlist was compared by string equality and the same string was handed to `Command::new`, so a bare name got a `$PATH` search and a relative one resolved against the daemon's working directory. The gate named one file and the kernel ran another. | Never fired. Reproduced: allowlist `["probetool"]` with the probe directory on `PATH` ran a binary the allowlist never named, and the ledger recorded only `"program":"probetool"`. | `a_bare_name_is_refused_at_load`, `a_relative_entry_with_a_slash_is_refused_at_load`, `a_different_file_with_the_same_name_is_refused`, `two_hard_linked_coreutils_stay_distinct_entries` |
 
 ## bug 5, in full
 
@@ -783,3 +784,58 @@ point of it: it pins the behaviour that must not be loosened while making the ta
 Verified by putting the old `.collect()` back and removing the repair call. The three failed
 and the fourth passed. Then end to end against the real binary: the daemon that used to exit 1
 over a torn log now starts, listens and answers `list` and `stop-all`.
+
+## bug 19, in full
+
+The allowlist is the gate that decides which binary may start. It was comparing spellings.
+
+`spawn::launch` tested `allowed.iter().any(|p| p == &spec.program)`, a string equality, and
+then passed that same string to `Command::new`. Nothing in between touched the filesystem, so
+nothing ever established that the string named a particular file. Two ways that goes wrong,
+and both were reproduced rather than reasoned about.
+
+A name with no slash makes `Command::new` search `$PATH` at exec time. Allowlist
+`["probetool"]`, the probe directory prepended to `PATH`, and the agent ran
+`<scratch>/lab/bin/probetool`, a file the allowlist never named. A relative name with a slash
+resolves against the process working directory instead, so the same allowlist file named
+different binaries depending on where `aosd` happened to be started from.
+
+The audit side was just as bad. `Event::Started` recorded `spec.program.clone()`, the
+unresolved spelling, so `events.jsonl` could not say which file ran even afterwards.
+
+Fix. `aos_core::Allowlist` resolves every entry once at load, refusing any that is not
+absolute and any that does not exist. `resolve_program` canonicalizes the requested program
+and compares real paths. The resolved path is what gets spawned and what gets recorded.
+
+Refusing a relative entry at load rather than at launch is deliberate. A relative entry is not
+a narrower permission, it is an ambiguous one, and an ambiguous rule should be rejected before
+anything has been decided by it rather than at the moment it was supposed to govern something.
+
+The interesting part is what this machine taught about the alternative. The issue suggested
+comparing device and inode instead, to also catch hard links. That would have been a disaster
+here. `/usr/bin/echo` and `/usr/bin/sleep` canonicalize to
+`/usr/lib/cargo/bin/coreutils/echo` and `.../sleep`, which are two names for **one inode**,
+because uutils ships a single multi-call binary hard linked under every utility name. Under an
+inode comparison, allowing `echo` would have allowed `sleep`, `rm` and everything else in that
+binary, while the allowlist file still looked exactly as restrictive as before. Comparing
+canonical paths keeps them distinct. The cost is that a hard link to an allowed binary under
+another path is refused, which is the right way round.
+
+That is checked, not just written down. `two_hard_linked_coreutils_stay_distinct_entries`
+confirms the two really do share an inode on this host and that an entry naming only `echo`
+still refuses `sleep`. It returns early rather than failing where the layout differs, since it
+is asserting something about the machine rather than about this crate.
+
+One more thing follows from multi-call binaries and is easy to undo by accident. The caller
+spawns the resolved path, so `argv[0]` is the file that was actually checked and the binary
+behaves as that. Passing the requested spelling as `arg0` would look like a tidy way to
+preserve behaviour and would reopen the hole: a symlink named `rm` pointing at an allowed
+`echo` would pass the check and then behave as `rm`. There is a comment on
+`resolve_program` saying so.
+
+Guard. Seven tests on `Allowlist`, four of them named in the table above. Verified against the
+real binary both ways: with allowlist `["probetool"]` and the probe directory on `PATH`,
+`aos run` now refuses at load with a message naming `$PATH`, and no agent log is created
+because nothing ran. With allowlist `["/usr/bin/echo"]` and a request naming `/bin/echo`, it
+runs and the ledger records `/usr/lib/cargo/bin/coreutils/echo`, the file that actually ran,
+where before it would have recorded `/bin/echo`.
