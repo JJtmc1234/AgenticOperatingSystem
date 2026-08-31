@@ -15,19 +15,15 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use aos_core::{
-    AgentReport, AgentSpec, Event, Ledger, PlanId, PlanLedger, Policy, Request, Response, Verdict,
-};
+use aos_core::{AgentReport, AgentSpec, Decision, Event, Gate, Ledger, PlanId, Request, Response};
 use aos_supervisor::Supervisor;
 
 pub struct Daemon {
     supervisor: Supervisor,
     ledger: Ledger,
-    policy: Policy,
-    /// Plans live in memory only. A plan is an offer, not a fact about the machine, and an
-    /// offer that survived a restart would let someone commit something this daemon never
-    /// proposed.
-    plans: PlanLedger,
+    /// Policy and the plans outstanding against it. Shared with `aos run` through `aos-core`,
+    /// so there is one implementation of what is allowed rather than one per entry point.
+    gate: Gate,
 }
 
 fn now() -> u64 {
@@ -47,8 +43,7 @@ impl Daemon {
         let mut ledger = Ledger::open(&log)?;
         let mut supervisor = Supervisor::new(allowed, run_dir.join("logs"));
 
-        let policy = Policy::load(run_dir.join("policy.toml"))?;
-        let plans = PlanLedger::new(policy.plan_ttl_secs);
+        let gate = Gate::open(run_dir)?;
 
         let recovered = supervisor.adopt_from(&records);
 
@@ -74,8 +69,7 @@ impl Daemon {
         Ok(Self {
             supervisor,
             ledger,
-            policy,
-            plans,
+            gate,
         })
     }
 
@@ -112,63 +106,57 @@ impl Daemon {
         Response::Agents { agents }
     }
 
-    /// The gate. Nothing reaches the supervisor without passing through here.
+    /// Turns the gate's decision into a response, and writes down what was decided.
     ///
     /// Returns `None` to mean "go ahead", or a response to send back instead. Written this
     /// way so the caller cannot forget to check: there is no path to `launch` that does not
-    /// go through the gate first.
+    /// go through here first.
+    ///
+    /// Deciding moved to `aos_core::Gate` so `aos run` judges requests the same way. What is
+    /// left here is the daemon's half: the wire shape of a refusal, and the record of it.
     fn gate(&mut self, spec: &AgentSpec, commit: Option<PlanId>) -> Option<Response> {
-        let tier = spec.ceiling;
-        let verdict = self.policy.verdict(&spec.id, tier);
+        match self.gate.decide(spec, commit, now()) {
+            Decision::Allow => None,
 
-        match verdict {
-            Verdict::Allow => None,
-
-            Verdict::Deny => {
-                let reason = format!("policy denies {} at tier {tier}", spec.id);
+            // issue-4 moved the deciding into aos_core::Gate. issue-2 made every
+            // ledger append checked. Both hold here: the shape of the answer comes
+            // from Decision, and no record is thrown away with a bare let _.
+            Decision::Denied { reason } | Decision::CommitRefused { reason } => {
                 Some(self.refuse(&spec.id, reason))
             }
 
-            Verdict::Prompt => match commit {
-                // No commit quoted, so this is the planning call. Nothing runs.
-                None => match self.plans.propose(spec, tier, now()) {
-                    Ok(plan) => {
-                        let recorded = self.ledger.append(
-                            now(),
-                            spec.id.clone(),
-                            Event::Planned {
-                                plan: plan.id.clone(),
-                                tier,
-                            },
-                        );
-                        if let Err(e) = recorded {
-                            // Do not hand out an offer the log has no record of. The plan
-                            // stays in memory unused: its id was never disclosed, so it
-                            // cannot be quoted, and it expires with the rest.
-                            return Some(Response::error(format!(
-                                "could not record the plan for {}, so none was offered: {e}",
-                                spec.id
-                            )));
-                        }
-                        Some(Response::PlanRequired {
-                            plan: plan.id,
-                            agent: spec.id.clone(),
-                            tier,
-                            summary: format!(
-                                "{} would run {} {:?} at tier {tier}",
-                                spec.id, spec.program, spec.args
-                            ),
-                        })
-                    }
-                    Err(e) => Some(Response::error(e)),
-                },
+            Decision::Planned {
+                plan,
+                tier,
+                summary,
+            } => {
+                let recorded = self.ledger.append(
+                    now(),
+                    spec.id.clone(),
+                    Event::Planned {
+                        plan: plan.clone(),
+                        tier,
+                    },
+                );
+                if let Err(e) = recorded {
+                    // Do not hand out an offer the log has no record of. The plan
+                    // stays in memory unused: its id was never disclosed, so it
+                    // cannot be quoted, and it expires with the rest.
+                    return Some(Response::error(format!(
+                        "could not record the plan for {}, so none was offered: {e}",
+                        spec.id
+                    )));
+                }
+                Some(Response::PlanRequired {
+                    plan,
+                    agent: spec.id.clone(),
+                    tier,
+                    summary,
+                })
+            }
 
-                // A commit was quoted. It has to match this exact request.
-                Some(id) => match self.plans.commit(&id, spec, now()) {
-                    Ok(_) => None,
-                    Err(e) => Some(self.refuse(&spec.id, e.to_string())),
-                },
-            },
+            // Never judged, so there is nothing to record against the agent.
+            Decision::CouldNotPlan { reason } => Some(Response::error(reason)),
         }
     }
 
@@ -307,7 +295,7 @@ pub fn allowlist(run_dir: &Path) -> Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aos_core::{AgentId, RiskTier, Verdict};
+    use aos_core::{AgentId, Policy, RiskTier, Verdict};
 
     /// A sink that refuses every write, which is what a full disk looks like from here.
     struct Refusing;
@@ -331,13 +319,14 @@ mod tests {
     }
 
     /// A daemon whose every append fails, over a real supervisor so processes are real.
+    ///
+    /// Policy and plans became one `Gate` so `aos run` judges requests the same way the
+    /// daemon does, so this builds one rather than setting the two fields it replaced.
     fn refusing(policy: Policy, log_dir: &Path) -> Daemon {
-        let plans = PlanLedger::new(policy.plan_ttl_secs);
         Daemon {
             supervisor: Supervisor::new(["/usr/bin/sleep".to_string()], log_dir.to_path_buf()),
             ledger: Ledger::to_sink(Box::new(Refusing), 1),
-            policy,
-            plans,
+            gate: Gate::new(policy),
         }
     }
 

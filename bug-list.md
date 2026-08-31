@@ -132,6 +132,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 6 | The example policy the repo ships did not parse, because `plan_ttl_secs` sat below `[agents]` and a bare key belongs to the table above it, so it was read as an agent id. | Anybody copying `examples/policy.toml`, exactly as the file tells them to, gets a daemon that refuses to start. | `the_example_policy_parses`, `the_plan_lifetime_is_read_rather_than_defaulted` |
 | 7 | Three of the daemon's four ledger appends threw the error away with `let _ =`, so a refusal or a stop could go unrecorded while the caller was told everything worked. | Reading `crates/aosd/src/daemon.rs` against its own module doc, which claimed every mutation is written down first. | `a_refusal_that_could_not_be_written_reports_both`, `a_plan_that_could_not_be_recorded_is_not_offered`, `a_stop_that_could_not_be_recorded_is_reported_as_unrecorded`, `stop_all_reports_an_agent_it_stopped_but_could_not_record` |
 | 8 | `aos run` started the child, then appended the `Started` record with a bare `?`, so a log that would not take the write left a process running that nothing had recorded. | Reading `crates/aos-cli/src/runtime.rs` against the comment directly above it, which said "Append, then act". | `a_start_that_cannot_be_recorded_leaves_no_surviving_child` |
+| 9 | `aos run` started an agent with no policy check at all. Only the daemon called the gate, so a policy denying every tier was ignored by one of the two ways to start an agent. | Never fired. Found by reading, then reproduced: with every tier plus `hello` set to deny, `aos run` started the child, exited 0, and wrote a `Started` record. | `a_denying_policy_refuses_aos_run`, `a_prompt_tier_refuses_aos_run_and_points_at_the_daemon` |
 
 ## bug 5, in full
 
@@ -312,3 +313,52 @@ Verified by restoring the bare `?` while keeping the seam and the test, and runn
 failed with `left: [3545768], right: []`, naming the process that outlived the failed append,
 and left nothing behind afterwards. The fix was then restored and the test passed, with
 `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and the full `cargo test` clean.
+
+## bug 9, in full
+
+The worst kind of hole: not a mistake inside a guard, but a whole entry point that never
+reached one.
+
+`aos start` goes to the daemon, and `Daemon::gate` decides before anything reaches the
+supervisor. Its doc comment says nothing reaches the supervisor without passing through the
+gate, and inside the daemon that is true. `aos run` is the other way to start an agent. It is
+standalone, does not involve the daemon, and went straight from `load_spec` to `sup.start`.
+`grep -rn "Policy\|Verdict\|PlanLedger" crates/aos-cli/src` returned nothing at all.
+
+So the policy applied to one of the two ways to start an agent, on the same machine, with the
+same allowlist and the same log. Which rules held came down to which subcommand somebody
+typed. Reproduced before fixing: with every tier plus `hello` explicitly set to deny, `aos run`
+started the child, exited 0, and wrote a `Started` record.
+
+Fix. The deciding half of the gate moved into `aos-core` as `Gate`, returning a `Decision`
+rather than a `Response`, and both entry points now go through it. Recording stayed with the
+callers, because a refusal on a socket and a refusal on a terminal do not look the same and
+the log each writes to belongs to the caller.
+
+`Gate` has two entry points and the second one is the interesting part. `decide` is the full
+handshake, for a caller that can hold a plan between two calls. `decide_without_handshake` is
+for a caller that cannot, and `aos run` is exactly that: one process that starts an agent and
+waits for it, so a plan it offered would die with it and there is no second call that could
+quote one. Offering a plan there would be a lie, so anything above allow is refused and
+pointed at the daemon. It takes `&self` rather than `&mut self`, which makes it impossible for
+that path to leave a proposed plan behind.
+
+The temptation was to give `aos run` a `--commit` flag for symmetry. That would have been
+wrong. There is nothing to commit against, because the plan ledger it would have to consult
+lives in whichever process issued the plan, and this process did not exist when that happened.
+
+Guard. Three tests in `runtime.rs`, driving `run` against a real temporary run directory.
+`a_denying_policy_refuses_aos_run` is the bug: a deny policy must produce an error and a
+`Refused` record, and no `Started` record.
+`a_prompt_tier_refuses_aos_run_and_points_at_the_daemon` checks the message names `aos start`
+rather than silently doing nothing useful.
+`an_allowed_agent_still_runs_to_completion` is the one that stops the fix being a denial of
+service, and it checks the log reads exactly started then exited. Five more in `gate.rs` cover
+the decision table itself, including that both entry points agree about read and that a per
+agent deny beats an allowed tier on both.
+
+Verified by disabling the new gate call and running the suite. The two refusal tests failed
+and the allowed one still passed, which is the right shape: the guard fires on the hole and
+not on ordinary use. Then the fix was restored and the shipped binary was pointed at the
+issue's own repro, which now prints `policy denies hello at tier read`, exits 1, and writes a
+`refused` record where it used to write a `started` one.

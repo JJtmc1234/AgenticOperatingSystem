@@ -7,6 +7,7 @@
 pub mod agent;
 pub mod event;
 pub mod fold;
+pub mod gate;
 pub mod ledger;
 pub mod plan;
 pub mod policy;
@@ -16,6 +17,7 @@ pub mod tier;
 pub use agent::{AgentId, AgentSpec, AgentState};
 pub use event::{Event, ProcessHandle, Record};
 pub use fold::believed_running;
+pub use gate::{Decision, Gate};
 pub use ledger::Ledger;
 pub use plan::{Plan, PlanId, PlanLedger};
 pub use policy::{Policy, Verdict};
