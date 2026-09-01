@@ -207,21 +207,73 @@ fn nothing_the_panel_does_writes_to_the_ledger() {
     std::fs::set_permissions(&ledger, std::fs::Permissions::from_mode(0o444)).unwrap();
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
 
+    // Somewhere writable to keep the spec, since the run directory is about to lose its write
+    // permission and the spec is a file a person points the panel at, not part of the run dir.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let spec_file = elsewhere.path().join("worker.json");
+    std::fs::write(
+        &spec_file,
+        serde_json::to_string(&AgentSpec {
+            id: id("brief"),
+            program: "/usr/bin/sleep".into(),
+            args: vec!["1".into()],
+            ceiling: RiskTier::Read,
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
     let mut app = App::new(dir.path().to_path_buf());
     for _ in 0..3 {
         app.tick();
     }
-    // Every command a person can reach. With no daemon they all fail, and failing is not a
-    // licence to write anything down here: the ledger belongs to the daemon.
+
+    // Every command a person can reach, one at a time and each one waited for. With no daemon
+    // they all fail, and failing is not a licence to write anything down here: the ledger
+    // belongs to the daemon.
+    //
+    // Waited for, because `dispatch` refuses to send while an order is outstanding. The old
+    // version called all six in a row, so `ping` took the slot, the next three were dropped at
+    // that guard, and `request_plan` and `commit` returned before reaching `dispatch` at all.
+    // One of six actually ran, and the test would have kept passing if any of the other five
+    // had started writing to the ledger. See bug 31.
     app.ping();
+    settle(&mut app, "ping");
+
     app.stop(id("brief"));
+    settle(&mut app, "stop");
+
     app.stop_all();
-    app.spec_path = dir.path().join("missing.json").display().to_string();
+    settle(&mut app, "stop all");
+
+    app.spec_path = spec_file.display().to_string();
     app.load_spec();
+    settle(&mut app, "load spec");
+    assert!(
+        matches!(app.start, StartFlow::Loaded { .. }),
+        "the spec has to load, or request_plan below returns before it sends anything"
+    );
+
     app.request_plan();
+    settle(&mut app, "request plan");
+
+    // Put in by hand, because the only thing that reaches this state is a daemon offering a
+    // plan and there is deliberately no daemon here. Without it `commit` returns at its own
+    // guard and the one command that can start a process goes unexercised.
+    app.start = StartFlow::Offered {
+        spec: Box::new(AgentSpec {
+            id: id("brief"),
+            program: "/usr/bin/sleep".into(),
+            args: vec!["1".into()],
+            ceiling: RiskTier::Read,
+        }),
+        plan: PlanId::quoted("never-offered"),
+        agent: id("brief"),
+        tier: RiskTier::Read,
+        summary: "would run sleep".into(),
+    };
     app.commit();
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    app.tick();
+    settle(&mut app, "commit");
 
     // Put the permissions back before asserting, so a failure does not leave an undeletable
     // directory behind in the temporary area.
@@ -244,6 +296,46 @@ fn nothing_the_panel_does_writes_to_the_ledger() {
         "the panel left something behind in the run directory"
     );
     assert_eq!(app.records().len(), 2, "and it could still read the ledger");
+}
+
+/// Waits for the order just sent to come back, so the next command is not dropped at the in
+/// flight guard.
+///
+/// Asserting it was sent at all is half the point. `dispatch` returns quietly when something
+/// is outstanding, and a command that returned quietly is a command a test did not exercise.
+fn settle(app: &mut App, what: &str) {
+    assert!(app.in_flight.is_some(), "{what} never reached the worker");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while app.in_flight.is_some() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{what} was sent and never came back"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        app.tick();
+    }
+}
+
+/// The bug as a person meets it. One click on PING took the in flight slot, and since a ping's
+/// whole reply is a heartbeat and a heartbeat settled nothing, it was never given back. From
+/// that click on, every command button in the panel did nothing until a restart.
+#[test]
+fn a_ping_does_not_wedge_every_command_that_follows_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = App::new(dir.path().to_path_buf());
+
+    app.ping();
+    settle(&mut app, "ping");
+
+    app.stop(id("brief"));
+    assert!(
+        app.in_flight.is_some(),
+        "a stop after a ping was dropped at the in flight guard"
+    );
+    settle(&mut app, "stop");
+
+    app.stop_all();
+    assert!(app.in_flight.is_some(), "and so was a stop all");
 }
 
 fn listing(dir: &Path) -> Vec<String> {

@@ -140,10 +140,13 @@ impl Daemon {
             .supervisor
             .list()
             .into_iter()
-            .map(|(id, state)| AgentReport {
-                adopted: self.supervisor.is_adopted(&id),
-                id,
-                state,
+            // The flag comes back with the row rather than being asked for here. `list` reaps
+            // as it goes, so asking afterwards asked about an id the supervisor had already
+            // forgotten, and answered false for every stopped agent. See bug 28.
+            .map(|found| AgentReport {
+                id: found.id,
+                state: found.state,
+                adopted: found.adopted,
             })
             .collect();
         Response::Agents { agents }

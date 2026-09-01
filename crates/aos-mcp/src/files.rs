@@ -197,6 +197,13 @@ fn walk(
     for e in entries.filter_map(|e| e.ok()) {
         let path = e.path();
         let name = e.file_name().to_string_lossy().to_lowercase();
+        // Skipped outright, not merely left out of the hits, because a refused directory must
+        // not be descended into either. `find` resolves to the whole read root rather than
+        // through the scope, so this is the only place the secret list can reach it, and
+        // without it a search for "id_" answered with `.ssh/id_rsa`. See bug 29.
+        if crate::scope::is_secret_name(&name) {
+            continue;
+        }
         if name.contains(needle) {
             hits.push(path.clone());
             if hits.len() >= limit {
@@ -474,6 +481,51 @@ mod tests {
             Ok(out) => panic!("a search that never ran must not answer: {out}"),
         };
         assert!(e.contains("at least 1"), "{e}");
+    }
+
+    /// The bug. `find` is the one capability that does not resolve through the scope, so
+    /// `refuse_secrets` was never consulted for it and the walk descended into everything.
+    /// `read_file` still refused these paths, so the contents were safe, but the names and the
+    /// layout of the directories the server exists to refuse came back in full.
+    #[test]
+    fn find_does_not_report_the_files_every_other_capability_refuses() {
+        let (d, r) = root();
+        for at in [
+            ".ssh/id_rsa",
+            ".ssh/id_rsa.pub",
+            ".aws/credentials",
+            "deploy/server.pem",
+            ".claude/settings.json",
+        ] {
+            let path = d.path().join(at);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "not yours").unwrap();
+        }
+
+        for needle in ["id_", "cred", ".ssh", "pem", "settings"] {
+            let out = find(&r, needle, 100).unwrap();
+            for leak in ["id_rsa", "credentials", "server.pem", "settings.json"] {
+                assert!(
+                    !out.contains(leak),
+                    "searching for {needle:?} gave away {leak}: {out}"
+                );
+            }
+        }
+    }
+
+    /// And the skip has to be narrow, or a search that returned nothing useful would be the
+    /// next thing somebody removed.
+    #[test]
+    fn find_still_reaches_ordinary_files_in_ordinary_directories() {
+        let (d, r) = root();
+        std::fs::create_dir_all(d.path().join(".ssh")).unwrap();
+        std::fs::write(d.path().join(".ssh/id_rsa"), "not yours").unwrap();
+        std::fs::create_dir_all(d.path().join("notes/deep")).unwrap();
+        std::fs::write(d.path().join("notes/deep/id_card.txt"), "fine").unwrap();
+
+        let out = find(&r, "id_", 100).unwrap();
+        assert!(out.contains("notes/deep/id_card.txt"), "{out}");
+        assert!(!out.contains("id_rsa"), "{out}");
     }
 
     #[test]

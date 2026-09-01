@@ -86,8 +86,51 @@ fn starting_the_same_agent_twice_is_refused() {
 
     let err = sup.start(&s).unwrap_err();
     assert!(err.to_string().contains("already running"));
+    // Names the pid, so the refusal can be checked rather than taken on trust.
+    assert!(err.to_string().contains("pid"), "{err}");
 
     sup.stop(&s.id, Duration::from_secs(2)).unwrap();
+}
+
+/// The bug. `start` refused on the presence of a key, and the only thing that ever took a key
+/// out for an agent that exited by itself was `state`. So a legitimate restart was refused as
+/// "already running" about a process that had been dead for some time, and it stayed refused
+/// until somebody happened to run `aos list`.
+#[test]
+fn an_agent_that_finished_on_its_own_can_be_started_again_with_nothing_asking_first() {
+    let (mut sup, _dir) = sleeper();
+    let s = spec("restart", "/usr/bin/true", &[]);
+
+    let first = sup.start(&s).unwrap().handle;
+    wait_until_finished(first.pid, Duration::from_secs(5));
+
+    // Nothing asks the supervisor anything in between, and that is the point. Putting a
+    // `list` or a `state` here would reap the child and hide the bug entirely.
+    let second = sup.start(&s).unwrap().handle;
+    assert_ne!(second.pid, first.pid, "a second process, not the old one");
+
+    wait_for_exit(&mut sup, &s.id, Duration::from_secs(5));
+}
+
+/// Waits for a child to finish without asking the supervisor about it.
+///
+/// `state` is the call that reaps, so a test about the start path cannot use it to wait. An
+/// unreaped child becomes a zombie and stays one, so this is a state the process holds rather
+/// than a moment the test has to catch.
+fn wait_until_finished(pid: u32, limit: Duration) {
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+        let after_name = stat.rfind(')').map_or("", |c| &stat[c + 1..]);
+        if after_name.split_whitespace().next() == Some("Z") {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "pid {pid} never finished"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[test]

@@ -19,11 +19,17 @@ fn spec(id: &str, ceiling: RiskTier) -> AgentSpec {
     }
 }
 
-/// Only the worker's own ping is unsolicited. Everything else answers a person.
+/// The worker's own ping is unsolicited and must not settle a stop somebody is waiting on.
+/// Everything else answers a person.
 #[test]
-fn a_heartbeat_settles_nothing() {
-    assert!(!Outcome::Heartbeat(Link::Unknown).settles_an_order());
-    assert!(Outcome::good("done").settles_an_order());
+fn a_heartbeat_does_not_settle_an_order_it_is_not_the_answer_to() {
+    let stopping = Order::Stop {
+        agent: AgentId::new("brief").unwrap(),
+        grace_secs: 5,
+    };
+    assert!(!Outcome::Heartbeat(Link::Unknown).settles(Some(&stopping)));
+    assert!(!Outcome::Heartbeat(Link::Unknown).settles(None));
+    assert!(Outcome::good("done").settles(Some(&stopping)));
     assert!(
         Outcome::PlanOffered {
             plan: PlanId::quoted("abc"),
@@ -31,7 +37,24 @@ fn a_heartbeat_settles_nothing() {
             tier: RiskTier::Destructive,
             summary: "would run rm".into(),
         }
-        .settles_an_order()
+        .settles(Some(&stopping))
+    );
+}
+
+/// And the case that wedged the panel. `Ping` is the one order whose whole reply is a
+/// heartbeat, so if a heartbeat cannot settle it, nothing can and the slot is never returned.
+#[test]
+fn a_heartbeat_settles_a_ping_because_that_is_the_whole_of_its_answer() {
+    assert!(Outcome::Heartbeat(Link::Unknown).settles(Some(&Order::Ping)));
+
+    // The reply set really does contain nothing else, which is what makes the case above the
+    // only way out. Checked here rather than assumed, since adding a note to `Order::Ping`
+    // later would make this test the one that says the guard is no longer load bearing.
+    let dir = tempfile::tempdir().unwrap();
+    let reply = run(dir.path(), Order::Ping);
+    assert!(
+        reply.iter().all(|o| matches!(o, Outcome::Heartbeat(_))),
+        "{reply:?}"
     );
 }
 

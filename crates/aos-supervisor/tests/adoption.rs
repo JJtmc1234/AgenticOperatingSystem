@@ -146,6 +146,37 @@ fn stops_an_adopted_orphan_through_its_descriptor() {
     assert!(s.list().is_empty());
 }
 
+/// The bug. `list` is built out of `state`, and `state` removes the agent it has just reported
+/// as stopped, so by the time `list` returned, every stopped row named an id the map no longer
+/// held. The daemon then asked `is_adopted` about those ids and got false for all of them.
+///
+/// That flag is documented as the explanation for a missing exit code, so it was wrong in
+/// exactly the one report where it is the thing a reader needs.
+#[test]
+fn a_stopped_adopted_agent_is_still_reported_as_adopted() {
+    let (mut s, _dir) = sup();
+    let handle = make_orphan("517");
+    s.adopt(id("gone"), handle.clone()).unwrap();
+
+    // Killed from outside, which is how the real case arises: the agent finishes while nobody
+    // is asking. Not through `stop`, which reports the state itself and never goes near `list`.
+    unsafe { libc::kill(handle.pid as i32, libc::SIGKILL) };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while proc::is_still(&handle) {
+        assert!(Instant::now() < deadline, "the orphan never died");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let found = s.list();
+    assert_eq!(found.len(), 1, "it is reported once");
+    assert!(matches!(found[0].state, AgentState::Stopped { .. }));
+    assert!(
+        found[0].adopted,
+        "the one report it gets is the one that has to say why there is no exit code"
+    );
+    assert!(s.list().is_empty(), "and it is forgotten after that report");
+}
+
 /// The guard that makes adoption safe. A stale token means the pid may belong to anyone.
 #[test]
 fn refuses_to_adopt_a_handle_with_the_wrong_token() {

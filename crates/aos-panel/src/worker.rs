@@ -81,9 +81,19 @@ pub enum Tone {
 }
 
 impl Outcome {
-    /// Whether this answers something a person asked for, as opposed to the worker's own ping.
-    pub const fn settles_an_order(&self) -> bool {
-        !matches!(self, Outcome::Heartbeat(_))
+    /// Whether this answers the order a person is waiting on.
+    ///
+    /// Which order that is has to be part of the question. A heartbeat is usually the worker
+    /// asking on its own, and one of those must never make an outstanding stop look finished.
+    /// But `Ping` is the one order whose entire reply is a heartbeat, so nothing ever settled
+    /// it: one click on PING took the in flight slot and never gave it back, and from then on
+    /// `dispatch` refused every later order. The whole command half of the panel was dead
+    /// until a restart. See bug 30.
+    pub const fn settles(&self, outstanding: Option<&Order>) -> bool {
+        match self {
+            Outcome::Heartbeat(_) => matches!(outstanding, Some(Order::Ping)),
+            _ => true,
+        }
     }
 
     pub(super) fn bad(text: impl std::fmt::Display) -> Self {

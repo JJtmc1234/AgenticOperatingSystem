@@ -53,6 +53,18 @@ pub struct Launched {
     pub program: PathBuf,
 }
 
+/// One agent as `list` found it, including whether this supervisor inherited it.
+///
+/// The flag travels with the state rather than being asked for afterwards. `list` reaps as it
+/// goes, so by the time it returns, every stopped entry names an id the map no longer holds.
+/// See bug 28.
+#[derive(Debug, Clone)]
+pub struct Listed {
+    pub id: AgentId,
+    pub state: AgentState,
+    pub adopted: bool,
+}
+
 impl Supervisor {
     /// `allowed` is the set of programs that may be launched, already resolved to real paths.
     ///
@@ -82,8 +94,31 @@ impl Supervisor {
 
     /// Launches an agent, reporting what identifies it and which file actually ran.
     pub fn start(&mut self, spec: &AgentSpec) -> Result<Launched> {
+        // Asked, not assumed. A key in the map is not an agent that is alive. Nothing calls
+        // `try_wait` on a child except `state`, so an agent that finished on its own stayed in
+        // the map, and stayed a zombie, until somebody happened to run `aos list`. Refusing on
+        // the key turned a legitimate restart into "already running" about a process that had
+        // been dead for some time, and nothing on the start path reaps. See bug 27.
         if self.agents.contains_key(&spec.id) {
-            return Err(Error::Refused(format!("{} is already running", spec.id)));
+            match self.state(&spec.id) {
+                // `state` reaped it and took the key out, so the id is free again.
+                Ok(AgentState::Stopped { .. }) => {}
+                Ok(AgentState::Running { pid }) => {
+                    return Err(Error::Refused(format!(
+                        "{} is already running as pid {pid}",
+                        spec.id
+                    )));
+                }
+                // Cannot tell. Refusing is the safe answer for the same reason an unreadable
+                // `/proc` is not treated as a dead agent: going on would overwrite the entry
+                // for a child that may well still be alive, and lose it.
+                Err(e) => {
+                    return Err(Error::Refused(format!(
+                        "{} may still be running, and asking failed: {e}",
+                        spec.id
+                    )));
+                }
+            }
         }
 
         let log_file = self.log_path(&spec.id);
@@ -249,10 +284,18 @@ impl Supervisor {
             .collect()
     }
 
-    pub fn list(&mut self) -> Vec<(AgentId, AgentState)> {
+    pub fn list(&mut self) -> Vec<Listed> {
         let ids: Vec<_> = self.agents.keys().cloned().collect();
         ids.into_iter()
-            .filter_map(|id| self.state(&id).ok().map(|s| (id, s)))
+            .filter_map(|id| {
+                // Asked before `state`, because `state` removes the entry for an agent that has
+                // stopped. That report is the only one a stopped agent ever gets, and `adopted`
+                // is the field that explains why its exit code is unknowable, so asking the map
+                // afterwards answered false at exactly the moment the flag mattered. See bug 28.
+                let adopted = self.is_adopted(&id);
+                let state = self.state(&id).ok()?;
+                Some(Listed { id, state, adopted })
+            })
             .collect()
     }
 

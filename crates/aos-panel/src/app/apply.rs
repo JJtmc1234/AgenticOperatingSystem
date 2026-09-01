@@ -13,12 +13,10 @@ impl App {
     /// One thing the worker sent. Applied on the UI thread, where nothing blocks.
     pub fn apply(&mut self, outcome: Outcome) {
         // Only an answer to something a person asked clears what they are waiting on. The
-        // worker's own ping must never make an outstanding stop look finished.
-        let asked = if outcome.settles_an_order() {
-            self.in_flight.take()
-        } else {
-            None
-        };
+        // worker's own ping must never make an outstanding stop look finished, so what is
+        // outstanding is part of the question. See bug 30.
+        let settles = outcome.settles(self.in_flight.as_ref());
+        let asked = if settles { self.in_flight.take() } else { None };
 
         match outcome {
             Outcome::Heartbeat(link) => self.link = link,

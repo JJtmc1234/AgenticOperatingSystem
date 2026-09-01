@@ -180,16 +180,25 @@ fn refuse_secrets(asked: &str, real: &Path) -> Result<()> {
 fn secret_part(path: &Path) -> Option<String> {
     for part in path.components() {
         let name = part.as_os_str().to_string_lossy().to_lowercase();
-        let bad = SECRET_NAMES.contains(&name.as_str())
-            // A key is still a key with something on the end of it, and id_rsa.pub sitting next
-            // to id_rsa is the thing somebody scans a directory for.
-            || KEY_STEMS.iter().any(|stem| name.starts_with(stem))
-            || SECRET_ENDINGS.iter().any(|e| name.ends_with(e));
-        if bad {
+        if is_secret_name(&name) {
             return Some(name);
         }
     }
     None
+}
+
+/// Whether one path component, already lowercased, is a name that is refused.
+///
+/// Split out so the tree walk behind `find` can apply the same list. `find` is the only
+/// capability that does not resolve through a `Scope`, so nothing ever called `refuse_secrets`
+/// for it and it handed back the names and the shape of every directory the rest of the server
+/// refuses. The contents stayed protected. Their existence did not. See bug 29.
+pub(crate) fn is_secret_name(name: &str) -> bool {
+    SECRET_NAMES.contains(&name)
+        // A key is still a key with something on the end of it, and id_rsa.pub sitting next to
+        // id_rsa is the thing somebody scans a directory for.
+        || KEY_STEMS.iter().any(|stem| name.starts_with(stem))
+        || SECRET_ENDINGS.iter().any(|e| name.ends_with(e))
 }
 
 #[cfg(test)]

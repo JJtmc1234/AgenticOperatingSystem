@@ -150,6 +150,11 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 24 | The `PlanRequired` arm of `aos start` printed the plan and returned `Ok(())`, so the process exited 0 having started nothing. A script could not tell "the gate stopped this" from "the agent is running". | Reproduced: `aos start examples/risky.json` printed "nothing has run" and exited 0, with only a `planned` record in the log. | The end to end check in the entry below, plus `cargo test` for the rest |
 | 25 | The commit command `aos start` prints was built from the spec path and plan id only, so on any run directory other than the default it named the wrong daemon. The spec path was relative too, so it also failed from any other working directory. | Reproduced: copying the printed line verbatim gave "cannot read examples/risky.json" from `/tmp`. | The end to end check in the entry below |
 | 26 | `aos run` supervised the agent in the foreground, printed its exit code, and returned `Ok(())`, so the process exited 0 whatever the agent did. The printed code was Rust `Debug` of an `Option`, so a reader looking for a number got the text `Some(1)`. | Reproduced with a spec running `/usr/bin/false`: `failer stopped, exit code Some(1)` and `EXIT=0`. | The end to end check in the entry below |
+| 27 | `Supervisor::start` refused on the presence of a key rather than on the agent being alive. Nothing calls `try_wait` on a child except `state`, so an agent that finished by itself stayed in the map, and stayed a zombie, until somebody happened to run `aos list`. A legitimate restart was refused as "already running" about a process that had been dead for some time. | Read as issue 26. Reproduced by starting an agent that exits at once and starting it again with nothing asking the supervisor anything in between. | `an_agent_that_finished_on_its_own_can_be_started_again_with_nothing_asking_first` |
+| 28 | `list` is built out of `state`, and `state` removes the agent it has just reported as stopped, so every stopped row named an id the map no longer held. The daemon then asked `is_adopted` about those ids and got false. The flag whose whole job is to explain a missing exit code was wrong in the one report that carries one. | Read as issue 27. Reproduced by adopting a real orphan, killing it from outside, and listing. | `a_stopped_adopted_agent_is_still_reported_as_adopted` |
+| 29 | `find` is the only capability that does not resolve through the scope, so `refuse_secrets` was never consulted for it and the walk descended into `.ssh`, `.aws` and everything else on the secret list. `read_file` still refused those paths, so contents were safe, but the names and the tree shape came back in full. A search for `id_` answered with `.ssh/id_rsa`. | Read as issue 28. Reproduced against the real fixture, which already puts `.ssh/id_rsa` inside a read root. | `find_does_not_report_the_files_every_other_capability_refuses`, `find_still_reaches_ordinary_files_in_ordinary_directories` |
+| 30 | `settles_an_order` treated every heartbeat as unsolicited, and `Ping` is the one order whose entire reply is a heartbeat. So one click on PING took the in flight slot and nothing ever gave it back, and `dispatch` refused every order after it. The whole command half of the panel was dead until a restart. | Read as issue 29. Reproduced by clicking PING once in `aos-panel` and then clicking anything else. | `a_heartbeat_settles_a_ping_because_that_is_the_whole_of_its_answer`, `a_ping_does_not_wedge_every_command_that_follows_it`, `a_heartbeat_does_not_settle_an_order_it_is_not_the_answer_to` |
+| 31 | `nothing_the_panel_does_writes_to_the_ledger` called six commands in a row and only one of them reached the worker. `ping` took the in flight slot, `dispatch` dropped the next three at its guard, and `request_plan` and `commit` returned before reaching `dispatch` at all. The stated guard for the panel being read only against the ledger could not have failed for the reason it exists. | Read as issue 30, alongside bug 30 and separately from it. | The same test, rewritten to send one command at a time and assert each reached the worker |
 
 ## bug 5, in full
 
@@ -1103,3 +1108,79 @@ number, which beats printing `None` and leaving somebody to work out what that m
 Verified end to end. `/usr/bin/false` gives "exit code 1" and `EXIT=1`. `/usr/bin/true` gives
 "exit code 0" and `EXIT=0`. An agent killed with SIGTERM mid run gives "ended by a signal" and
 `EXIT=128`.
+
+## bugs 27 and 28, in full
+
+Two ways the supervisor answered a question about an agent from a map rather than from the
+agent.
+
+Bug 27 is the start path. The refusal message said "is already running" and the check behind it
+was `self.agents.contains_key`. Those are not the same question. The only thing that ever takes
+a key out for an agent that exited on its own is `state`, which is reached from `list`, from
+`ping` and from the daemon's exit tick, and none of those are on the start path. So an agent
+that ran for a second and finished held its own id hostage, and the message a person got said
+the opposite of the truth.
+
+Fix. `start` asks `state` when it finds a key. Stopped means the entry has just been reaped and
+the id is free. Running refuses and now names the pid, so the claim can be checked. An error
+refuses too, for the same reason an unreadable `/proc` is not treated as a dead agent: going on
+would overwrite the entry for a child that may well still be alive.
+
+Bug 28 is the reporting path. `list` mutates the map it is describing, so the flag that explains
+a missing exit code was answered after the agent it describes had been forgotten. `list` now
+returns a `Listed` carrying the flag it read before reaping, and the daemon builds its report
+from that rather than asking a second question.
+
+The test for bug 27 cannot use the existing `wait_for_exit` helper, because that helper calls
+`state` and `state` is what reaps. It waits on the zombie in `/proc` instead, which is a state
+the process holds rather than a moment the test has to catch.
+
+## bug 29, in full
+
+The one capability that did not go through the scope.
+
+Every other file capability resolves through `Scope::to_read`, `to_change` or `to_remove`, and
+those three are the only callers of `refuse_secrets`. `find` resolves to `Resolved::Whole` and
+is handed the read root directly, so nothing in the secret list was ever consulted for it.
+
+The contents were never at risk. `read_file` still refuses every one of those paths. What leaked
+was the existence, the names and the layout of the files the server was built to refuse, which
+is most of what somebody wants before they go looking for a way in.
+
+Fix. The name check is split out of `secret_part` as `is_secret_name`, and the walk skips a
+matching entry outright rather than merely leaving it out of the hits. Outright matters: a
+refused directory must not be descended into, or the rule holds for the directory and not for
+anything inside it.
+
+The comment above `SECRET_NAMES` says these are names refused wherever they appear. That is now
+true.
+
+## bugs 30 and 31, in full
+
+A wedged panel, and the test that should have caught the wedge but ran one sixth of itself.
+
+Bug 30. `dispatch` is the single gate for every order and it refuses to send while one is
+outstanding. The slot comes back when an outcome settles, and settling was defined as anything
+that is not a heartbeat. `Ping` is the one order whose entire reply is a heartbeat. So a ping a
+person asked for was sent, answered, and never settled, and from that moment PING, every STOP,
+STOP EVERY AGENT, READ SPEC, FORGET IT, COMMIT THIS PLAN and DISCARD all did nothing.
+
+The guard the old definition was protecting is real and still holds. The worker pings on its own
+every two seconds, and one of those must never make an outstanding stop look finished. What was
+missing is that which order is outstanding is part of the question, so `settles` now takes it.
+
+Bug 31 is the test next door. `nothing_the_panel_does_writes_to_the_ledger` says in its own
+comment that it sends every command a person can reach. It called `ping` first, which took the
+slot, so `stop`, `stop_all` and `load_spec` were dropped at the guard and `request_plan` and
+`commit` returned before reaching `dispatch` at all, the second pair because the load that would
+have advanced the state was itself one of the dropped calls. The single `tick` that could have
+delivered a reply was after all six.
+
+The assertions then compared ledger bytes, modification time and directory listing, all of which
+are trivially unchanged when nothing was sent. A guard that cannot fail for the reason it exists
+reads as evidence that the property holds, which is worse than no guard.
+
+Fix. One command at a time, each one waited for, and each one asserted to have reached the worker
+before the next goes out. `commit` needs a state only a daemon can put the panel into, so the
+test puts it there by hand and says why. Fixing bug 30 does not fix this on its own: even with
+`Ping` settling correctly, the reply could not arrive until the tick at the end.
