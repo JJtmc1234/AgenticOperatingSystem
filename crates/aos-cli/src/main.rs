@@ -36,7 +36,8 @@ enum Command {
 
     /// Start an agent and supervise it in the foreground until it exits.
     ///
-    /// Standalone. Does not involve the daemon, and the daemon will not know about it.
+    /// Standalone. Does not involve the daemon, and the daemon will not know about it. The
+    /// record goes in run/foreground/<agent>.jsonl, which aos status reads and aosd does not.
     Run { spec: PathBuf },
 
     /// Ask the daemon what it is holding.

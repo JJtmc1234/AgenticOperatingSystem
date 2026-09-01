@@ -13,13 +13,28 @@ that reaches the machine without passing that gate is a bug.
 
 ## the event log is the only durable state
 
-Everything the supervisor believes is a fold over `run/events.jsonl`. Append first, then
-change the belief, never the other way round. Nothing else remembers what was running, so a
-supervisor starting up asks the log instead of guessing.
+Everything the supervisor believes is a fold over `run/events.jsonl`. The log and the world
+are never allowed to disagree about what is running. Nothing else remembers, so a supervisor
+starting up asks the log instead of guessing.
 
 This is taken from Hunter's `agentic_os` kernel, which states the rule as append, fold, then
-broadcast, in that order, always. Before reading it, the log here was write only, and the
-plan had no honest answer for what a daemon should do after a crash. Now it does.
+broadcast. Before reading it, the log here was write only, and the plan had no honest answer
+for what a daemon should do after a crash. Now it does.
+
+Starting and stopping cannot append first, and this used to say they must. A `started` record
+carries the pid and its start time, and neither exists until the child does. An `exited`
+record carries the code, which does not exist until the process is over. So those two act,
+then append, and the rule they obey instead is that a change which could not be recorded is
+either undone or reported as unrecorded, never dropped. `aosd` stops the process it could not
+write down. A stop that could not be written is reported as stopped and unrecorded, because
+undoing a stop is not possible and pretending it failed would be false. Everything that can
+append first does, refusals and plans included.
+
+`aos run` writes to `run/foreground/<agent>.jsonl` rather than to `run/events.jsonl`. It
+supervises its agent in the foreground and owns it for as long as it lives, and `aosd` adopts
+whatever the daemon log says is running, so sharing one file gave the same agent two owners.
+Two owners is two answers to what is running. `aos status` reads both and reports them under
+separate headings, since separate files must not mean an agent nothing reports.
 
 One difference. His kernel uses SQLite. This uses one JSON object per line, because the log
 has to be readable with `cat` at the moment the thing that writes it is the thing that is

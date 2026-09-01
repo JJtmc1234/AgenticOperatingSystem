@@ -8,15 +8,12 @@ use std::time::{Duration, Instant};
 
 use aos_core::Result;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StopMode {
-    /// SIGTERM. The agent may clean up.
-    Graceful,
-    /// SIGKILL. The agent gets no say.
-    Forced,
-}
-
 /// Sends SIGTERM, waits up to `grace`, then sends SIGKILL and waits again.
+///
+/// There used to be a `StopMode` enum naming those two steps, `Graceful` and `Forced`. Nothing
+/// ever constructed one, matched on one or took one as an argument, and the escalation is not
+/// a choice a caller makes: every stop does both, in this order. A type that names something
+/// real and is not the thing enforcing it reads as a knob that exists. See bug 32.
 ///
 /// Returns `None` only if the child survives both, which on Linux means it is stuck in
 /// uninterruptible sleep rather than ignoring us.

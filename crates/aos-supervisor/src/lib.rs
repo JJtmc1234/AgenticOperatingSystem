@@ -19,7 +19,6 @@ use aos_core::{AgentId, AgentSpec, AgentState, Allowlist, Error, ProcessHandle, 
 
 pub use pidfd::PidFd;
 pub use replay::{Recovered, recover};
-pub use signal::StopMode;
 pub use tracked::Tracked;
 
 /// Owns every agent this supervisor is responsible for. Dropping it does not kill them,

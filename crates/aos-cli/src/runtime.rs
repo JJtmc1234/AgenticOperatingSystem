@@ -14,8 +14,30 @@ pub fn load_spec(path: &Path) -> Result<AgentSpec> {
         .with_context(|| format!("{} is not a valid agent spec", path.display()))
 }
 
+/// The daemon's log. One per run directory, and `aosd` owns it.
 pub fn log_path(run_dir: &Path) -> PathBuf {
     run_dir.join("events.jsonl")
+}
+
+/// Where a foreground `aos run` writes, which is not where the daemon reads.
+///
+/// `aos run` used to append into the daemon's log, which made its own help text false in the
+/// way that matters. `aosd` replays that file on boot and adopts whatever it says is running,
+/// so a daemon started while an `aos run` was going took ownership of an agent that already
+/// had an owner, and `aos stop` would then kill a process the foreground run was still waiting
+/// on. Two owners means two answers to what is running, which is the one thing the log exists
+/// to prevent.
+///
+/// Sharing the file had a second effect once the ledger started taking an exclusive lock: an
+/// `aos run` against a run directory with a live daemon could not open the log at all. So the
+/// two were not merely able to collide, they could not both work.
+///
+/// One file per agent rather than one for all foreground runs, so two `aos run` calls for
+/// different agents do not queue behind each other, while two for the same agent still
+/// collide, which is a genuine conflict and should be refused. `AgentId` refuses separators
+/// and dot segments at construction, so this join is safe. See bug 33.
+pub fn foreground_log_path(run_dir: &Path, agent: &aos_core::AgentId) -> PathBuf {
+    run_dir.join("foreground").join(format!("{agent}.jsonl"))
 }
 
 fn now() -> u64 {
@@ -28,7 +50,7 @@ fn now() -> u64 {
 pub fn run(run_dir: &Path, spec_path: &Path) -> Result<crate::Exit> {
     let spec = load_spec(spec_path)?;
     let allowed = crate::allowlist(run_dir)?;
-    let mut ledger = Ledger::open(log_path(run_dir))?;
+    let mut ledger = Ledger::open(foreground_log_path(run_dir, &spec.id))?;
     let sup = Supervisor::new(allowed, run_dir.join("logs"));
 
     // The gate, before anything is started. This path used to go straight to the supervisor,
@@ -164,10 +186,42 @@ fn exit_for(code: Option<i32>) -> crate::Exit {
 /// This is what a daemon will do on boot. Exposing it as a command first means the recovery
 /// logic is exercised by hand before anything depends on it.
 pub fn status(run_dir: &Path) -> Result<()> {
-    let records = aos_core::ledger::read(log_path(run_dir))?;
+    report("the daemon's log", &log_path(run_dir))?;
+
+    // The foreground logs too. They are separate files so that a daemon cannot adopt what
+    // `aos run` is already supervising, but separate must not mean invisible: an agent nothing
+    // reports is one nobody can find. Reported under its own heading rather than merged,
+    // because each log numbers its own records and merging two would put them in an order
+    // neither file claims. See bug 33.
+    for log in foreground_logs(run_dir) {
+        let who = log
+            .file_stem()
+            .map_or_else(|| log.display().to_string(), |s| s.to_string_lossy().into());
+        report(&format!("the foreground run of {who}"), &log)?;
+    }
+    Ok(())
+}
+
+/// Every foreground log in this run directory, sorted so the output is the same twice running.
+fn foreground_logs(run_dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(run_dir.join("foreground")) else {
+        return Vec::new();
+    };
+    let mut found: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
+        .collect();
+    found.sort();
+    found
+}
+
+/// What one log says is still running, reconciled against `/proc`.
+fn report(whose: &str, log: &Path) -> Result<()> {
+    let records = aos_core::ledger::read(log)?;
     let recovered = aos_supervisor::recover(&records);
 
-    println!("{} records in the log", records.len());
+    println!("{} records in {whose}", records.len());
 
     if recovered.alive.is_empty() && recovered.lost.is_empty() {
         println!("nothing was left running");
@@ -301,6 +355,60 @@ mod tests {
         assert!(error.contains("stopped again"), "{error}");
     }
 
+    /// The bug. `aos run` appended into `events.jsonl`, which is the file `aosd` replays on
+    /// boot and adopts from. A daemon started while a foreground run was going took ownership
+    /// of an agent that already had one, and `aos stop` would then kill a process the
+    /// foreground run was still waiting on. The help text for the command says the daemon will
+    /// not know about it.
+    ///
+    /// Checked from the other end, because it is the end that can be checked without racing
+    /// two processes: nothing `aos run` does may touch the daemon's log, and the run has to
+    /// work while the daemon holds it.
+    #[test]
+    fn aos_run_leaves_the_daemons_log_alone_and_works_while_the_daemon_holds_it() {
+        let (dir, spec) = run_dir(DEFAULT_ISH, "read");
+
+        // A live `aosd` holds an exclusive lock on this file for as long as it is up. Against
+        // the old code `aos run` could not even open it, so the two subcommands could not both
+        // be used on one run directory at all.
+        let daemons_log = Ledger::open(log_path(dir.path())).unwrap();
+
+        run(dir.path(), &spec).expect("a foreground run must not need the daemon's log");
+
+        assert_eq!(
+            aos_core::ledger::read(log_path(dir.path())).unwrap().len(),
+            0,
+            "the foreground run wrote into the log the daemon adopts from"
+        );
+        assert_eq!(
+            aos_core::ledger::read(foreground_log_path(
+                dir.path(),
+                &AgentId::new("hello").unwrap()
+            ))
+            .unwrap()
+            .len(),
+            2,
+            "and its own record has to be somewhere, or the agent is unaccounted for"
+        );
+        drop(daemons_log);
+    }
+
+    /// Separate must not mean invisible. An agent nothing reports is one nobody can find, so
+    /// `status` reads the foreground logs too and says which is which.
+    #[test]
+    fn status_reports_a_foreground_run_as_well_as_the_daemons_log() {
+        let (dir, spec) = run_dir(DEFAULT_ISH, "read");
+        run(dir.path(), &spec).unwrap();
+
+        assert!(
+            foreground_logs(dir.path())
+                .iter()
+                .any(|p| p.file_stem().unwrap() == "hello"),
+            "status would not find the foreground run"
+        );
+        status(dir.path()).unwrap();
+    }
+
     /// A run directory with a policy, an allowlist and one spec in it.
     fn run_dir(policy: &str, ceiling: &str) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
@@ -358,7 +466,11 @@ destructive = "prompt"
 
         // The refusal is in the log, because a refusal nobody wrote down is the half of the
         // record worth having.
-        let records = aos_core::ledger::read(log_path(dir.path())).unwrap();
+        let records = aos_core::ledger::read(foreground_log_path(
+            dir.path(),
+            &AgentId::new("hello").unwrap(),
+        ))
+        .unwrap();
         assert_eq!(records.len(), 1, "{records:?}");
         assert!(
             matches!(records[0].event, Event::Refused { .. }),
@@ -388,16 +500,19 @@ destructive = "prompt"
 
         run(dir.path(), &spec).expect("read is allowed and should run");
 
-        let kinds: Vec<_> = aos_core::ledger::read(log_path(dir.path()))
-            .unwrap()
-            .into_iter()
-            .map(|r| match r.event {
-                Event::Started { .. } => "started",
-                Event::Exited { .. } => "exited",
-                Event::Refused { .. } => "refused",
-                _ => "other",
-            })
-            .collect();
+        let kinds: Vec<_> = aos_core::ledger::read(foreground_log_path(
+            dir.path(),
+            &AgentId::new("hello").unwrap(),
+        ))
+        .unwrap()
+        .into_iter()
+        .map(|r| match r.event {
+            Event::Started { .. } => "started",
+            Event::Exited { .. } => "exited",
+            Event::Refused { .. } => "refused",
+            _ => "other",
+        })
+        .collect();
         assert_eq!(kinds, vec!["started", "exited"], "{kinds:?}");
     }
 }

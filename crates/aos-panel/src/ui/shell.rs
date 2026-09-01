@@ -83,6 +83,11 @@ fn strip(app: &mut App, ctx: &Context) {
                 });
             });
 
+            // The badge above says the state in one word. This says why, and on a machine with
+            // no daemon running it is the line that names the fix. It was written and never
+            // drawn, so the strip showed NO DAEMON and withheld what to do about it. See bug 32.
+            ui.horizontal(|ui| widgets::link_sentence(ui, &app.link));
+
             ui.horizontal(|ui| {
                 ui.label(RichText::new(ledger_line(app)).font(theme::label()).color(
                     if app.ledger.error.is_some() {

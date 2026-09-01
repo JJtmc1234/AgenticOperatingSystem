@@ -491,6 +491,96 @@ fn nothing_reaches_outside_the_workspace_however_it_is_asked_for() {
     assert!(!d.path().join("escape.txt").exists());
 }
 
+/// A move takes the file away from where it was, so the source is a change and not a read.
+/// The server resolves it with `to_remove` for exactly that reason, and until now nothing drove
+/// `move_file` through the server at all. Swapping that one call for `to_read` would have let an
+/// agent empty a directory it was given to read, and every test in the suite would have passed.
+/// See bug 32.
+#[test]
+fn a_move_out_of_a_readable_directory_is_refused_at_the_source() {
+    let (d, scope) = narrow();
+    let out = talk(
+        &scope,
+        policy(Verdict::Allow, Verdict::Allow),
+        &[call(
+            1,
+            "move_file",
+            json!({"from": "src/main.rs", "to": "task/main.rs"}),
+        )],
+    );
+
+    let said = format!("{}", out[0]);
+    assert!(said.contains("refused"), "{said}");
+    assert!(
+        d.path().join("src/main.rs").exists(),
+        "the source was taken away anyway"
+    );
+    assert!(!d.path().join("task/main.rs").exists());
+}
+
+/// And the same call inside the workspace works, or the check above would be satisfied by a
+/// `move_file` that refuses everything.
+#[test]
+fn a_move_inside_the_workspace_goes_through() {
+    let (d, scope) = narrow();
+    std::fs::write(d.path().join("task/notes.md"), "so far").unwrap();
+
+    let out = talk(
+        &scope,
+        policy(Verdict::Allow, Verdict::Allow),
+        &[call(
+            1,
+            "move_file",
+            json!({"from": "task/notes.md", "to": "task/done.md"}),
+        )],
+    );
+
+    assert!(out[0]["error"].is_null(), "{}", out[0]);
+    assert!(!d.path().join("task/notes.md").exists());
+    assert_eq!(
+        std::fs::read_to_string(d.path().join("task/done.md")).unwrap(),
+        "so far"
+    );
+}
+
+/// `make_dir` used to tell the agent it created any missing directories above the one asked
+/// for. The resolver canonicalises the parent, so only the last level can ever be missing. The
+/// sentence was the thing that was wrong, and this is the behaviour it now describes.
+#[test]
+fn make_dir_creates_one_level_and_says_so_when_the_parent_is_missing() {
+    let (d, scope) = narrow();
+
+    let out = talk(
+        &scope,
+        policy(Verdict::Allow, Verdict::Allow),
+        &[
+            call(1, "make_dir", json!({"path": "task/one"})),
+            call(2, "make_dir", json!({"path": "task/two/three/four"})),
+        ],
+    );
+
+    assert!(out[0]["error"].is_null(), "{}", out[0]);
+    assert!(d.path().join("task/one").is_dir());
+
+    let said = format!("{}", out[1]);
+    assert!(said.contains("does not exist"), "{said}");
+    assert!(!d.path().join("task/two").exists(), "and nothing was made");
+
+    let summary = aos_mcp::tools::listing()["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "make_dir")
+        .unwrap()["description"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        summary.contains("has to exist already"),
+        "the description has to describe this: {summary}"
+    );
+}
+
 /// Allowed by policy and still refused by the scope, because they are different gates and a
 /// worker whose lead widened the policy has not thereby been given the whole disk.
 #[test]

@@ -87,7 +87,13 @@ pub const TOOLS: &[Tool] = &[
     Tool {
         name: "make_dir",
         tier: RiskTier::Write,
-        summary: "Create a directory, and any missing directories above it.",
+        // Said this way because it is what actually happens. The old sentence promised any
+        // missing directories above it, and the resolver refuses those: `Root::for_writing`
+        // canonicalises the parent, which is how a path that does not exist yet is checked for
+        // being inside the root at all, so only the last level can be missing. Changing the
+        // resolver to walk up instead would weaken the containment check for the sake of one
+        // extra convenience, so the sentence is the thing that moved. See bug 32.
+        summary: "Create a directory. The directory above it has to exist already.",
         schema: || {
             json!({
                 "type": "object",

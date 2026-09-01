@@ -1,9 +1,23 @@
 //! What happened, as data.
 //!
 //! The event log is the only durable state in AOS. Everything the supervisor believes is a
-//! fold over these records, so a record is written before the belief changes, never after.
-//! The shape of that rule is borrowed from Hunter's kernel: append, fold, then tell anyone
-//! who is listening, in that order, always.
+//! fold over these records, so the log and the world are never allowed to disagree about what
+//! is running. The shape of that rule is borrowed from Hunter's kernel: append, fold, then
+//! tell anyone who is listening.
+//!
+//! It used to say append before the belief changes, never after, and always. That is not what
+//! the code does and it is worth being exact, because a reader will reason from whichever
+//! sentence is here. `Started` carries a pid and its start token, and neither exists until the
+//! child does. `Exited` carries a code, which does not exist until the process is over. There
+//! is nothing truthful to write beforehand, so both supervisors act and then append.
+//!
+//! The rule those two obey instead is that a change which could not be recorded is either
+//! undone or reported as unrecorded, never dropped. `Daemon::launch` stops the process it
+//! could not write down, and so does `aos run`. `stop` reports the agent as stopped and
+//! unrecorded, because undoing a stop is not possible and pretending it failed would be false.
+//!
+//! Everything that can append first does. A refusal is written before the error goes back, a
+//! plan before it is offered, and a capability call before its result. See bug 33.
 
 use serde::{Deserialize, Serialize};
 

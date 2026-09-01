@@ -155,6 +155,8 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 29 | `find` is the only capability that does not resolve through the scope, so `refuse_secrets` was never consulted for it and the walk descended into `.ssh`, `.aws` and everything else on the secret list. `read_file` still refused those paths, so contents were safe, but the names and the tree shape came back in full. A search for `id_` answered with `.ssh/id_rsa`. | Read as issue 28. Reproduced against the real fixture, which already puts `.ssh/id_rsa` inside a read root. | `find_does_not_report_the_files_every_other_capability_refuses`, `find_still_reaches_ordinary_files_in_ordinary_directories` |
 | 30 | `settles_an_order` treated every heartbeat as unsolicited, and `Ping` is the one order whose entire reply is a heartbeat. So one click on PING took the in flight slot and nothing ever gave it back, and `dispatch` refused every order after it. The whole command half of the panel was dead until a restart. | Read as issue 29. Reproduced by clicking PING once in `aos-panel` and then clicking anything else. | `a_heartbeat_settles_a_ping_because_that_is_the_whole_of_its_answer`, `a_ping_does_not_wedge_every_command_that_follows_it`, `a_heartbeat_does_not_settle_an_order_it_is_not_the_answer_to` |
 | 31 | `nothing_the_panel_does_writes_to_the_ledger` called six commands in a row and only one of them reached the worker. `ping` took the in flight slot, `dispatch` dropped the next three at its guard, and `request_plan` and `commit` returned before reaching `dispatch` at all. The stated guard for the panel being read only against the ledger could not have failed for the reason it exists. | Read as issue 30, alongside bug 30 and separately from it. | The same test, rewritten to send one command at a time and assert each reached the worker |
+| 32 | Four smaller things. `make_dir` told the agent it created any missing directories above the one asked for, and the resolver canonicalises the parent so only the last level can be missing. `StopMode` was defined and publicly re exported and nothing constructed, matched on or took one. `link_sentence` was written and never drawn, so the strip said NO DAEMON and withheld the line naming the fix. And nothing drove `move_file` through the server, so the rule that a move source must be writable was stated in a comment and guarded by nothing. | Read as issue 31. Each half of every pair read before it was reported. | `make_dir_creates_one_level_and_says_so_when_the_parent_is_missing`, `a_move_out_of_a_readable_directory_is_refused_at_the_source`, `a_move_inside_the_workspace_goes_through` |
+| 33 | `aos run` appended into `events.jsonl`, the file `aosd` replays on boot and adopts from, while its own help said the daemon would not know about it. A daemon booting during a foreground run adopted an agent that already had an owner, and `aos stop` would then kill a process `aos run` was still waiting on. Once the ledger took an exclusive lock the same sharing stopped them working together at all. Separately, the append before act rule was written as an invariant with the word always, and both supervisors act then append. | Read as issue 32. The lock made the adoption race unreachable and turned it into a hard refusal instead, which is the shape the test checks. | `aos_run_leaves_the_daemons_log_alone_and_works_while_the_daemon_holds_it`, `status_reports_a_foreground_run_as_well_as_the_daemons_log` |
 
 ## bug 5, in full
 
@@ -1184,3 +1186,68 @@ Fix. One command at a time, each one waited for, and each one asserted to have r
 before the next goes out. `commit` needs a state only a daemon can put the panel into, so the
 test puts it there by hand and says why. Fixing bug 30 does not fix this on its own: even with
 `Ping` settling correctly, the reply could not arrive until the tick at the end.
+
+## bug 32, in full
+
+Four small things, each one a sentence and its code disagreeing.
+
+`make_dir` said "Create a directory, and any missing directories above it." `files::make_dir`
+would honour that, since it calls `create_dir_all`, but the call never gets there.
+`Root::for_writing` canonicalises the parent, which is how a path that does not exist yet is
+checked for being inside the root at all, so `make_dir a/b/c` with `a` absent is refused. Either
+end could have moved. The sentence moved, because walking up instead would weaken the
+containment check for the sake of one convenience.
+
+`StopMode` named `Graceful` and `Forced`. The escalation it describes is real and lives in
+`stop_child` and `stop_pinned`, which send SIGTERM, wait the grace, then send SIGKILL. But the
+mode is not a choice a caller makes: every stop does both, in that order. Nothing constructed a
+variant, matched on one, or named the type in a signature. A type that names something real
+and is not the thing enforcing it reads as a knob that exists, so it is gone and the reasoning
+is in the module instead.
+
+`link_sentence` was written, documented, and never called. `link_badge` directly above it is
+drawn, so the strip showed the word for the link state and withheld the sentence explaining it.
+On a machine with no daemon running that sentence is the one that names the fix. It is drawn
+now, on its own line, which is what its own doc comment said it needed.
+
+And `move_file` had no end to end test. The server resolves the source with `to_remove` rather
+than `to_read`, with a comment saying exactly why, and `crates/aos-mcp/tests/server.rs` did not
+contain the string `move_file` once. Swapping that one call would have let an agent empty a
+directory it was given to read, and every test in the suite would still have passed. Checked by
+making that swap: the new test fails, and the file really is moved out.
+
+## bug 33, in full
+
+Who owns the log, and what the log rule actually is.
+
+`aos run` supervises an agent in the foreground and owns it for as long as it lives. It wrote
+its records into `run/events.jsonl`, which is the file `aosd` replays on boot and adopts
+everything from. So a daemon started while a foreground run was going took ownership of an
+agent that already had an owner. Both then believed they held it, and a stop through the daemon
+would kill a process the foreground run was still waiting on. The help text for the command
+says, in as many words, that the daemon will not know about it.
+
+The exclusive lock from bug 11 had already turned the race into something blunter. A second
+opener of the same log is refused, so `aos run` against a run directory with a live daemon could
+not open the log at all, and the two subcommands could not both be used. That is the shape the
+test checks, because it can be checked without racing two processes.
+
+Fix. `aos run` writes to `run/foreground/<agent>.jsonl`. One file per agent, so two runs of
+different agents do not queue behind each other while two of the same agent still collide, which
+is a real conflict and should be refused. `aos status` reads the daemon log and every foreground
+log and reports them under separate headings, because separate files must not mean an agent
+nothing reports. They are not merged: each file numbers its own records, and merging two would
+put them in an order neither file claims.
+
+The second half is a sentence. `event.rs` said a record is written before the belief changes,
+never after, borrowed the shape from Hunter's kernel, and ended with the word always.
+`infrastructure.md` said the same. Neither supervisor does that, and neither can: a `started`
+record carries a pid and a start token that do not exist until the child does, and an `exited`
+record carries a code that does not exist until the process is over.
+
+The behaviour is right and the sentence was wrong, so the sentence changed. The rule those two
+paths obey is that a change which could not be recorded is either undone or reported as
+unrecorded, never dropped. `Daemon::launch` stops the process it could not write down and so
+does `aos run`. A stop that could not be written is reported as stopped and unrecorded, because
+undoing a stop is not possible and pretending it failed would be false. Everything that can
+append first still does.
