@@ -12,6 +12,7 @@ pub mod gate;
 pub mod ledger;
 pub mod plan;
 pub mod policy;
+pub mod program;
 pub mod protocol;
 pub mod tier;
 

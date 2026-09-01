@@ -1,6 +1,6 @@
 {
   "id": "risky",
-  "program": "/usr/bin/sleep",
-  "args": ["30"],
+  "program": "/usr/bin/rm",
+  "args": ["-f", "/tmp/aos-demo-scratch"],
   "ceiling": "destructive"
 }

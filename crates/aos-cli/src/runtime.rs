@@ -415,15 +415,28 @@ mod tests {
         std::fs::write(dir.path().join("policy.toml"), policy).unwrap();
         std::fs::write(
             dir.path().join("allowed-programs.json"),
-            r#"["/usr/bin/sleep"]"#,
+            r#"["/usr/bin/sleep","/usr/bin/rm"]"#,
         )
         .unwrap();
+
+        // The program is picked from the tier, because the gate derives the tier from the
+        // program now and a spec that merely claims one proves nothing about the path under
+        // test. The destructive one really is `rm`, pointed at a path carrying this process id
+        // that cannot exist, so `-f` exits 0 having deleted nothing. See bug 34.
+        let (program, args) = match ceiling {
+            "read" => ("/usr/bin/sleep", r#"["0.01"]"#.to_string()),
+            "destructive" => (
+                "/usr/bin/rm",
+                format!(r#"["-f","/tmp/aos-cli-test-{}"]"#, std::process::id()),
+            ),
+            other => panic!("no program picked for tier {other}"),
+        };
 
         let spec = dir.path().join("spec.json");
         std::fs::write(
             &spec,
             format!(
-                r#"{{"id":"hello","program":"/usr/bin/sleep","args":["0.01"],"ceiling":"{ceiling}"}}"#
+                r#"{{"id":"hello","program":"{program}","args":{args},"ceiling":"{ceiling}"}}"#
             ),
         )
         .unwrap();

@@ -64,7 +64,10 @@ impl Gate {
 
     /// The full decision, for a caller that can hold a plan between two calls.
     pub fn decide(&mut self, spec: &AgentSpec, commit: Option<PlanId>, now: u64) -> Decision {
-        let tier = spec.ceiling;
+        let tier = match judged_at(spec) {
+            Ok(tier) => tier,
+            Err(refusal) => return refusal,
+        };
 
         match self.policy.verdict(&spec.id, tier) {
             Verdict::Allow => Decision::Allow,
@@ -108,7 +111,10 @@ impl Gate {
     /// Takes `&self`, which is the useful part: with no plan to propose there is nothing to
     /// mutate, so this cannot leave state behind on a path that refused.
     pub fn decide_without_handshake(&self, spec: &AgentSpec) -> Decision {
-        let tier = spec.ceiling;
+        let tier = match judged_at(spec) {
+            Ok(tier) => tier,
+            Err(refusal) => return refusal,
+        };
 
         match self.policy.verdict(&spec.id, tier) {
             Verdict::Allow => Decision::Allow,
@@ -127,18 +133,56 @@ impl Gate {
     }
 }
 
+/// The tier this request is judged at, or the refusal that a spec is reaching past its own cap.
+///
+/// Two separate things, and the gate used to conflate them into one field the caller chose.
+///
+/// The tier comes from the program, because a caller that names its own tier names its own
+/// verdict. `ceiling` is what its own doc comment always said it was, the highest tier this
+/// agent may reach, so a spec can lower what it is allowed to do and can never raise it. The
+/// old code read `ceiling` as the tier, which made it a request rather than a limit: sending
+/// `"ceiling":"read"` for `/usr/bin/rm` skipped the plan and commit handshake entirely and the
+/// log recorded only that something started. See bug 34.
+fn judged_at(spec: &AgentSpec) -> std::result::Result<RiskTier, Decision> {
+    let tier = crate::program::tier_of(&spec.program);
+    if tier > spec.ceiling {
+        return Err(Decision::Denied {
+            reason: format!(
+                "{} would run {}, which is tier {tier}, and its ceiling is {}. A spec may lower \
+                 what it is allowed to reach and never raise it",
+                spec.id, spec.program, spec.ceiling
+            ),
+        });
+    }
+    Ok(tier)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::AgentId;
     use std::collections::BTreeMap;
 
+    /// A spec whose program really is at the tier named.
+    ///
+    /// The gate derives the tier from the program now, so a spec that merely claims a tier
+    /// proves nothing about the path being tested. Claiming one was the whole of bug 34.
     fn spec(id: &str, ceiling: RiskTier) -> AgentSpec {
         AgentSpec {
             id: AgentId::new(id).unwrap(),
-            program: "/usr/bin/sleep".into(),
+            program: program_at(ceiling).into(),
             args: vec!["1".into()],
             ceiling,
+        }
+    }
+
+    /// One real program per tier, so a test that says destructive gets a destructive program.
+    fn program_at(tier: RiskTier) -> &'static str {
+        match tier {
+            RiskTier::Read => "/usr/bin/sleep",
+            RiskTier::Write => "/usr/bin/mkdir",
+            RiskTier::System => "/usr/bin/chmod",
+            RiskTier::Destructive => "/usr/bin/rm",
         }
     }
 
@@ -203,6 +247,68 @@ mod tests {
 
         // And nothing was left behind, because the refusing path never proposes.
         assert_eq!(gate.plans_pending(), 0);
+    }
+
+    /// The bug. The gate read the tier out of the caller's own request, so a caller picked its
+    /// own verdict. Two launches of `/usr/bin/rm` differing only in `ceiling` answered
+    /// `plan_required` for destructive and `started` for read, the second deleting the target
+    /// with no plan, no commit and no human, and the log recorded only that something started.
+    #[test]
+    fn a_spec_cannot_lower_its_own_tier_to_skip_the_handshake() {
+        let mut gate = Gate::new(Policy::default());
+        let sneaky = AgentSpec {
+            id: AgentId::new("sneaky").unwrap(),
+            program: "/usr/bin/rm".into(),
+            args: vec!["-rf".into(), "/tmp/whatever".into()],
+            ceiling: RiskTier::Read,
+        };
+
+        // Read is Allow under the default policy, which is what the old code answered here.
+        let Decision::Denied { reason } = gate.decide(&sneaky, None, 0) else {
+            panic!("a destructive program claiming tier read must not be allowed outright");
+        };
+        assert!(reason.contains("tier destructive"), "{reason}");
+        assert!(reason.contains("never raise it"), "{reason}");
+
+        // And the honest version of the same request is planned rather than run.
+        let honest = AgentSpec {
+            ceiling: RiskTier::Destructive,
+            ..sneaky
+        };
+        assert!(matches!(
+            gate.decide(&honest, None, 0),
+            Decision::Planned {
+                tier: RiskTier::Destructive,
+                ..
+            }
+        ));
+    }
+
+    /// The ceiling still does the job its doc comment describes. A spec may lower what it is
+    /// allowed to reach, so an agent declared at read cannot quietly become one that writes.
+    #[test]
+    fn a_ceiling_below_the_program_refuses_and_one_above_it_does_not_raise_anything() {
+        let mut gate = Gate::new(Policy::default());
+        let writing = AgentSpec {
+            id: AgentId::new("writer").unwrap(),
+            program: "/usr/bin/mkdir".into(),
+            args: vec!["/tmp/aos-demo".into()],
+            ceiling: RiskTier::Read,
+        };
+        assert!(matches!(
+            gate.decide(&writing, None, 0),
+            Decision::Denied { .. }
+        ));
+
+        // A ceiling above the program is no refusal and buys nothing: the tier is still the
+        // program's, so this is judged at read and allowed, not at destructive and planned.
+        let harmless = AgentSpec {
+            id: AgentId::new("harmless").unwrap(),
+            program: "/usr/bin/sleep".into(),
+            args: vec!["1".into()],
+            ceiling: RiskTier::Destructive,
+        };
+        assert_eq!(gate.decide(&harmless, None, 0), Decision::Allow);
     }
 
     #[test]

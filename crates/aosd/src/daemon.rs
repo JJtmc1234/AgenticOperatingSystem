@@ -436,7 +436,14 @@ mod tests {
 
         // Write is Prompt under the default policy, so this is the planning call.
         let response = refusing(Policy::default(), dir.path()).handle(Request::Start {
-            spec: Box::new(spec("risky", "/usr/bin/sleep", &["1"], RiskTier::Write)),
+            // mkdir, because the tier comes from the program now and sleep is read, which
+            // would be allowed outright and never reach a plan at all. See bug 34.
+            spec: Box::new(spec(
+                "risky",
+                "/usr/bin/mkdir",
+                &["/tmp/aos-x"],
+                RiskTier::Write,
+            )),
             commit: None,
         });
 

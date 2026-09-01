@@ -98,7 +98,7 @@ fn run_dir() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("allowed-programs.json"),
-        r#"["/usr/bin/sleep","/usr/bin/echo"]"#,
+        r#"["/usr/bin/sleep","/usr/bin/echo","/usr/bin/mkdir","/usr/bin/rm"]"#,
     )
     .unwrap();
     dir
@@ -123,13 +123,39 @@ destructive = "prompt"
 "#;
 
 /// A start request at a given tier, optionally quoting a plan.
+///
+/// The program is picked from the tier rather than fixed, because the gate derives the tier
+/// from the program now. A spec that merely claims a tier proves nothing about the path being
+/// tested, and claiming one was the whole of bug 34. `secs` still varies the arguments, which
+/// is what the plan binding tests need.
 fn start_at(id: &str, secs: &str, tier: &str, commit: Option<&str>) -> String {
     let commit = commit
         .map(|c| format!(r#","commit":"{c}""#))
         .unwrap_or_default();
+    let (program, args) = program_at(tier, secs);
     format!(
-        r#"{{"request":"start","spec":{{"id":"{id}","program":"/usr/bin/sleep","args":["{secs}"],"ceiling":"{tier}"}}{commit}}}"#
+        r#"{{"request":"start","spec":{{"id":"{id}","program":"{program}","args":{args},"ceiling":"{tier}"}}{commit}}}"#
     )
+}
+
+/// One real program per tier, with arguments that vary with `secs`.
+///
+/// The destructive one really is `rm`, and the path it is pointed at carries this process id
+/// and cannot exist, so `-f` makes it exit 0 having deleted nothing. A test that proves the
+/// destructive handshake works must use a destructive program, and it must not lose anything.
+fn program_at(tier: &str, secs: &str) -> (&'static str, String) {
+    match tier {
+        "read" => ("/usr/bin/sleep", format!(r#"["{secs}"]"#)),
+        "write" => (
+            "/usr/bin/mkdir",
+            format!(r#"["/tmp/aos-test-{}-{secs}"]"#, std::process::id()),
+        ),
+        "destructive" => (
+            "/usr/bin/rm",
+            format!(r#"["-f","/tmp/aos-test-{}-{secs}"]"#, std::process::id()),
+        ),
+        other => panic!("no program picked for tier {other}"),
+    }
 }
 
 fn plan_id_of(answer: &str) -> String {
@@ -257,10 +283,22 @@ fn a_refused_start_is_answered_and_recorded() {
     let dir = run_dir();
     let daemon = Aosd::start(dir.path());
 
+    // A program at tier read, so the gate passes it and the allowlist is what refuses. Using a
+    // shell here would be refused one gate earlier now, for reaching past its own ceiling, and
+    // this test is about the allowlist.
     let refused = daemon.ask(
-        r#"{"request":"start","spec":{"id":"shady","program":"/bin/sh","args":["-c","echo hi"],"ceiling":"read"}}"#,
+        r#"{"request":"start","spec":{"id":"shady","program":"/usr/bin/cat","args":["/etc/hostname"],"ceiling":"read"}}"#,
     );
     assert!(refused.contains("not an allowed program"), "{refused}");
+
+    // And a shell is refused however it is spelled, at whichever gate reaches it first.
+    for spelling in [
+        r#"{"request":"start","spec":{"id":"shady2","program":"/bin/sh","args":["-c","echo hi"],"ceiling":"read"}}"#,
+        r#"{"request":"start","spec":{"id":"shady3","program":"/bin/sh","args":["-c","echo hi"],"ceiling":"destructive"}}"#,
+    ] {
+        let answer = daemon.ask(spelling);
+        assert!(!answer.contains("\"started\""), "{answer}");
+    }
 
     let log = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
     assert!(

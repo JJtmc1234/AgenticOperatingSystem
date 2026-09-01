@@ -157,6 +157,7 @@ Verified ten runs against the fix, all passing, and ten against the restored bug
 | 31 | `nothing_the_panel_does_writes_to_the_ledger` called six commands in a row and only one of them reached the worker. `ping` took the in flight slot, `dispatch` dropped the next three at its guard, and `request_plan` and `commit` returned before reaching `dispatch` at all. The stated guard for the panel being read only against the ledger could not have failed for the reason it exists. | Read as issue 30, alongside bug 30 and separately from it. | The same test, rewritten to send one command at a time and assert each reached the worker |
 | 32 | Four smaller things. `make_dir` told the agent it created any missing directories above the one asked for, and the resolver canonicalises the parent so only the last level can be missing. `StopMode` was defined and publicly re exported and nothing constructed, matched on or took one. `link_sentence` was written and never drawn, so the strip said NO DAEMON and withheld the line naming the fix. And nothing drove `move_file` through the server, so the rule that a move source must be writable was stated in a comment and guarded by nothing. | Read as issue 31. Each half of every pair read before it was reported. | `make_dir_creates_one_level_and_says_so_when_the_parent_is_missing`, `a_move_out_of_a_readable_directory_is_refused_at_the_source`, `a_move_inside_the_workspace_goes_through` |
 | 33 | `aos run` appended into `events.jsonl`, the file `aosd` replays on boot and adopts from, while its own help said the daemon would not know about it. A daemon booting during a foreground run adopted an agent that already had an owner, and `aos stop` would then kill a process `aos run` was still waiting on. Once the ledger took an exclusive lock the same sharing stopped them working together at all. Separately, the append before act rule was written as an invariant with the word always, and both supervisors act then append. | Read as issue 32. The lock made the adoption race unreachable and turned it into a hard refusal instead, which is the shape the test checks. | `aos_run_leaves_the_daemons_log_alone_and_works_while_the_daemon_holds_it`, `status_reports_a_foreground_run_as_well_as_the_daemons_log` |
+| 34 | The policy gate took the tier straight out of the caller's own request, so a caller picked its own tier and therefore its own verdict, and could skip the plan and commit handshake entirely. With `/usr/bin/rm` on the allowlist, two byte identical launches differing only in `"ceiling"` answered `plan_required` for destructive and `started` for read. The second deleted the target with no plan, no commit and no human, and the log recorded only `"event":"started"`. | Read as issue 15, then reproduced against a live `aosd`: `riska` at destructive answered plan_required and the directory survived, `riskb` at read answered started and it did not. | `a_spec_cannot_lower_its_own_tier_to_skip_the_handshake`, `a_ceiling_below_the_program_refuses_and_one_above_it_does_not_raise_anything`, `the_tier_comes_from_the_program`, `a_program_nobody_classified_is_not_treated_as_harmless`, `an_interpreter_or_a_privilege_raise_is_the_top_tier` |
 
 ## bug 5, in full
 
@@ -1251,3 +1252,46 @@ unrecorded, never dropped. `Daemon::launch` stops the process it could not write
 does `aos run`. A stop that could not be written is reported as stopped and unrecorded, because
 undoing a stop is not possible and pretending it failed would be false. Everything that can
 append first still does.
+
+## bug 34, in full
+
+The gate asked the caller how dangerous the caller was.
+
+`Daemon::gate` read `let tier = spec.ceiling` and handed that to `policy.verdict`. `ceiling`
+arrives verbatim in the `Start` request, so the number the gate judged by was chosen by the
+thing being judged. That is not a gate. Sending the same launch twice with nothing different
+but that one string gave `plan_required` for `destructive` and `started` for `read`, and only
+the second one deleted anything. The log then recorded a plain `started`, so nothing afterwards
+could tell that a destructive action had run.
+
+Fix, in two halves.
+
+The tier now comes from the program, through a table in `aos-core/src/program.rs` keyed on the
+file name so `/bin/rm` and `/usr/bin/rm` are the same program. A program nobody has classified
+answers System rather than Read, because Read means changes nothing and nothing here has
+established that about a program it has never heard of. System rather than Destructive, because
+the top tier should mean this particular thing loses data that cannot come back, and flattening
+the two would make it stop meaning anything. Under the default policy System prompts, so an
+unknown program gets a plan and a person rather than a refusal or a free pass.
+
+Interpreters and shells are at the top tier. Each takes code on its own argument vector, so
+allowing one grants everything every other gate protects, which is why CLAUDE.md says never to
+put one on an allowlist. If one ever gets there anyway, it needs a human every time instead of
+inheriting whatever tier the caller felt like claiming.
+
+Arguments are deliberately not consulted. A classifier over argument strings looks like a gate
+and is not one: alternative spellings, quoting, `--`, long and short flags and an environment
+prefix all reach the same effect under a different string, and every near miss reads as allowed.
+A tier is a property of what the binary can do, and the binary is what a human wrote on the
+allowlist.
+
+The second half is `ceiling`, which now does the job its own doc comment always described. It is
+the highest tier this agent may reach, so a spec whose program is above it is refused. A spec
+can lower what it is allowed to do and can never raise it, and a ceiling above the program buys
+nothing, since the tier is still the program's.
+
+Every test that reached the prompting path by writing `"ceiling":"destructive"` next to
+`/usr/bin/sleep` was proving nothing, and each one now names a program that really is at the
+tier it tests. `examples/risky.json` was the same fiction and now runs `rm -f` on a scratch path.
+The destructive programs in the test suite are pointed at paths carrying the test process id
+that cannot exist, so `-f` exits 0 having deleted nothing.

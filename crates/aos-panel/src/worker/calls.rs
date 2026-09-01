@@ -176,7 +176,11 @@ pub(super) fn load_spec(run_dir: &Path, path: &Path) -> Outcome {
 
     let policy_path = run_dir.join("policy.toml");
     let verdict = match (policy_path.exists(), aos_core::Policy::load(&policy_path)) {
-        (true, Ok(policy)) => Some(policy.verdict(&spec.id, spec.ceiling)),
+        // The tier the daemon will judge at, which comes from the program. Labelling the
+        // button from `spec.ceiling` would show a verdict for a tier nothing uses. See bug 34.
+        (true, Ok(policy)) => {
+            Some(policy.verdict(&spec.id, aos_core::program::tier_of(&spec.program)))
+        }
         // A policy that will not parse is not a policy. Saying nothing is known beats
         // labelling the button from a file the daemon will refuse to load.
         _ => None,

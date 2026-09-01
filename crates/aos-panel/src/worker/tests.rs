@@ -13,7 +13,17 @@ use crate::link::Link;
 fn spec(id: &str, ceiling: RiskTier) -> AgentSpec {
     AgentSpec {
         id: AgentId::new(id).unwrap(),
-        program: "/usr/bin/echo".into(),
+        // A program that really is at the tier named. The verdict comes from the program now,
+        // so a spec that only claims a tier is judged at whatever its program actually is, and
+        // claiming one was the whole of bug 34. Nothing here runs a process: the daemon on the
+        // other end of these tests is a stub.
+        program: match ceiling {
+            RiskTier::Read => "/usr/bin/echo",
+            RiskTier::Write => "/usr/bin/mkdir",
+            RiskTier::System => "/usr/bin/chmod",
+            RiskTier::Destructive => "/usr/bin/rm",
+        }
+        .into(),
         args: vec!["hello".into()],
         ceiling,
     }
@@ -271,7 +281,7 @@ fn the_planning_call_runs_nothing_and_the_committing_call_is_a_second_request() 
         } => {
             assert_eq!(agent.as_str(), "risky");
             assert_eq!(*tier, RiskTier::Destructive);
-            assert!(summary.contains("would run /usr/bin/echo"), "{summary}");
+            assert!(summary.contains("would run /usr/bin/rm"), "{summary}");
             plan.clone()
         }
         other => panic!("expected a plan and nothing started, got {other:?}"),
