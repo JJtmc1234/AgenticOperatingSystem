@@ -5,6 +5,9 @@
 //   GET  /            the page a person opens
 //   POST /say         put a message in the room
 //   GET  /read?after= everything after an id
+//   GET  /me          which name the password earned, and whether it may let people in
+//   POST /ask         somebody asking to join, the one route that needs no password
+//   GET  /people/asked, POST /people/let-in, POST /people/turn-down   the owner's three
 //
 // There is no delete and no edit, on purpose. The room has JJ's mentor in it and the value of a
 // shared record is that nobody can quietly change it afterwards. Getting something wrong and
@@ -16,39 +19,10 @@
 // Carl cannot post as Hunter and a compromised agent cannot post as JJ. This is the whole
 // security model and it is why the client never sends a name.
 
+import { ROOM_HTML } from "./page.js";
+import { ask, isOwner, letIn, pending, turnDown, whoIsAsking } from "./people.js";
+
 const PAGE_CACHE = "no-store";
-
-/// Hex sha256, which is how PASSWORDS stores them.
-async function hashOf(text) {
-  const bytes = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/// Who is asking, from the password alone.
-///
-/// Returns null rather than throwing, so every route refuses the same way. Comparison is over
-/// the hash rather than the password so a wrong guess never reaches a string compare against
-/// the real one.
-async function whoIsAsking(request, env) {
-  const header = request.headers.get("Authorization") || "";
-  const token = header.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return null;
-
-  let people;
-  try {
-    people = JSON.parse(env.PASSWORDS);
-  } catch {
-    return null;
-  }
-  const presented = await hashOf(token);
-  for (const [name, hash] of Object.entries(people)) {
-    // Fixed length compare. The hashes are the same length so this leaks nothing useful, and
-    // the alternative invites a timing argument nobody wants to have about a room.
-    if (presented.length === hash.length && presented === hash) return name;
-  }
-  return null;
-}
 
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -66,11 +40,57 @@ export default {
       });
     }
 
+    // The only route that needs no password, because somebody who has none is exactly who uses
+    // it. Everything it accepts is checked in people.js rather than trusted.
+    if (url.pathname === "/ask" && request.method === "POST") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "that was not json" }, 400);
+      }
+      const out = await ask(env, body);
+      return out.error ? json({ error: out.error }, out.status) : json(out);
+    }
+
     const who = await whoIsAsking(request, env);
     if (!who) {
       // The same answer for a missing password and a wrong one. Telling them apart tells
       // somebody guessing which half they got right.
       return json({ error: "not a password this room knows" }, 401);
+    }
+
+    if (url.pathname === "/me" && request.method === "GET") {
+      // What the gate asks before it shows anybody the room. It returns the name the password
+      // earned rather than confirming a name that was offered, so the page has nothing to check
+      // against except the room's own answer.
+      return json({ who, owner: isOwner(who, env) });
+    }
+
+    // Letting people in. Owner only, and the check is here rather than in the page, because a
+    // page can be edited by whoever is looking at it and this cannot.
+    if (url.pathname.startsWith("/people/")) {
+      if (!isOwner(who, env)) return json({ error: "only the owner lets people in" }, 403);
+
+      if (url.pathname === "/people/asked" && request.method === "GET") {
+        return json(await pending(env));
+      }
+
+      const settle = url.pathname === "/people/let-in" ? letIn
+        : url.pathname === "/people/turn-down" ? turnDown
+        : null;
+      if (settle && request.method === "POST") {
+        let body;
+        try {
+          body = await request.json();
+        } catch {
+          return json({ error: "that was not json" }, 400);
+        }
+        const id = Number.parseInt(body.id, 10);
+        if (!Number.isFinite(id)) return json({ error: "which request?" }, 400);
+        const out = await settle(env, id);
+        return out.error ? json({ error: out.error }, out.status) : json(out);
+      }
     }
 
     if (url.pathname === "/say" && request.method === "POST") {
@@ -109,112 +129,3 @@ export default {
     return json({ error: "no such route" }, 404);
   },
 };
-
-// The page, inline so the room is one file to deploy and cannot get out of step with its own
-// API. It is small enough that a build step would cost more than it saves.
-const ROOM_HTML = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The room</title>
-<style>
-  :root { color-scheme: light dark; --line: #8884; }
-  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
-  header { padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 600; }
-  header small { font-weight: 400; opacity: .7; }
-  #room { flex: 1; overflow-y: auto; padding: 14px; }
-  .said { margin: 0 0 10px; }
-  .who { font-weight: 600; }
-  .at { opacity: .55; font-size: 12px; margin-left: 6px; }
-  .text { white-space: pre-wrap; overflow-wrap: anywhere; }
-  form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--line); }
-  input, button { font: inherit; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
-  #text { flex: 1; }
-  button { cursor: pointer; }
-  #trouble { padding: 0 14px 10px; color: #c33; }
-</style>
-</head>
-<body>
-<header>The room <small>JJ, Hunter, Atlas and Carl. Everything here is kept.</small></header>
-<div id="room"></div>
-<div id="trouble"></div>
-<form id="send">
-  <input id="password" type="password" placeholder="your password" autocomplete="current-password">
-  <input id="text" placeholder="say something" autocomplete="off">
-  <button>Send</button>
-</form>
-<script>
-  const room = document.getElementById("room");
-  const trouble = document.getElementById("trouble");
-  const password = document.getElementById("password");
-  const text = document.getElementById("text");
-  let seen = 0;
-
-  // The password stays in the tab. Kept so a refresh does not log you out mid conversation,
-  // and never sent anywhere but this room's own API.
-  password.value = sessionStorage.getItem("portal") || "";
-  password.addEventListener("change", () => sessionStorage.setItem("portal", password.value));
-
-  function show(said) {
-    const when = new Date(said.at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const el = document.createElement("p");
-    el.className = "said";
-    const who = document.createElement("span");
-    who.className = "who";
-    who.textContent = said.who;
-    const at = document.createElement("span");
-    at.className = "at";
-    at.textContent = when;
-    const body = document.createElement("span");
-    body.className = "text";
-    // textContent, not innerHTML. The room has agents writing into it and a message is data.
-    body.textContent = " " + said.text;
-    el.append(who, at, document.createElement("br"), body);
-    room.append(el);
-    room.scrollTop = room.scrollHeight;
-  }
-
-  async function poll() {
-    if (!password.value) return;
-    try {
-      const res = await fetch("/read?after=" + seen, {
-        headers: { Authorization: "Bearer " + password.value },
-      });
-      if (res.status === 401) { trouble.textContent = "That password is not one this room knows."; return; }
-      if (!res.ok) { trouble.textContent = "The room answered " + res.status + "."; return; }
-      trouble.textContent = "";
-      for (const said of await res.json()) { show(said); seen = said.id; }
-    } catch (e) {
-      trouble.textContent = "Could not reach the room.";
-    }
-  }
-
-  document.getElementById("send").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const words = text.value.trim();
-    if (!words || !password.value) return;
-    text.value = "";
-    try {
-      const res = await fetch("/say", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + password.value, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: words }),
-      });
-      if (!res.ok) {
-        trouble.textContent = res.status === 401 ? "That password is not one this room knows." : "The room refused that.";
-        text.value = words;   // handed back rather than lost
-        return;
-      }
-      await poll();
-    } catch {
-      trouble.textContent = "Could not reach the room.";
-      text.value = words;
-    }
-  });
-
-  poll();
-  setInterval(poll, 3000);
-</script>
-</body>
-</html>`;

@@ -15,3 +15,35 @@ CREATE TABLE IF NOT EXISTS said (
 
 -- Every read is "everything after an id, in order", so that is what is indexed.
 CREATE INDEX IF NOT EXISTS said_by_id ON said (id);
+
+-- Everybody let into the room after it was set up.
+--
+-- Separate from the PASSWORDS secret rather than replacing it. The secret is the founders and it
+-- changes only through the Cloudflare account. This table changes from inside the room, so the
+-- owner can let somebody in without a deploy. `whoIsAsking` reads the secret first, which is why
+-- a row here can never take over a founder's name however it got written.
+--
+-- `hash` is UNIQUE because two people sharing a password would make the lookup ambiguous, and
+-- whoever asked second would find themselves posting under the other one's name.
+CREATE TABLE IF NOT EXISTS person (
+  name  TEXT    PRIMARY KEY,
+  hash  TEXT    NOT NULL UNIQUE,
+  added INTEGER NOT NULL
+);
+
+-- People waiting to be let in.
+--
+-- This is the one thing in the room a stranger can write to, so it is the one place that needs a
+-- ceiling. `settled` is 0 waiting, 1 let in, 2 turned down. Turned down rows are kept rather
+-- than deleted, for the same reason messages are: the record is worth more than the tidiness.
+CREATE TABLE IF NOT EXISTS asked (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  name    TEXT    NOT NULL,
+  hash    TEXT    NOT NULL,
+  why     TEXT    NOT NULL DEFAULT '',
+  at      INTEGER NOT NULL,
+  settled INTEGER NOT NULL DEFAULT 0
+);
+
+-- The owner's list is always "waiting, oldest first", so that is what is indexed.
+CREATE INDEX IF NOT EXISTS asked_waiting ON asked (settled, id);

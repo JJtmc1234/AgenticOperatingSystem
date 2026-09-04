@@ -10,3 +10,11 @@ database_id = "9df592ba-bb03-49ae-af1c-6a5aba952efb"
 
 # PASSWORDS is deliberately not here. It is a secret, set with `wrangler secret put PASSWORDS`,
 # so it cannot be read back out of the dashboard or committed by accident.
+
+[vars]
+# Who may let other people in. Not a secret, because knowing it grants nothing: the routes check
+# it against the name a password earned, and only JJ's password earns JJ.
+#
+# Named here rather than inferred from PASSWORDS, because "the first name in the secret" would
+# quietly move the day somebody reorders that object.
+OWNER = "JJ"
