@@ -780,14 +780,33 @@ fn every_panel_is_told_a_question_is_over_and_not_only_the_one_that_answered_it(
     let (dir, _people) = backend();
     let at = listen::socket_path(dir.path());
 
+    // Two things have to have happened before the answer is sent, and this used to wait for
+    // both by sleeping. It failed about one run in two on a busy machine, always the same
+    // way: the answer overtook the question, the watcher was told the question had settled
+    // without ever being told it existed, and `saw_question` was false.
+    //
+    // Sleeping is not synchronisation. Each thread now says when it is ready and this one
+    // waits to be told, so the test proves the ordering it is about rather than the speed of
+    // the machine it is on.
+    let (subscribed, is_subscribed) = std::sync::mpsc::channel();
+    let (asked, was_asked) = std::sync::mpsc::channel();
+
     let watching = {
         let at = at.clone();
         std::thread::spawn(move || {
             let mut events = PanelClient::connect(&at).unwrap().subscribe(0).unwrap();
+            // Subscribed, so a question raised from here on is a live push rather than the
+            // backlog a fresh subscriber is sent, which is the thing being tested.
+            subscribed.send(()).unwrap();
             let mut saw_question = false;
             loop {
                 match events.recv().unwrap() {
-                    Incoming::Asked(_) => saw_question = true,
+                    Incoming::Asked(_) => {
+                        saw_question = true;
+                        // Only the first one. The channel is consumed once and a second send
+                        // would find nobody listening.
+                        let _ = asked.send(());
+                    }
                     Incoming::Answered { question, verdict } => {
                         return (saw_question, question, verdict);
                     }
@@ -797,9 +816,12 @@ fn every_panel_is_told_a_question_is_over_and_not_only_the_one_that_answered_it(
         })
     };
 
-    // Given a moment to be subscribed before the question exists, so this is testing the live
-    // push rather than the backlog a fresh subscriber is sent.
-    std::thread::sleep(std::time::Duration::from_millis(120));
+    // With a bound, so a push that never comes fails this test rather than hanging it. A
+    // suite that stops dead says less than one that says which wait was never satisfied, and
+    // it says it to somebody who has to go and kill it.
+    is_subscribed
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the watcher never reported itself subscribed");
 
     let asking = {
         let at = at.clone();
@@ -810,7 +832,12 @@ fn every_panel_is_told_a_question_is_over_and_not_only_the_one_that_answered_it(
                 .unwrap()
         })
     };
-    std::thread::sleep(std::time::Duration::from_millis(120));
+
+    // The watcher has the question. Answering now is answering something it is holding, which
+    // is the situation this test is named after.
+    was_asked
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the watcher was never pushed the question, so it could not be holding it");
     PanelClient::connect(&at)
         .unwrap()
         .answer("q-2", Verdict::Deny)
@@ -829,6 +856,29 @@ fn a_panel_that_connects_late_still_sees_what_is_already_waiting() {
     let (dir, _people) = backend();
     let at = listen::socket_path(dir.path());
 
+    // A probe that is already listening, so there is a way to know when the question exists.
+    //
+    // The panel snapshot does not carry questions, so its sequence number never moves for one
+    // and there is nothing else to poll. Watching from before it is asked is the only honest
+    // way to be told it has been.
+    let (recorded, is_recorded) = std::sync::mpsc::channel();
+    let probe = {
+        let at = at.clone();
+        std::thread::spawn(move || {
+            let mut events = PanelClient::connect(&at).unwrap().subscribe(0).unwrap();
+            recorded.send(()).unwrap();
+            loop {
+                if let Incoming::Asked(_) = events.recv().unwrap() {
+                    recorded.send(()).unwrap();
+                    return;
+                }
+            }
+        })
+    };
+    is_recorded
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the probe never subscribed");
+
     let asking = {
         let at = at.clone();
         std::thread::spawn(move || {
@@ -838,7 +888,17 @@ fn a_panel_that_connects_late_still_sees_what_is_already_waiting() {
                 .unwrap()
         })
     };
-    std::thread::sleep(std::time::Duration::from_millis(120));
+
+    // The probe has seen it, so it is recorded and the client below really is arriving late.
+    //
+    // This test is about the backlog a panel is sent when it turns up after the fact, and the
+    // sleep this replaces could be a little short and quietly test the live push instead. It
+    // would still have passed, which is the worse failure: a test that checks the wrong path
+    // and says nothing about it.
+    is_recorded
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the question was never recorded, so there was no backlog to be sent");
+    probe.join().unwrap();
 
     let mut events = PanelClient::connect(&at).unwrap().subscribe(0).unwrap();
     let asked = loop {

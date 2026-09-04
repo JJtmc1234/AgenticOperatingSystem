@@ -11,67 +11,15 @@
 //! would reconnect asking to continue from a number the journal never issued, and the backend
 //! would answer honestly that it cannot, and the panel would resnapshot forever.
 
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use carl::army::event::{Event, Journal};
 use carl::army::personnel::found;
-use carl::army::task::{Task, Verification};
+use carl::army::task::Task;
 use carl::panel::client::{Incoming, PanelClient};
-use carl::panel::listen;
 
-struct Backend {
-    home: PathBuf,
-    child: Option<std::process::Child>,
-}
-
-impl Backend {
-    fn start(home: &Path) -> Self {
-        let mut me = Self {
-            home: home.to_path_buf(),
-            child: None,
-        };
-        me.up();
-        me
-    }
-
-    fn up(&mut self) {
-        self.child = Some(
-            std::process::Command::new(env!("CARGO_BIN_EXE_carl"))
-                .arg("--home")
-                .arg(&self.home)
-                .arg("panel")
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .expect("starting carl panel"),
-        );
-        for _ in 0..400 {
-            if PanelClient::connect(&self.socket()).is_ok() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("the backend never came up");
-    }
-
-    fn socket(&self) -> PathBuf {
-        listen::socket_path(&self.home)
-    }
-}
-
-impl Drop for Backend {
-    fn drop(&mut self) {
-        if let Some(mut c) = self.child.take() {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
-    }
-}
-
-fn verification() -> Verification {
-    Verification::of(["cargo test passes"]).unwrap()
-}
+mod common;
+use common::{Backend, verification};
 
 /// Writes one delegation and returns the sequence it landed at.
 fn one_army_event(journal: &mut Journal, goal: &str) -> u64 {

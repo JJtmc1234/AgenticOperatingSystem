@@ -6,84 +6,19 @@
 //! instant. Both of those are easy to lose in a `f64` and a `u64`, and neither would look wrong
 //! on screen once lost, which is why they are checked here rather than trusted.
 
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::path::Path;
 
 use carl::ProjectId;
 use carl::army::event::{Event, Journal};
 use carl::army::personnel::found;
-use carl::army::task::{Status, Task, Verification};
+use carl::army::task::{Status, Task};
 use carl::panel::client::PanelClient;
-use carl::panel::listen;
 use carl::providers::health::{Health, Kind, Metric, Reading};
 use carl::providers::projects::Projects;
 use carl::providers::projects::model::Project;
 
-struct Backend {
-    home: PathBuf,
-    child: Option<std::process::Child>,
-}
-
-impl Backend {
-    fn start(home: &Path) -> Self {
-        let mut me = Self {
-            home: home.to_path_buf(),
-            child: None,
-        };
-        me.up();
-        me
-    }
-
-    fn up(&mut self) {
-        let child = std::process::Command::new(env!("CARGO_BIN_EXE_carl"))
-            .arg("--home")
-            .arg(&self.home)
-            .arg("panel")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("starting carl panel");
-        self.child = Some(child);
-        for _ in 0..400 {
-            if PanelClient::connect(&self.socket()).is_ok() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("the backend never came up");
-    }
-
-    fn down(&mut self) {
-        if let Some(mut c) = self.child.take() {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
-        for _ in 0..400 {
-            if PanelClient::connect(&self.socket()).is_err() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("the backend never went away");
-    }
-
-    fn socket(&self) -> PathBuf {
-        listen::socket_path(&self.home)
-    }
-}
-
-impl Drop for Backend {
-    fn drop(&mut self) {
-        if let Some(mut c) = self.child.take() {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
-    }
-}
-
-fn verification() -> Verification {
-    Verification::of(["cargo test passes"]).unwrap()
-}
+mod common;
+use common::{Backend, verification};
 
 fn jjtorio() -> ProjectId {
     ProjectId::new("jjtorio").unwrap()

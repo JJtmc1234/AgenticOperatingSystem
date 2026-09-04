@@ -8,97 +8,19 @@
 //! The backend here is started and stopped inside the test the way it is in real use, so a
 //! restart is a genuine restart and not a mocked one.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use carl::army::event::{Event, Intervention, Journal};
 use carl::army::personnel::{Personnel, found};
-use carl::army::task::{Status, Task, TaskId, Verification};
+use carl::army::task::{Status, Task, TaskId};
 use carl::panel::PanelCommand;
 use carl::panel::client::{Incoming, PanelClient};
 use carl::panel::listen;
 use carl::panel::live::{Health, LivePanel, Update};
 
-/// The real `carl panel` binary, as a child process.
-///
-/// A thread inside the test process was tried first and was wrong in a way worth writing down:
-/// unlinking a socket does not break connections that are already open, so a subscribed client
-/// carried on being served by the old thread and never noticed anything. Nothing about reconnect
-/// was being tested at all.
-///
-/// A real child process fixes that, because killing it closes every connection it holds. It also
-/// means these tests exercise the binary JJ actually runs, including its signal handling.
-struct Backend {
-    home: PathBuf,
-    child: Option<std::process::Child>,
-}
-
-impl Backend {
-    fn start(home: &Path) -> Self {
-        let mut me = Self {
-            home: home.to_path_buf(),
-            child: None,
-        };
-        me.up();
-        me
-    }
-
-    /// Starts the real binary, and returns only once its socket is answering.
-    ///
-    /// Waiting for a real connection rather than sleeping a guessed interval, so nothing here
-    /// races the process it just spawned.
-    fn up(&mut self) {
-        let child = std::process::Command::new(env!("CARGO_BIN_EXE_carl"))
-            .arg("--home")
-            .arg(&self.home)
-            .arg("panel")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("starting carl panel");
-        self.child = Some(child);
-
-        for _ in 0..400 {
-            if PanelClient::connect(&self.socket()).is_ok() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("the backend never came up");
-    }
-
-    /// Stops it the way systemd would, and waits until it is really gone.
-    fn down(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        for _ in 0..400 {
-            if PanelClient::connect(&self.socket()).is_err() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("the backend never went away");
-    }
-
-    fn socket(&self) -> PathBuf {
-        listen::socket_path(&self.home)
-    }
-}
-
-impl Drop for Backend {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
-fn verification() -> Verification {
-    Verification::of(["cargo test passes"]).unwrap()
-}
+mod common;
+use common::{Backend, verification};
 
 /// Writes what the chain writes, from a handle of its own.
 fn a_real_delegation(journal: &mut Journal) -> TaskId {
@@ -469,11 +391,10 @@ fn a_sigterm_takes_the_socket_with_it() {
     let at = backend.socket();
     assert!(at.exists());
 
-    let pid = backend.child.as_ref().unwrap().id();
+    let pid = backend.pid();
     // Safety: a pid this test spawned and has not reaped.
     unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
-    backend.child.as_mut().unwrap().wait().unwrap();
-    backend.child = None;
+    backend.reap();
 
     assert!(
         !at.exists(),
