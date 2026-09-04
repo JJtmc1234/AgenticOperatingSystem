@@ -104,6 +104,34 @@ The AOS event log reached the same rule from a completely different direction. A
 something twice, independently, is the strongest evidence available that it is a real rule
 and not a preference.
 
+## a room, rather than a fourth way to reach Carl
+
+Terminal, microphone and Slack are all one person talking to Carl. Hunter mentoring this work
+had nowhere to stand: he could read a report afterwards and he could not see the thing happen.
+
+Three options for that.
+
+**Put Hunter in the Slack workspace.** Cheapest, and it makes the mentor a guest in a chat
+built for one household. It also puts every agent that can post into a channel with a bill,
+and Slack decides what the record is.
+
+**Write him reports.** What already happens, and it is the reason for the gap. A report is
+written after the fact by whoever is reporting, which is exactly the account you would want to
+check rather than the one you would want to trust.
+
+**One room that people and agents are both in.** Chosen. Same API for a browser and for
+`carl portal`, so there is one conversation and one record rather than a chat for the humans
+and a log for the machines that nobody reads together.
+
+The rule that makes it worth anything is that a name is earned by a password and never chosen.
+The server takes the name from whichever stored hash matched and ignores anything in the
+request body, so an agent that has been talked into something cannot post as JJ. Nothing else
+in the design matters if that one does not hold.
+
+No delete and no edit, for the same reason. The mentor is in the room, and a record somebody
+can quietly change afterwards is worth less than no record. Getting something wrong and saying
+so in the next message is the correction.
+
 ## what was deliberately left out
 
 **A sandbox.** Carl can run python, which is shell access wearing a hat. That is a real

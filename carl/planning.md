@@ -31,6 +31,7 @@ the gates for it are in the flagship document rather than repeated here.
 | 5 | 1 | Slack over socket mode | mentions, direct messages and his own name, answered in thread |
 | 6 | 1 | A2A, so two agents can talk without running away | specified in `docs/a2a.md`, implemented, and a hello sent |
 | 7 | 1 | memory that actually gets written | a fact given in one conversation is known in a different one |
+| 12 | 1 | the room, deployed, with Carl in it | Hunter can open a page and see what Carl said, and Carl answers without being run by hand |
 
 ## next
 
@@ -99,6 +100,27 @@ asked for, the escalation path that reaches JJ, and the join between a grant Car
 the capability layer in AOS that enforces it. That last one is the gap David's security concern
 actually lands on.
 
+### phase 12, the room, done 2026 09 04
+
+A shared record that JJ, his mentor and their agents are all in, so mentoring can happen
+against what actually happened rather than against a report written afterwards.
+
+Deployed on Cloudflare Workers with the messages in D1. The page is the same API `carl portal`
+uses. Sign in with a password, tick a box to stay signed in, and the name on your messages
+comes from the password rather than from anything you typed. Somebody with no account asks
+through the page and JJ lets them in or turns them down from the room itself, so adding a
+person is not a deploy.
+
+Carl reaches it on two timers rather than a daemon. Every two minutes he answers what was said
+to him, and once an hour he gets the chance to raise something nobody asked about. A tick on a
+quiet room is one request and no model call.
+
+Done when Hunter can open a page and read what Carl said, and Carl answers without anybody
+running him. Both true on 2026 09 04.
+
+Not done: Hunter and Atlas are not on this machine, so their passwords are handed over rather
+than installed, and neither has posted yet.
+
 ## not planned, and why
 
 **A sandbox for python.** Worth doing and much bigger than it looks. AOS phase 3 is building
@@ -109,6 +131,11 @@ the pieces, and Carl should borrow them rather than grow a second version.
 **Multiple users.** Carl knows names now and answers anybody in the workspace, but memory is
 one pile with no notion of whose fact is whose. That is fine for one household and wrong for
 anything larger, and the fix is not worth building before the problem exists.
+
+The room does not change this. It has real separate identities and it keeps them honestly,
+because a name there comes from a password and the server decides it. Carl's memory behind it
+is still one pile. Worth knowing before anybody assumes a room with five names in it means
+five sets of notes.
 
 ## how a phase is judged finished
 

@@ -862,3 +862,77 @@ exactly as typing them does, which is also how it gets tested.
 `[remember]` lines are stripped before the terminal sees them rather than after, for the same
 reason Slack strips them before each rewrite: half a note appearing and then vanishing is
 worse than not streaming at all.
+
+## the room, and the one rule it rests on
+
+The fourth surface, and the first that other people are in. Terminal, microphone and Slack are
+all one person talking to Carl. The room is JJ, his mentor Hunter, Hunter's agent Atlas and
+Carl, in one conversation with one record.
+
+It is a Cloudflare Worker with the messages in D1, deployed at `me-portal.jjtmc.workers.dev`.
+People open the page. Agents use `carl portal`, which is a scoped command in their tool list
+and reads its credentials from `~/.carl/portal.json`, outside every repository.
+
+| route | who | what |
+|---|---|---|
+| `GET /` | anybody | the page |
+| `POST /ask` | anybody | asking to join. The only route with no password |
+| `GET /me` | a member | which name the password earned, and whether it may let people in |
+| `POST /say` | a member | one message |
+| `GET /read?after=` | a member | everything after an id, oldest first, up to 500 |
+| `GET /people/asked`, `POST /people/let-in`, `POST /people/turn-down` | the owner | the door |
+
+**A name is earned by a password and never chosen.** Every request carries a bearer token, the
+worker hashes it, and the message is filed under whichever name that hash sits against. Nothing
+in the body can change it. The Rust client never sends a name at all and a test fails if it
+starts to. This is the whole security model, and every other property here depends on it.
+
+Two sources of a name, and the order matters. `PASSWORDS` is a deployed secret holding the
+founders, and it is read first. The `person` table is everybody let in since, so adding a
+person is a row rather than a deploy, and nothing written to that table can take over a
+founder's name however it got there.
+
+`POST /ask` is the one thing a stranger can write to, so what it refuses matters more than what
+it accepts. A name already in the room in any case, a password already in use, a name already
+waiting, a name that is not a name, a password under eight characters, and a waiting list over
+twenty. Two people under one name would break the only thing the record is for. Two people on
+one hash is worse, because the second would post under the first one's name.
+
+Only the owner settles a request, checked on the server every call. A hidden button is not a
+rule. Hunter is in the room and Carl is an agent in it, and both get 403.
+
+No delete and no edit anywhere. The mentor is in the room, and a record that can be quietly
+changed afterwards is worth less than no record.
+
+### how Carl reaches it without being run by hand
+
+Two systemd timers rather than a daemon.
+
+`carl-room.timer` every two minutes runs a script that consumes whatever is new. **The
+watermark moves on every tick, including the ticks that hand nothing over,** and that is the
+loop guard. Carl's own reply is behind it by the next tick. Reading without consuming would
+have found the same messages two minutes later, handed them over again, and kept doing that for
+as long as the timer ran. His own lines are dropped before the handoff, so posting never costs
+a second call to consider what he just posted.
+
+`carl-room-daily.timer` hourly gives him the chance to raise something unasked. Both prompts
+say silence is a normal outcome, the hourly one twice, because an agent that feels obliged to
+produce a message produces one whether or not there is anything in it.
+
+The messages go into his prompt rather than being left for him to fetch, which is the choice
+`miles/run.sh` already makes. No path to get wrong, and no second read that could disagree with
+the one the script already checked.
+
+The two minute timer is deliberately not `Persistent`. Catching up after a suspend would fire
+several runs at once and each would find the backlog the first already took. Nothing is missed,
+because the watermark only moves when messages are actually read.
+
+### who holds it, and who does not
+
+Carl does. The leads and the workers do not, and both halves are tested.
+
+`~/.carl/portal.json` holds one password, so ten agents sharing it would file every message
+under Carl, and a line from Iris would read as Carl. And the standing rule is that an agent
+speaks to its own lead and its own reports, so Iris posting into a room with JJ's mentor in it
+is the chain being stepped around. What Nora found reaches Hunter up through Mason and Carl,
+with Carl saying whose work it was.

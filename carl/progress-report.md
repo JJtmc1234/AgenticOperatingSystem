@@ -1,6 +1,6 @@
 # progress report
 
-Where Carl stands. Updated 2026 08 23.
+Where Carl stands. Updated 2026 09 04.
 
 ## what Carl is, next to the other two
 
@@ -22,8 +22,8 @@ The one workflow this is aimed at over the next year is in
 ## summary
 
 Carl is a general purpose assistant written in Rust that drives the `claude` command line as
-a child process. He is reachable three ways: a terminal, a microphone, and Slack. He runs as
-three systemd user services on JJ's machine.
+a child process. He is reachable four ways: a terminal, a microphone, Slack, and a shared room that other
+people are in too. He runs as systemd user services on JJ's machine.
 
 Everything below was built in one day, in 22 commits, from an empty directory.
 
@@ -125,11 +125,11 @@ and Carl has sent Alex a hello in the shared workspace. Alex does not speak it y
 nothing has come back. Hunter has the spec and can implement the other half without reading
 any of Carl's code.
 
-**24/7 is partial.** All three services run and restart on failure. The voice and the echo
-canceller stop at logout, which is correct rather than a limitation, since they are PipeWire
-clients and there is no microphone to listen to when nobody is logged in. Slack needs no
-session but user services stop at logout by default, so surviving that needs
-`sudo loginctl enable-linger`, which is JJ's to run.
+**24/7 is real now, for the parts that can be.** Every service runs and restarts on failure,
+and lingering is enabled, so Slack, the army supervisor and the room timers keep going with
+nobody logged in. The voice and the echo canceller still stop at logout, which is correct
+rather than a limitation, since they are PipeWire clients and there is no microphone to listen
+to when nobody is logged in.
 
 **Python is sandboxed now.** It was shell access wearing a hat, and it is now the same
 interpreter inside a namespace with no home directory, no network, and one writable folder.
@@ -149,11 +149,14 @@ Built after the section above, and it is what the flagship is made of.
 | the runtime supervisor | one per home, enforced | restart policy, backoff, degraded state |
 | the Command Panel | v1 frozen and verified | event ordering proved against the real binaries |
 | the measures | `carl army metrics` | nine numbers, folded out of the journal |
+| the room | deployed, Carl in it | the only part outside this machine. Carl holds it, nobody below him does |
 
 802 tests, fmt clean, clippy clean at deny warnings.
 
-Nothing is deployed. It runs on one personal machine, and there is no server, no host and
-nothing anybody outside can reach.
+The army runs on one personal machine and nothing anybody outside can reach. One piece is
+deployed now, and it is the room rather than the army: a Cloudflare Worker at
+`me-portal.jjtmc.workers.dev` holding the shared record. No agent is reachable through it. It
+accepts messages and hands them back, and Carl reaches it the same way a person does.
 
 ## what the measures say today
 
@@ -165,10 +168,42 @@ goes through, which is gate 2 in the flagship document.
 Reporting a rate over no objectives as zero would have given an army that has never been asked
 to do anything the best possible score, so it reports nothing instead.
 
+## the room
+
+Built 2026 09 04, and the first thing here anybody outside this machine can open.
+
+Terminal, microphone and Slack are all one person talking to Carl. Hunter mentoring this work
+could read a report afterwards and could not watch the thing happen, and a report is written
+after the fact by whoever is reporting. The room is one conversation and one record that people
+and agents are both in, reached through the same API either way.
+
+A name is earned by a password and never chosen. The server takes the name from whichever
+stored hash matched and ignores anything in the request body. Checked against the deployed room
+rather than only in tests: a request using Carl's password and asking to be called JJ came back
+filed as Carl, and an unknown password got 401.
+
+Somebody with no account asks through the page and JJ lets them in from the room itself, so
+adding a person is a row rather than a deploy. Only the owner settles a request and the server
+checks that on every call, so Hunter and Carl both get 403 on it. One person has joined that
+way so far.
+
+Carl reaches it on two timers rather than a daemon. Verified live rather than described: a
+message went in as JJ and ninety seconds later Carl answered on his own with nobody running
+him. The next tick took 0.2 seconds, saw only his own reply, moved the watermark and made no
+call. That second number is the one that matters, because without it he answers himself every
+two minutes for as long as the timer runs.
+
+25 tests on the worker, and the Rust side is 1041 with fmt and clippy clean.
+
+Not done: Hunter and Atlas are not on this machine, so their passwords are handed over rather
+than installed, and neither has posted yet. Until then the room has JJ, Carl and one other
+person in it, and the mentoring it was built for has not actually happened.
+
 ## next
 
 1. One real ME objective, intake to accepted result, with no manual step.
 2. A worker's write refused by AOS, from a grant Carl recorded, with the refusal in the log.
    This is the half of the security boundary that is two correct pieces not yet joined.
 3. Hunter implements Alex's half of A2A and the two agents actually talk.
-4. Lingering, so Slack survives a logout.
+4. Hunter and Atlas actually in the room, which is the only thing that makes it a mentoring
+   surface rather than a chat JJ and Carl have in public.
