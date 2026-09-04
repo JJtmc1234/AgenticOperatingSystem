@@ -80,12 +80,13 @@ fn carl_can_never_do_the_work_himself() {
         "carl must never hold unrestricted Bash: {tools:?}"
     );
     // Every shell he holds is one named command, not a shell. `Bash(carl handoff:*)` can only
-    // hand work to a lead, and `Bash(carl hypr:*)` can only look at the desktop and move a
-    // window. Both are scoped to a single binary whose own allow list decides the rest, which
-    // is the distinction the bare `Bash` assertion above exists to protect.
+    // hand work to a lead, `Bash(carl hypr:*)` can only look at the desktop and move a window,
+    // and `Bash(carl portal:*)` can only say something in the room and read it back. All three
+    // are scoped to a single binary whose own allow list decides the rest, which is the
+    // distinction the bare `Bash` assertion above exists to protect.
     for tool in tools.iter().filter(|t| t.contains("Bash")) {
         assert!(
-            tool == HANDOFF || tool == HYPR,
+            tool == HANDOFF || tool == HYPR || tool == PORTAL,
             "carl was given a shell that is not one scoped command: {tool}"
         );
     }
@@ -102,11 +103,12 @@ fn carl_can_never_do_the_work_himself() {
         let allowed = matches!(tool.as_str(), "Read" | "Grep")
             || tool == HANDOFF
             || tool == HYPR
+            || tool == PORTAL
             || MAIL.contains(&tool.as_str());
         assert!(
             allowed,
-            "the chief may only read, look at the desktop, hand work down and send mail, and \
-             {tool} is none of them"
+            "the chief may only read, look at the desktop, hand work down, send mail and talk \
+             in the room, and {tool} is none of them"
         );
     }
 
@@ -132,6 +134,32 @@ fn a_lead_may_check_the_work_but_not_write_it() {
     let worker = tools_for(Rank::Worker);
     assert!(worker.iter().any(|t| t == "Write"));
     assert!(worker.iter().any(|t| t == "Edit"));
+}
+
+/// The room is the chief's door and nobody else's.
+///
+/// Not a matter of trust. The room holds JJ, his mentor Hunter, Hunter's agent Atlas and Carl,
+/// and an agent speaks to its own lead and its own reports. Iris posting into it is the chain
+/// being stepped around, and what Nora found reaches Hunter up through Mason and Carl the way
+/// everything else does.
+///
+/// It could not carry her name in any case. The name comes from whichever password signed the
+/// request and `~/.carl/portal.json` holds one, so a lead granted this would file its messages
+/// under Carl. A record that says Carl when it means Iris is worth less than no record.
+#[test]
+fn only_the_chief_may_talk_in_the_room() {
+    for rank in [Rank::Human, Rank::Chief] {
+        assert!(
+            tools_for(rank).iter().any(|t| t == PORTAL),
+            "{rank:?} is in the room and has no way to say anything in it"
+        );
+    }
+    for rank in [Rank::Lead, Rank::Worker] {
+        assert!(
+            !tools_for(rank).iter().any(|t| t.contains("carl portal")),
+            "{rank:?} was given the room, which steps around its lead and posts under Carl's name"
+        );
+    }
 }
 
 /// Nothing anywhere grants extra privileges, and there is nowhere to ask for them.

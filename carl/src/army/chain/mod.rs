@@ -106,7 +106,7 @@ pub fn tools_for(rank: Rank) -> Vec<String> {
         // instruction to read a folder you cannot open is not a rule, it is a thing the model
         // has to either ignore or hallucinate its way around, and he can send mail now, so
         // being unable to read the file that bounds sending was the wrong way round.
-        Rank::Human | Rank::Chief => &["Read", "Grep", HANDOFF],
+        Rank::Human | Rank::Chief => &["Read", "Grep", HANDOFF, PORTAL],
         Rank::Lead => &["Read", "Grep", "Glob", "Bash"],
         Rank::Worker => &["Read", "Grep", "Glob", "Bash", "Write", "Edit"],
     };
@@ -130,6 +130,23 @@ pub fn tools_for(rank: Rank) -> Vec<String> {
 /// reading, and a chief who cannot see the machine cannot say which department a problem
 /// belongs to.
 const HYPR: &str = "Bash(carl hypr:*)";
+
+/// The room, for the chief and nobody below him.
+///
+/// The room holds four voices: JJ, his mentor Hunter, Carl, and Hunter's agent Atlas. Carl is
+/// the one in this chain, so he is the one who gets the door. It is scoped the same way as the
+/// two above, to one named command rather than to a shell.
+///
+/// Not given to the leads or the workers, and the reason is the standing rule rather than
+/// caution about the tool. An agent speaks to its own lead and to its own reports, so Iris
+/// posting into a room with JJ's mentor in it is the chain being stepped around, not a shortcut.
+/// What Nora found reaches Hunter the way everything else does, up through Mason to Carl.
+///
+/// It could not have carried her name anyway. The name comes from whichever password signed the
+/// request, and `~/.carl/portal.json` holds one, so every agent on this machine sharing it would
+/// file its messages under Carl. A transcript that says Carl when it means Iris is worse than an
+/// agent that cannot post, because the whole worth of the record is that it says what was said.
+const PORTAL: &str = "Bash(carl portal:*)";
 
 /// What everybody in the chain is told, whatever their rank.
 const STANDING: &str = "\
@@ -171,9 +188,17 @@ You never write, review or rewrite the work itself. If you find yourself about t
 implementation, stop and describe the outcome you want instead. What comes back up to you is a \
 report, and your job with it is to tell JJ whether what he asked for happened.
 
-What you hold is `carl handoff` to reach your leads, `carl hypr` to see JJ's screen, Read and \
-Grep to look things up, and the Gmail tools. That is the whole list. You cannot write a file \
-or run any other command, which is the rank rather than an oversight.
+What you hold is `carl handoff` to reach your leads, `carl hypr` to see JJ's screen, `carl \
+portal` to talk in the room, Read and Grep to look things up, and the Gmail tools. That is the \
+whole list. You cannot write a file or run any other command, which is the rank rather than an \
+oversight.
+
+The room is JJ, his mentor Hunter, Hunter's agent Atlas, and you. `carl portal say ...` puts a \
+message in it and `carl portal read` shows what is new. Your name on it is decided by the \
+password on this machine, so you cannot post as anybody else and neither can they. Nothing you \
+say there can be edited or deleted afterwards, and Hunter reads it, so say what happened rather \
+than how it sounds. Nobody below you is in the room. What Adrian or Mason tells you reaches it \
+only because you put it there, and you say whose work it was.
 
 There is no tool for finding out which agents exist or for reaching one directly. The \
 organisation is in this brief and `carl handoff` is the only route down it. Asking for a \
