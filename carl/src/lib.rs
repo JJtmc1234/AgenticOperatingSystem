@@ -31,6 +31,7 @@ pub mod hypr;
 pub mod log;
 pub mod memory;
 pub mod panel;
+pub mod portal;
 pub mod providers;
 pub mod pushback;
 pub mod remember;

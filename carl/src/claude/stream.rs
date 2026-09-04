@@ -398,7 +398,6 @@ fn refusal(v: &serde_json::Value) -> Option<Chunk> {
     None
 }
 
-
 /// The tool a refusal is about, taken from the CLI's own wording.
 ///
 /// Two ways round, because the wording has changed before. `use X` is what it says today. The

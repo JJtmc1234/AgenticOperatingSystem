@@ -16,8 +16,10 @@ pub(super) fn rms_of(pcm: &[u8]) -> f32 {
     }
     let mut sum = 0f64;
     let mut n = 0u64;
-    for pair in pcm.chunks_exact(BYTES_PER_SAMPLE) {
-        let s = i16::from_le_bytes([pair[0], pair[1]]) as f64 / i16::MAX as f64;
+    // `as_chunks` rather than `chunks_exact`, so each pair arrives as an array and the two
+    // byte sample needs no bounds check to read.
+    for pair in pcm.as_chunks::<BYTES_PER_SAMPLE>().0 {
+        let s = i16::from_le_bytes(*pair) as f64 / i16::MAX as f64;
         sum += s * s;
         n += 1;
     }
@@ -28,8 +30,8 @@ pub(super) fn rms_of(pcm: &[u8]) -> f32 {
 #[cfg(test)]
 fn peak_of(pcm: &[u8]) -> f32 {
     let mut peak = 0i32;
-    for pair in pcm.chunks_exact(BYTES_PER_SAMPLE) {
-        peak = peak.max((i16::from_le_bytes([pair[0], pair[1]]) as i32).abs());
+    for pair in pcm.as_chunks::<BYTES_PER_SAMPLE>().0 {
+        peak = peak.max((i16::from_le_bytes(*pair) as i32).abs());
     }
     peak as f32 / i16::MAX as f32
 }

@@ -185,6 +185,20 @@ enum Command {
         work: Vec<String>,
     },
 
+    /// Say something in the room, or read what is new in it.
+    ///
+    /// The room is shared with people. `carl portal` is an agent's door into the same room
+    /// through the same API, so there is one conversation and one record rather than a chat for
+    /// the humans and a log for the machines that nobody reads together.
+    ///
+    /// The name on the message comes from the password in `~/.carl/portal.json` and is decided
+    /// by the server. Nobody picks their own name, so this cannot be used to post as somebody
+    /// else.
+    Portal {
+        #[command(subcommand)]
+        what: PortalCommand,
+    },
+
     /// Decide one tool call by asking the panel. Run by Claude Code, not by a person.
     ///
     /// Reads a PreToolUse payload on stdin and prints the decision. Denies whenever it cannot
@@ -241,6 +255,25 @@ enum Command {
     Memory {
         #[command(subcommand)]
         action: MemoryAction,
+    },
+}
+
+/// What to do in the room.
+#[derive(Subcommand)]
+enum PortalCommand {
+    /// Put a message in the room.
+    Say {
+        /// The message. Everything after the command, so it needs no quoting.
+        words: Vec<String>,
+    },
+    /// Show what has been said since this machine last looked, and move the watermark.
+    ///
+    /// The watermark moves only after the messages have been printed. A read that moved it
+    /// first and then failed to print would lose the messages with nothing to say it had.
+    Read {
+        /// Show the whole room from the beginning and leave the watermark alone.
+        #[arg(long)]
+        all: bool,
     },
 }
 
@@ -961,6 +994,33 @@ fn main() -> Result<()> {
             Ok(())
         }
 
+        Command::Portal { what } => {
+            let config = carl::portal::Config::load(&home)?;
+            let room = carl::portal::Portal::new(&config.api, &config.password);
+            let done: anyhow::Result<()> = match what {
+                PortalCommand::Say { words } => {
+                    let said = room.say(&words.join(" "))?;
+                    // What the server recorded, not what was sent. The name is the server's
+                    // decision and printing the sent copy would show Carl his own idea of who
+                    // he is rather than the one the room gave him.
+                    println!("{}", carl::portal::line_of(&said));
+                    Ok(())
+                }
+                PortalCommand::Read { all } => {
+                    let after = if all { 0 } else { config.seen };
+                    let said = room.read(after)?;
+                    println!("{}", carl::portal::since(&said));
+                    // Only after printing, and never when showing the whole room, because
+                    // --all is for looking rather than for catching up.
+                    if let (false, Some(last)) = (all, said.last()) {
+                        config.remember_seen(&home, last.id)?;
+                    }
+                    Ok(())
+                }
+            };
+            done
+        }
+
         Command::Handoff {
             from,
             to,
@@ -1253,7 +1313,7 @@ fn print_status(all: &[carl::army::survey::Standing]) {
         let name = format!("{indent}{}", s.agent.name);
         println!("{name:<20} {state:<18} {holding}");
         if let Some(worry) = s.worry() {
-            println!("{:<20} ! {worry}", format!("{indent}"));
+            println!("{:<20} ! {worry}", indent.to_string());
         }
     }
 
