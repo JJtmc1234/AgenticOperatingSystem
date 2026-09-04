@@ -117,3 +117,44 @@ fn the_credentials_live_outside_any_repository() {
     let path = config_path(Path::new("/home/someone/.carl"));
     assert_eq!(path, Path::new("/home/someone/.carl/portal.json"));
 }
+
+#[test]
+fn loopback_over_plain_http_is_allowed_because_nothing_leaves_the_machine() {
+    let home = temp();
+    for local in [
+        "http://localhost:8787",
+        "http://127.0.0.1:8787",
+        "http://localhost",
+    ] {
+        write(
+            home.path(),
+            &format!(r#"{{"api":"{local}","password":"carls-own"}}"#),
+        );
+        assert!(
+            Config::load(home.path()).is_ok(),
+            "{local} should be allowed"
+        );
+    }
+}
+
+#[test]
+fn a_host_that_merely_contains_the_word_localhost_is_still_refused() {
+    // The mistake a substring check would make. This one is somebody else's machine on the
+    // open internet, and handing it the password is exactly what the https rule prevents.
+    let home = temp();
+    for elsewhere in [
+        "http://localhost.evil.example",
+        "http://notlocalhost",
+        "http://evil.example/?x=localhost",
+        "http://127.0.0.1.evil.example",
+    ] {
+        write(
+            home.path(),
+            &format!(r#"{{"api":"{elsewhere}","password":"carls-own"}}"#),
+        );
+        assert!(
+            Config::load(home.path()).is_err(),
+            "{elsewhere} should be refused"
+        );
+    }
+}

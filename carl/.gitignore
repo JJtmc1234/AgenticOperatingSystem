@@ -7,3 +7,8 @@
 # Secrets. The bot token lets anyone post as Carl.
 slack.json
 *.token
+
+# Wrangler's local cache. Holds the Cloudflare account id and is remade on every command.
+.wrangler/
+# Local portal passwords for `wrangler dev`. Real ones are a deployed secret.
+.dev.vars

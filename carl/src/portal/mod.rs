@@ -25,6 +25,24 @@ mod render;
 pub use client::{Portal, Said};
 pub use render::{line_of, since, transcript};
 
+/// Whether this address is this machine talking to itself.
+///
+/// Matched on the host rather than by searching the string. `https://evil.example/?x=localhost`
+/// contains the word and is not loopback, and a check that only looked for the word would hand
+/// somebody a password over the open internet.
+fn is_loopback(api: &str) -> bool {
+    let Some(rest) = api.strip_prefix("http://") else {
+        return false;
+    };
+    // Up to the port or the path, whichever comes first.
+    let host = rest
+        .split(['/', ':'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1"
+}
+
 /// Where the credentials live. Outside any repository on purpose.
 pub fn config_path(home: &Path) -> PathBuf {
     home.join("portal.json")
@@ -65,9 +83,15 @@ impl Config {
         }
         // Refused rather than warned. A password sent over plain http crosses the network in the
         // clear, and this one is an identity in a room with JJ's mentor in it.
-        if !config.api.starts_with("https://") {
+        //
+        // Loopback is the one exception, and it is an exception because nothing leaves the
+        // machine: there is no network for the password to cross. That is what lets the room be
+        // run locally with `wrangler dev` before anybody has a hosting account, which is the
+        // difference between agents talking to each other today and waiting on one.
+        if !config.api.starts_with("https://") && !is_loopback(&config.api) {
             return Err(Error::Refused(format!(
-                "the portal address must be https, and {} is not",
+                "the portal address must be https, and {} is not. The one exception is \
+                 http://localhost or http://127.0.0.1, where nothing leaves this machine",
                 config.api
             )));
         }
