@@ -1,0 +1,12 @@
+name = "me-portal"
+main = "worker.js"
+compatibility_date = "2026-09-03"
+
+# The room's messages. `wrangler d1 create me-portal` prints the id to paste here.
+[[d1_databases]]
+binding = "DB"
+database_name = "me-portal"
+database_id = "paste-the-id-from-wrangler-d1-create"
+
+# PASSWORDS is deliberately not here. It is a secret, set with `wrangler secret put PASSWORDS`,
+# so it cannot be read back out of the dashboard or committed by accident.

@@ -1,0 +1,37 @@
+[workspace]
+members = ["panel"]
+# The CLI keeps building and testing on its own by default, so adding a GUI to the repository
+# does not put eframe in front of everybody who only wanted `cargo test`. The panel is built
+# and tested explicitly with `-p carl-panel`, and `--workspace` still covers both.
+default-members = ["."]
+
+[package]
+name = "carl"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+
+[lib]
+name = "carl"
+path = "src/lib.rs"
+
+[[bin]]
+name = "carl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+# Only for removing the panel socket from a signal handler. std has no signal API.
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.9"
+thiserror = "2"
+tungstenite = { version = "0.28", default-features = false, features = ["rustls-tls-webpki-roots", "handshake"] }
+ureq = { version = "3", default-features = false, features = ["json", "rustls"] }
+
+[dev-dependencies]
+libc = "0.2"
+tempfile = "3"

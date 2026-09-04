@@ -6,6 +6,7 @@ members = [
     "crates/aosd",
     "crates/aos-mcp",
     "crates/aos-panel",
+    "crates/aos-memory",
 ]
 resolver = "3"
 
@@ -18,6 +19,7 @@ repository = "https://github.com/JJtmc1234/AgenticOperatingSystem"
 [workspace.dependencies]
 aos-core = { path = "crates/aos-core" }
 aos-supervisor = { path = "crates/aos-supervisor" }
+aos-memory = { path = "crates/aos-memory" }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

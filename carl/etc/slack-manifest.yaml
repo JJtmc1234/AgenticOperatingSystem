@@ -1,0 +1,72 @@
+# Carl's Slack app.
+#
+# Create the app from this rather than by clicking through the settings pages. Go to
+# https://api.slack.com/apps, choose Create New App, then From an app manifest, pick the
+# workspace, and paste this in.
+#
+# Socket Mode is on, which is the reason this needs no public URL and no hosting. Carl dials
+# out to Slack over a websocket instead of Slack calling in to him, so a laptop behind a
+# router works exactly as well as a server.
+#
+# The scopes are the smallest set that works.
+#
+#   app_mentions:read   hear it when somebody writes @Carl in a channel
+#   chat:write          reply
+#   im:history          hear direct messages
+#   im:read             see which conversations are direct messages
+#   channels:history    hear his own name, without needing an at sign
+#   groups:history      the same in private channels
+#   users:read          turn a user id into a name, so Carl can call people what they
+#                       are called rather than "hello U0BNSU5N96X"
+#   files:read          download a picture somebody pasted in, which is the most natural
+#                       way anybody asks for help with what is on their screen
+#
+# channels:history is the one worth thinking about. It means Carl receives every message in
+# every channel he is in, which is the only way he can notice somebody typing his name
+# without an at sign. He does not record or answer any of them unless his name is used the
+# way you use a name when speaking to somebody: at the start or the end. See src/slack/named.rs.
+#
+# If that is more than you want, take these two scopes back out and reinstall. Mentions and
+# direct messages carry on working without them.
+
+display_information:
+  name: Carl
+  description: A helper that remembers.
+  background_color: "#2c3e50"
+
+features:
+  bot_user:
+    display_name: Carl
+    always_online: false
+  # Without this the direct message box is switched off and you cannot type to Carl at all.
+  # It is not obvious, because the app still installs, still connects and still reports
+  # itself as healthy. It simply never receives anything.
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - im:history
+      - im:read
+      - channels:history
+      - groups:history
+      - users:read
+      - files:read
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+      - message.channels
+      - message.groups
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
