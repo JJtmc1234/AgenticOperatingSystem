@@ -8,10 +8,26 @@ records every attempt including refusals, and can stop all of them at once.
 This is the second AOS. The first targeted Windows in C sharp and is archived here as
 `old-windows-code.zip`. Its safety design carried over. Its platform did not.
 
+## What is in this repository
+
+One project that used to be three repositories, combined in September 2026. Four places to look
+for one answer is three too many.
+
+| folder | what it is | came from |
+|---|---|---|
+| `crates/` | the runtime. Supervision, the policy gate, the audit log, the panel | this repository |
+| `carl/` | the work layer. Agents, ranks, delegation, the promotion engine | `JJtmc1234/carl`, with its history |
+| `memory-system/` | what the ten agents remember and how they find it | mirrors the private `JJtmc1234/army-memory` |
+
+`carl/` arrived with all 103 of its commits rather than as a snapshot, so `git log` still
+answers why any line of it is the way it is. `memory-system/` is a mirror instead, and
+`memory-system/README.md` explains why its history had to stay behind.
+
 ## AOS, Carl and ME OS
 
-Three separate projects that keep being read as one. The name is the reason: AOS has the word
-operating system in it and is not one.
+Still three separate concerns, and two of them now sharing a repository does not merge them.
+The name is what keeps them being read as one: AOS has the word operating system in it and is
+not one.
 
 | | owns | does not own |
 |---|---|---|
@@ -33,7 +49,10 @@ just the same if Carl were wrong, confused or compromised. A capability that onl
 the thing above it behaves correctly is not a capability.
 
 Carl's side of this, and the one workflow both are aimed at over the next year, is in
-`carl/docs/flagship-workflow.md`.
+[carl/docs/flagship-workflow.md](carl/docs/flagship-workflow.md).
+
+ME OS is the one that is genuinely elsewhere, in `JJtmc1234/ME-OS`. It shares no code with
+either of these and combining it would only make the name confusion worse.
 
 ## docs
 
