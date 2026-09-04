@@ -157,7 +157,10 @@ fn the_lesson_about_a_secret_is_allowed_when_the_secret_is_not_in_it() {
     for fine in [
         "Google sends sign in codes from noreply-accounts@google.com and they expire fast",
         "Vendor X normally invoices from billing@x.example",
-        "Miss Candi writes from clueteacher@cluellc.com and is always important",
+        // A real teacher's address used to sit here. The test needs a lesson that names a
+        // sender and carries no secret, and any address does that. A child's teacher in a
+        // public repository is not worth one test case reading slightly more naturally.
+        "Miss A writes from teacher@school.example and is always important",
         "Reddit digests arrive twice a week and are never important",
         "GoDaddy renewal notices relate to multiverse-enterprises.com",
     ] {
