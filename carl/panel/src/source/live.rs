@@ -40,6 +40,17 @@ enum FromBackend {
     Update(Box<Update>),
     /// A piece of Carl's answer, as it arrives.
     Speaking(String),
+    /// A piece of Carl's reasoning, as it arrives. The text is usually redacted by the CLI and
+    /// the size is what there is.
+    Thinking {
+        text: String,
+        tokens: Option<u32>,
+    },
+    /// A tool Carl has just picked up.
+    Doing {
+        tool: String,
+        detail: String,
+    },
     /// A command finished, with whether it was accepted.
     Settled(Result<(), String>),
 }
@@ -53,6 +64,10 @@ pub struct LivePanelDataSource {
     link: Link,
     /// True while Carl is mid answer, so the end of the stream can close the turn.
     speaking: bool,
+    /// Said on this side and not by the backend: JJ's own words, and the caret that shows Carl
+    /// was asked. Queued rather than sent straight to the screen because `submit` is not the
+    /// place that draws.
+    echoed: Vec<PanelEvent>,
     /// The journal sequence the screen is caught up to.
     ///
     /// Advanced by army events and by a resync, and by nothing else. Telemetry carries no
@@ -84,6 +99,7 @@ impl LivePanelDataSource {
             orders,
             link: Link::Live,
             speaking: false,
+            echoed: Vec::new(),
             last_seq: first_seq,
         })
     }
@@ -105,6 +121,7 @@ impl LivePanelDataSource {
                 orders,
                 link: Link::Live,
                 speaking: false,
+                echoed: Vec::new(),
                 last_seq: 0,
             },
             tx,
@@ -147,6 +164,35 @@ fn reader(mut live: LivePanel, tx: Sender<FromBackend>) {
 fn commander(socket: PathBuf, orders: Receiver<Command>, tx: Sender<FromBackend>) {
     thread::spawn(move || {
         for order in orders {
+            // Answered first, because it is not a `PanelCommand` and never becomes one. A
+            // process is holding a tool call still for this, so it goes on its own connection
+            // and does not queue behind whatever Carl is in the middle of saying.
+            if let Command::AnswerPermission { question, allow } = &order {
+                let verdict = match allow {
+                    true => carl::panel::permission::Verdict::Allow,
+                    false => carl::panel::permission::Verdict::Deny,
+                };
+                // The backend's own words, not a blanket "sent". Answering a question that
+                // has already expired is not a failure to send, it is an answer that landed on
+                // nothing, and the two looked identical: JJ pressed Allow on a question that
+                // had timed out and the panel told him it was sent.
+                let outcome = PanelClient::connect(&socket)
+                    .and_then(|mut client| client.answer(question, verdict))
+                    .map_err(|e| e.to_string())
+                    .and_then(|done| {
+                        if done.what.contains("nothing was waiting") {
+                            Err("too late, that one had already timed out and been refused"
+                                .to_string())
+                        } else {
+                            Ok(())
+                        }
+                    });
+                if tx.send(FromBackend::Settled(outcome)).is_err() {
+                    break;
+                }
+                continue;
+            }
+
             let Some(wire) = translate::to_wire(&order) else {
                 // Workspace requests never reach the backend in this build. Process 3 owns
                 // what fills the pane, and the panel opens the container itself.
@@ -156,8 +202,24 @@ fn commander(socket: PathBuf, orders: Receiver<Command>, tx: Sender<FromBackend>
 
             let outcome = PanelClient::connect(&socket)
                 .and_then(|mut client| {
-                    let mut sink = |text: &str| {
-                        let _ = tx.send(FromBackend::Speaking(text.to_string()));
+                    let mut sink = |heard: carl::panel::client::Heard<'_>| {
+                        let _ = tx.send(match heard {
+                            carl::panel::client::Heard::Words(t) => {
+                                FromBackend::Speaking(t.to_string())
+                            }
+                            carl::panel::client::Heard::Thinking { text, tokens } => {
+                                FromBackend::Thinking {
+                                    text: text.to_string(),
+                                    tokens,
+                                }
+                            }
+                            carl::panel::client::Heard::Doing { tool, detail } => {
+                                FromBackend::Doing {
+                                    tool: tool.to_string(),
+                                    detail: detail.to_string(),
+                                }
+                            }
+                        });
                     };
                     client.command_streaming(wire, &mut sink)
                 })
@@ -177,7 +239,8 @@ impl PanelDataSource for LivePanelDataSource {
     }
 
     fn poll(&mut self) -> Vec<PanelEvent> {
-        let mut out = Vec::new();
+        // Anything said locally goes out first, so JJ's own line is above the answer to it.
+        let mut out: Vec<PanelEvent> = self.echoed.drain(..).collect();
         loop {
             match self.incoming.try_recv() {
                 Ok(FromBackend::Update(update)) => self.take(*update, &mut out),
@@ -187,6 +250,17 @@ impl PanelDataSource for LivePanelDataSource {
                         text,
                         streaming: true,
                     });
+                }
+                // Reasoning and tool notes open the turn the same way words do, so the block
+                // exists to hold them before the first word of the answer arrives. That is the
+                // whole point: it is the wait that needed filling.
+                Ok(FromBackend::Thinking { text, tokens }) => {
+                    self.speaking = true;
+                    out.push(PanelEvent::CarlThinking { text, tokens });
+                }
+                Ok(FromBackend::Doing { tool, detail }) => {
+                    self.speaking = true;
+                    out.push(PanelEvent::CarlDoing { tool, detail });
                 }
                 Ok(FromBackend::Settled(result)) => {
                     // The end of an answer closes the turn, so the caret goes out only when the
@@ -225,6 +299,35 @@ impl PanelDataSource for LivePanelDataSource {
         if !self.link.is_live() {
             return Err(format!("not sent, {}", self.link.label().to_lowercase()));
         }
+
+        // What JJ typed goes on screen here, not when the backend gets round to mentioning it,
+        // because the backend never does: it answers, it does not echo. Without this the words
+        // leave the box and appear nowhere, which reads as the panel having dropped them.
+        //
+        // The empty streaming turn is the thinking state. Carl takes seconds to answer and the
+        // gap between sending and his first word was silent, so there was nothing to tell a
+        // person their message had been taken. It is replaced by his real first words.
+        match &command {
+            Command::SayToCarl(text) => {
+                self.echoed.push(PanelEvent::JjSaid(text.clone()));
+                self.echoed.push(PanelEvent::CarlSaid {
+                    text: String::new(),
+                    streaming: true,
+                });
+                self.speaking = true;
+            }
+            Command::SetObjective(goal) => {
+                self.echoed
+                    .push(PanelEvent::JjSaid(format!("New objective. {goal}")));
+                self.echoed.push(PanelEvent::CarlSaid {
+                    text: String::new(),
+                    streaming: true,
+                });
+                self.speaking = true;
+            }
+            _ => {}
+        }
+
         self.orders
             .send(command)
             .map_err(|_| "the panel client has stopped".to_string())
@@ -263,6 +366,25 @@ impl LivePanelDataSource {
             Update::Telemetry { at, diagnostics } => {
                 translate::replace_telemetry(&mut self.latest, &diagnostics);
                 out.push(PanelEvent::TelemetryChanged { at, diagnostics });
+            }
+            // Neither moves the sequence, for the same reason telemetry does not. A question is
+            // not a journal record.
+            Update::Asked(request) => {
+                out.push(PanelEvent::PermissionAsked(Box::new(
+                    crate::model::Permission {
+                        id: request.id,
+                        tool: request.tool,
+                        detail: request.detail,
+                        surface: request.surface,
+                        asked_at: request.at,
+                    },
+                )));
+            }
+            Update::Answered { question, verdict } => {
+                out.push(PanelEvent::PermissionSettled {
+                    id: question,
+                    allowed: verdict == carl::panel::permission::Verdict::Allow,
+                });
             }
             Update::Event(event) => {
                 // The only thing that advances the sequence. Taken from the frame rather than

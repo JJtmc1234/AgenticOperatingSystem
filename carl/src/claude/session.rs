@@ -34,7 +34,7 @@ const TICK: std::time::Duration = std::time::Duration::from_millis(100);
 /// stale fragment is survivable. Carl never speaking again is not.
 const DRAIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(20);
 
-use super::{Answer, Chunk, Flow, Runner, chunk_of};
+use super::{Answer, Chunk, Flow, Runner, Say, chunk_of};
 use crate::{Error, Result, SessionId};
 
 pub struct Session {
@@ -74,6 +74,24 @@ impl Runner {
         // sending both is an error.
         args.push(if resume { "--resume" } else { "--session-id" }.into());
         args.push(session.to_string());
+
+        // The same three the one shot path passes, and for the same reasons.
+        //
+        // This list is built from scratch rather than through `args_with`, so every flag added
+        // there had to be added here too and none of them were. The long running agents under
+        // the supervisor are the ones that matter most: they ran on whatever model the CLI
+        // defaulted to while their folder said otherwise, could not open the shared memory they
+        // are told to read first, and still held the subagent tool that delegation refuses.
+        if let Some(model) = &self.model {
+            args.push("--model".into());
+            args.push(model.clone());
+        }
+        if let Some(shared) = super::shared_memory() {
+            args.push("--add-dir".into());
+            args.push(shared);
+        }
+        args.push("--disallowedTools".into());
+        args.extend(super::NEVER.iter().map(|s| (*s).to_string()));
 
         if !system.is_empty() {
             args.push("--append-system-prompt".into());
@@ -151,7 +169,7 @@ impl Session {
     pub fn ask(
         &mut self,
         prompt: &str,
-        on_text: &mut dyn FnMut(&str) -> Flow,
+        on_text: &mut dyn FnMut(Say<'_>) -> Flow,
         while_waiting: &mut dyn FnMut() -> Flow,
     ) -> Result<Answer> {
         if prompt.trim().is_empty() {
@@ -187,9 +205,43 @@ impl Session {
             // single word has arrived. That is the whole difference between interrupting Carl
             // while he talks, which already worked, and interrupting him while he thinks.
             match self.chunks.recv_timeout(TICK) {
+                // Said out loud rather than swallowed. The person who can widen the allow list
+                // is the one reading this, and until now the refusal never left the transcript.
+                Ok(Chunk::Refused { tool, why }) => {
+                    if on_text(Say::Refused {
+                        tool: &tool,
+                        why: &why,
+                    }) == Flow::Stop
+                    {
+                        break;
+                    }
+                }
+                // Shown as it happens, and deliberately not added to `said`: it is a note about
+                // working, not part of the answer, and it must not end up in the transcript or
+                // be spoken out loud.
+                Ok(Chunk::Doing { tool, detail }) => {
+                    if on_text(Say::Doing {
+                        tool: &tool,
+                        detail: &detail,
+                    }) == Flow::Stop
+                    {
+                        break;
+                    }
+                }
+                // Shown as it happens and kept out of `said` for the same reason as a tool
+                // note. Reasoning is not the reply.
+                Ok(Chunk::Thinking { text, tokens }) => {
+                    if on_text(Say::Thinking {
+                        text: &text,
+                        tokens,
+                    }) == Flow::Stop
+                    {
+                        break;
+                    }
+                }
                 Ok(Chunk::Text(t)) => {
                     said.push_str(&t);
-                    if on_text(&t) == Flow::Stop {
+                    if on_text(Say::Words(&t)) == Flow::Stop {
                         return Ok(self.abandon(said));
                     }
                 }
@@ -235,6 +287,12 @@ impl Session {
         let until = std::time::Instant::now() + DRAIN_LIMIT;
         while std::time::Instant::now() < until {
             match self.chunks.recv_timeout(TICK) {
+                // Nobody is listening to this turn any more, so a refusal in it is history.
+                Ok(Chunk::Refused { .. })
+                | Ok(Chunk::Doing { .. })
+                | Ok(Chunk::Thinking { .. }) => {
+                    continue;
+                }
                 Ok(Chunk::Final(_)) => break,
                 Ok(Chunk::Text(_)) => {}
                 Err(RecvTimeoutError::Timeout) => {}
@@ -283,6 +341,82 @@ impl Drop for Session {
         if let Some(r) = self.reader.take() {
             let _ = r.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod session_arg_tests {
+    use super::*;
+    use crate::claude::{NEVER, Runner};
+
+    fn args(runner: &Runner, resume: bool) -> Vec<String> {
+        let session = SessionId::fresh().expect("a session id");
+        runner.session_args(&session, "brief", resume)
+    }
+
+    /// The bug this covers. `session_args` builds its list from scratch, so every flag added to
+    /// `args_with` had to be added here too and none of them were. The agents this path starts
+    /// are the long running ones, which are the agents that matter most.
+    #[test]
+    fn a_session_runs_on_the_model_its_folder_asks_for() {
+        let a = args(&Runner::at("claude").running("claude-fable-5"), false);
+        let at = a
+            .iter()
+            .position(|x| x == "--model")
+            .expect("the model must reach a long running agent too");
+        assert_eq!(a[at + 1], "claude-fable-5");
+    }
+
+    #[test]
+    fn an_unset_model_passes_no_flag_on_the_session_path_either() {
+        assert!(
+            !args(&Runner::at("claude"), false)
+                .iter()
+                .any(|x| x == "--model")
+        );
+    }
+
+    /// A long running agent is told to read the shared memory before it works, and could not
+    /// open it, because this path never passed the directory.
+    #[test]
+    fn a_session_can_reach_the_shared_memory_when_there_is_one() {
+        let a = args(&Runner::at("claude"), false);
+        match super::super::shared_memory() {
+            Some(dir) => {
+                let at = a.iter().position(|x| x == "--add-dir").expect("--add-dir");
+                assert_eq!(a[at + 1], dir);
+            }
+            None => assert!(!a.iter().any(|x| x == "--add-dir")),
+        }
+    }
+
+    /// Delegation refuses a spawned subagent, and this path handed one to every agent it started.
+    #[test]
+    fn a_session_never_holds_the_subagent_tool() {
+        for resume in [true, false] {
+            let a = args(&Runner::at("claude"), resume);
+            let at = a
+                .iter()
+                .position(|x| x == "--disallowedTools")
+                .expect("the refusal must be on the session path");
+            for banned in NEVER {
+                assert!(
+                    a[at + 1..].iter().any(|x| x == banned),
+                    "{banned} not refused"
+                );
+            }
+        }
+    }
+
+    /// Resuming and pinning are different flags and sending both is an error.
+    #[test]
+    fn resuming_and_pinning_are_never_sent_together() {
+        let resumed = args(&Runner::at("claude"), true);
+        let fresh = args(&Runner::at("claude"), false);
+        assert!(resumed.iter().any(|x| x == "--resume"));
+        assert!(!resumed.iter().any(|x| x == "--session-id"));
+        assert!(fresh.iter().any(|x| x == "--session-id"));
+        assert!(!fresh.iter().any(|x| x == "--resume"));
     }
 }
 

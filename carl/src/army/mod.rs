@@ -36,6 +36,8 @@ pub mod board;
 mod campaign;
 pub mod chain;
 pub mod event;
+pub mod handoff;
+pub mod health;
 /// Whether the army is getting better, folded out of the record.
 pub mod metrics;
 pub mod org;
@@ -45,7 +47,9 @@ mod report;
 mod roster;
 /// Keeping agent processes alive, which is a different job from giving them work.
 pub mod runtime;
+pub mod survey;
 pub mod task;
+pub mod watching;
 
 pub use board::Board;
 pub use campaign::{Departmental, JOBS_PER_HEAD, Outcome, parse_jobs, run_department};
@@ -242,7 +246,11 @@ fn run_with_deadline(
     let answer = open.ask(
         instruction,
         &mut |chunk| {
-            said.push_str(chunk);
+            // The words only. An agent's transcript is what it said, not its reasoning or the
+            // tools it reached for on the way.
+            if let Some(words) = chunk.words() {
+                said.push_str(words);
+            }
             crate::claude::Flow::Continue
         },
         &mut || {

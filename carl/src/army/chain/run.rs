@@ -20,6 +20,7 @@ use crate::army::event::{Event, Journal};
 use crate::army::org;
 use crate::army::personnel::Personnel;
 use crate::army::task::{Status, Task, TaskId, Verification};
+use crate::army::watching;
 use crate::claude::{Flow, Runner, Session};
 use crate::{Error, Result, SessionId};
 
@@ -58,7 +59,6 @@ pub struct Chain {
 #[derive(Debug, Clone)]
 pub struct Passage {
     pub request: String,
-    pub for_adrian: String,
     pub for_mason: String,
     pub for_nora: String,
     /// The three tasks, in their final state.
@@ -134,7 +134,18 @@ impl Chain {
             let session = SessionId::fresh()?;
             // The tool list is the rank. An empty one becomes no flag at all rather than an
             // empty flag, which some parsers read as allowing everything.
-            let runner = Runner::at(&self.program).allowing(tools_for(agent.rank));
+            let mut runner = Runner::at(&self.program).allowing(tools_for(agent.rank));
+            // The folder's model, actually passed. It used to only reach a caption in the panel.
+            if let Some(model) = staffing::model(self.folder(who)) {
+                runner = runner.running(model);
+            }
+            // An agent reaching past its rank asks JJ rather than being refused on the spot.
+            // Under its own name, because "Bash" with no idea who wanted it is a question
+            // nobody can answer. Only when there are folders: a chain running against a bare
+            // temporary directory has no panel behind it and nothing could answer.
+            if let Some(people) = &self.people {
+                runner = runner.asking_jj(people.home(), who);
+            }
             // Built before the session opens, so a folder rule that tries to grant authority
             // stops the agent starting rather than being spoken and then regretted.
             let brief = staffing::brief(agent, self.folder(who))?;
@@ -143,6 +154,12 @@ impl Chain {
         }
 
         let deadline = staffing::deadline(self.folder(who), self.deadline);
+        // Taken before the borrow below, and the working directory when there are no folders,
+        // which is how every test here runs.
+        let home = self
+            .people
+            .as_ref()
+            .map_or_else(|| self.workdir.clone(), |p| p.home().to_path_buf());
         let began = Instant::now();
         let voice = self
             .voices
@@ -151,13 +168,30 @@ impl Chain {
             .map(|(_, s)| s)
             .expect("just opened");
 
-        let answer = voice.ask(prompt, &mut |_| Flow::Continue, &mut || {
-            if began.elapsed() > deadline {
-                Flow::Stop
-            } else {
+        // What the agent does while it works, written down as it happens.
+        //
+        // This closure used to be `|_| Flow::Continue`, which threw away every tool call and
+        // every piece of reasoning in the one place agents actually do the work. An agent
+        // running under the chain was invisible for the whole of its turn: `status` said the
+        // process was up and `activity` said the task had moved, and in between there was
+        // nothing. `watching` is that gap, and nothing here can fail because of it.
+        let mut notes = watching::Watching::of(&home, who);
+        notes.asked(prompt);
+        let answer = voice.ask(
+            prompt,
+            &mut |say| {
+                notes.saw(say);
                 Flow::Continue
-            }
-        })?;
+            },
+            &mut || {
+                if began.elapsed() > deadline {
+                    Flow::Stop
+                } else {
+                    Flow::Continue
+                }
+            },
+        )?;
+        notes.answered(&answer.text, answer.interrupted);
 
         if answer.interrupted {
             return Err(Error::Claude(format!(
@@ -254,6 +288,7 @@ impl Chain {
                 parent: task.parent.clone(),
                 must: task.verification.must.clone(),
                 project: task.project.clone(),
+                objective: task.objective,
             },
         )?;
         self.now_holding(to, &task.id)?;

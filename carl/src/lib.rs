@@ -27,6 +27,7 @@ pub mod capture;
 pub mod claude;
 pub mod game;
 pub mod heard;
+pub mod hypr;
 pub mod log;
 pub mod memory;
 pub mod panel;
@@ -40,7 +41,7 @@ pub mod turn;
 pub mod whisper;
 
 pub use capture::{Area, Camera};
-pub use claude::Flow;
+pub use claude::{Flow, Say};
 pub use game::playing;
 pub use heard::{Heard, interpret, needs_screen};
 pub use log::{Entry, Log, Speaker};

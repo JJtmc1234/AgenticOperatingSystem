@@ -62,8 +62,19 @@ fn spawn_worker(home: PathBuf, api: Api, bot: String) -> Sender<Ask> {
         // One process per Slack conversation, kept open. The pool closes the least recently
         // used, so a thread nobody has touched in a while pays for its own restart and the
         // ones in active use do not.
+        // Slack reads the `shared` permits, because who can send to it is a different set of
+        // people from whoever has JJ's keyboard.
         let mut pool = Pool::new(
-            Runner::default(),
+            // Falls back to the defaults if the file is unreadable rather than taking the
+            // worker down. A Slack loop that will not start because of a typo in a config file
+            // is worse than one running on the narrower rules, which are the safe ones anyway.
+            match carl::turn::runner_for(&home, carl::claude::permits::Surface::Shared) {
+                Ok(runner) => runner,
+                Err(e) => {
+                    eprintln!("could not read the shared permits, using the defaults: {e}");
+                    Runner::default()
+                }
+            },
             home.join("workspace"),
             carl::brief::IDENTITY,
         );
@@ -249,7 +260,12 @@ fn answer(
     let mut seen = String::new();
     let mut pace = Pace::started_with(0);
 
-    let mut show = |chunk: &str| -> carl::Flow {
+    let mut show = |chunk: carl::Say<'_>| -> carl::Flow {
+        // Words only. A channel gets the answer, and Carl's reasoning is neither addressed to
+        // it nor something a reader can do anything with.
+        let Some(chunk) = chunk.words() else {
+            return carl::Flow::Continue;
+        };
         seen.push_str(chunk);
         // Stripped before showing, not after. A half written [remember] line appearing in a
         // channel and then vanishing is worse than never streaming at all.

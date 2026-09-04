@@ -60,16 +60,53 @@ fn carl_can_never_do_the_work_himself() {
         "not even in an emergency"
     );
 
+    // He held nothing at all until every agent was told to read Projects/MEMORY first, and an
+    // instruction to read a folder you cannot open is not a rule. The invariant was never the
+    // count, it was that he cannot do the work, so that is what is asserted.
     let tools = tools_for(Rank::Chief);
-    assert!(
-        tools.is_empty(),
-        "the chief runs with no tools at all: {tools:?}"
-    );
 
-    for forbidden in ["Write", "Edit", "Bash"] {
+    for forbidden in ["Write", "Edit"] {
         assert!(
             !tools.iter().any(|t| t.contains(forbidden)),
-            "carl must not be granted {forbidden}"
+            "carl must not be granted {forbidden}: {tools:?}"
+        );
+    }
+
+    // Bare `Bash` runs anything. The scoped handoff runs one command that can only hand work to
+    // a lead, and `check_delegation` decides whether even that is allowed. The distinction is
+    // the whole point, so it is asserted rather than left to the eye.
+    assert!(
+        !tools.iter().any(|t| t == "Bash"),
+        "carl must never hold unrestricted Bash: {tools:?}"
+    );
+    // Every shell he holds is one named command, not a shell. `Bash(carl handoff:*)` can only
+    // hand work to a lead, and `Bash(carl hypr:*)` can only look at the desktop and move a
+    // window. Both are scoped to a single binary whose own allow list decides the rest, which
+    // is the distinction the bare `Bash` assertion above exists to protect.
+    for tool in tools.iter().filter(|t| t.contains("Bash")) {
+        assert!(
+            tool == HANDOFF || tool == HYPR,
+            "carl was given a shell that is not one scoped command: {tool}"
+        );
+    }
+
+    // Everything he holds is either reading or mail. A tool added to the chief later has to
+    // pass this rather than only the three names above.
+    //
+    // Mail is not doing the work. JJ asked that every agent be able to write and send, and the
+    // thing the chief must never do is implement, which is Write, Edit and Bash above.
+    // Looking at the desktop is reading. Moving a window is not doing a department's work, and
+    // a chief who cannot see what is on JJ's screen cannot say which department a problem
+    // belongs to.
+    for tool in &tools {
+        let allowed = matches!(tool.as_str(), "Read" | "Grep")
+            || tool == HANDOFF
+            || tool == HYPR
+            || MAIL.contains(&tool.as_str());
+        assert!(
+            allowed,
+            "the chief may only read, look at the desktop, hand work down and send mail, and \
+             {tool} is none of them"
         );
     }
 
@@ -346,16 +383,38 @@ fn every_brief_says_who_it_may_talk_to_and_keeps_the_house_style() {
     }
 }
 
-/// A brief names the direct reports and nobody else, so an agent cannot address somebody it
-/// has no business addressing because its own prompt introduced them.
+/// A brief names exactly the agents it may hand work to, and separately names everybody.
+///
+/// This used to assert that Carl was never told Nora exists, on the grounds that an agent
+/// cannot address somebody its own prompt never introduced. That protected the delegation rule
+/// by keeping Carl ignorant, and ignorance turned out to have its own cost: asked how Miles was
+/// getting on, Carl said he had never heard of him, when Miles is in the table working for
+/// Olivia. So the chart is given to everybody and the delegation sentence stays exact.
 #[test]
-fn a_brief_names_only_the_agents_directly_below() {
+fn a_brief_names_the_agents_it_may_hand_work_to() {
     let carl = brief_for(org::find("carl").unwrap());
-    assert!(carl.contains("adrian"));
-    assert!(
-        !carl.contains("nora"),
-        "carl is never told nora exists: {carl}"
-    );
+
+    // The sentence that grants delegation names the leads and nobody else.
+    let grant = carl
+        .lines()
+        .find(|l| l.contains("only ones you may hand work to"))
+        .expect("carl is not told who he may hand work to");
+    for lead in ["adrian", "mason", "olivia", "serena", "rowan"] {
+        assert!(
+            grant.contains(lead),
+            "{lead} is missing from the grant: {grant}"
+        );
+    }
+    for worker in ["nora", "iris", "evan", "miles"] {
+        assert!(
+            !grant.contains(worker),
+            "{worker} appears in the sentence that grants delegation: {grant}"
+        );
+    }
+
+    // And the chart is there so he can say whose somebody is rather than denying they exist.
+    assert!(carl.contains("nora"), "carl cannot name nora at all");
+    assert!(carl.contains("miles"), "carl cannot name miles at all");
 
     let nora = brief_for(org::find("nora").unwrap());
     assert!(nora.contains("hand work to nobody"), "{nora}");
@@ -414,4 +473,92 @@ fn a_verdict_line_with_non_ascii_does_not_panic() {
 
     let (v, _) = read_verdict("ACCEPT the numbers agree with the wiki");
     assert_eq!(v, Verdict::Accept);
+}
+
+/// JJ asked Carl how Miles was getting on and Carl said he had never heard of him.
+///
+/// That was true of what Carl had been told: the brief listed his direct reports and nothing
+/// else. Miles is in the compiled table working for Olivia, so the right answer was "he is
+/// Olivia's, ask her". An agent who cannot name the organisation dead ends every question about
+/// somebody else's department.
+#[test]
+fn carl_can_name_everybody_even_the_agents_he_may_not_reach() {
+    let carl = crate::army::org::require("carl").unwrap();
+    let brief = brief_for(carl);
+
+    for name in [
+        "adrian", "mason", "olivia", "serena", "rowan", "iris", "evan", "nora", "miles",
+    ] {
+        assert!(brief.contains(name), "carl was never told {name} exists");
+    }
+    assert!(
+        brief.contains("Olivia") || brief.contains("olivia"),
+        "and who Miles belongs to"
+    );
+}
+
+/// Handing somebody the whole chart must not turn into permission to use it.
+#[test]
+fn knowing_the_chart_is_not_permission_to_reach_across_it() {
+    let carl = crate::army::org::require("carl").unwrap();
+    let brief = brief_for(carl);
+    assert!(
+        brief.contains("Knowing this is not permission to use it"),
+        "the chart was handed over without the rule that goes with it"
+    );
+    assert!(
+        brief.contains("only to the agents"),
+        "the delegation rule is not restated alongside the chart"
+    );
+}
+
+/// A worker sees it too, so they can say who to ask rather than guessing.
+#[test]
+fn a_worker_is_told_the_organisation_as_well() {
+    let miles = crate::army::org::require("miles").unwrap();
+    let brief = brief_for(miles);
+    assert!(
+        brief.contains("olivia"),
+        "miles was not told who he reports to"
+    );
+    assert!(brief.contains("carl"), "nor that Carl exists");
+}
+
+/// Mail reaches every rank, because JJ asked for every agent and not for the panel's agents.
+///
+/// The first attempt put the list in the panel's own tool builder. Three paths start an agent,
+/// `tools_for` is the one they all ask, and the other two are the supervisor and the chain. So
+/// the ten agents actually running under `carl-army` could not send at all, which is precisely
+/// the set JJ meant.
+#[test]
+fn every_rank_can_send_mail() {
+    for rank in [Rank::Chief, Rank::Lead, Rank::Worker, Rank::Human] {
+        let tools = tools_for(rank);
+        assert!(
+            tools
+                .iter()
+                .any(|t| t == "mcp__claude_ai_Gmail__send_message"),
+            "{rank:?} cannot send"
+        );
+        assert!(
+            tools.iter().any(|t| t == "mcp__claude_ai_Gmail__reply"),
+            "{rank:?} cannot reply"
+        );
+    }
+}
+
+/// The half still withheld, and the reason it is withheld.
+///
+/// Sending is recoverable by apologising. Trashing a message JJ needed is not recoverable at
+/// all, so it stays out of the tool list where no prompt can talk an agent into it.
+#[test]
+fn nobody_can_destroy_mail() {
+    for rank in [Rank::Chief, Rank::Lead, Rank::Worker, Rank::Human] {
+        for forbidden in ["trash", "spam", "label", "untrash", "delete"] {
+            assert!(
+                !tools_for(rank).iter().any(|t| t.contains(forbidden)),
+                "{rank:?} was granted a mail tool matching {forbidden}"
+            );
+        }
+    }
 }

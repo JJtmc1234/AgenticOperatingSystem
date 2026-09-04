@@ -217,6 +217,12 @@ pub struct Task {
     /// Carried now and filled later, so adding worktrees does not change this type and every
     /// caller with it.
     pub workspace: Option<String>,
+    /// The objective this answers, by the journal sequence that recorded it.
+    ///
+    /// Only ever set on the first handover, from Carl to a lead. Work split off further down is
+    /// answering its parent task rather than answering JJ, and saying otherwise would make every
+    /// subtask look like a separate reply to the same request.
+    pub objective: Option<u64>,
 }
 
 impl Task {
@@ -243,6 +249,7 @@ impl Task {
             id: TaskId::fresh()?,
             goal,
             verification,
+            objective: None,
             status: Status::Assigned,
             owner: owner.to_string(),
             created_by: created_by.to_string(),
@@ -291,6 +298,15 @@ impl Task {
     /// is already holding and move it into a different project.
     pub fn for_project(mut self, project: ProjectId) -> Self {
         self.project = Some(project);
+        self
+    }
+
+    /// Says which objective this task was raised to answer.
+    ///
+    /// The sequence rather than the words, so the task and the objective cannot drift apart.
+    /// Only at creation, for the same reason as `for_project`.
+    pub fn answering(mut self, objective: u64) -> Self {
+        self.objective = Some(objective);
         self
     }
 

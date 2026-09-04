@@ -51,6 +51,23 @@ pub enum Ask {
     Subscribe { since: u64 },
     /// Do something. The half of the protocol that changes the world.
     Command { command: PanelCommand },
+    /// A `PreToolUse` hook asking whether Carl may do something, and waiting for the answer.
+    ///
+    /// Takes over the connection, like `Subscribe` does, because the hook has nothing else to
+    /// say and is holding a tool call still until it hears back.
+    MayI {
+        request: crate::panel::permission::Request,
+    },
+    /// JJ's answer to one of those.
+    ///
+    /// `question` rather than `id` because a frame already has an `id`, and the two are
+    /// different things: the frame's correlates a reply with the request that caused it, and
+    /// this one names the thing being decided. Both flattened into one object, so sharing the
+    /// name is not a style question, it is a collision.
+    Answered {
+        question: String,
+        verdict: crate::panel::permission::Verdict,
+    },
 }
 
 /// Backend to panel.
@@ -113,6 +130,29 @@ pub enum Reply {
     Speaking {
         text: String,
     },
+    /// Part of Carl's reasoning, as he produces it.
+    ///
+    /// A frame of its own rather than more `Speaking`, because it is not the answer and a panel
+    /// has to be able to put it somewhere else. Merged into the reply it would read as Carl
+    /// talking to himself in the middle of a sentence.
+    Thinking {
+        text: String,
+        /// Roughly how many tokens of reasoning, when the CLI says.
+        ///
+        /// Usually the only thing there is. The CLI redacts the reasoning text and reports the
+        /// size, so a frame carrying an empty string and no count looks like nothing happening.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tokens: Option<u32>,
+    },
+    /// A tool Carl has just picked up.
+    ///
+    /// Split into the tool and the one detail worth reading rather than a pre-formatted line,
+    /// so a panel can lay it out as it likes and a reader can count tool calls. A sentence
+    /// cannot be counted, which is the same reason `PanelEvent` is a closed list.
+    Doing {
+        tool: String,
+        detail: String,
+    },
     /// Fresh machine readings, pushed because nothing else would have said.
     ///
     /// **This frame carries no sequence, deliberately.** Army events are ordered by the journal
@@ -127,6 +167,19 @@ pub enum Reply {
         /// When the sample was taken, which is not when this was sent.
         at: u64,
         diagnostics: Vec<crate::providers::health::Diagnostic>,
+    },
+    /// Carl is asking to do something and a person has to say. Pushed to every subscriber.
+    ///
+    /// Carries no sequence, for the same reason telemetry does not: it is a question being
+    /// asked now rather than a place in the record of what happened. What Carl then did, or
+    /// was stopped from doing, is the army's business and reaches the journal on its own.
+    Permission {
+        request: crate::panel::permission::Request,
+    },
+    /// The answer, so a panel that did not answer stops showing the question.
+    Settled {
+        question: String,
+        verdict: crate::panel::permission::Verdict,
     },
     /// The request was refused, and by what rule.
     ///

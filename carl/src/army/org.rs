@@ -201,8 +201,8 @@ static ORG: &[Agent] = &[
         rank: Rank::Worker,
         reports_to: Some("olivia"),
         remit: "Email and communications. Reads the inbox, says which messages matter and \
-                why, and drafts replies. Sends nothing and deletes nothing until JJ has said \
-                so.",
+                why, drafts replies and sends them. Deletes nothing, archives nothing and \
+                marks nothing as spam, ever.",
     },
     Agent {
         name: "serena",
@@ -221,6 +221,38 @@ static ORG: &[Agent] = &[
                 reason Serena holds hers.",
     },
 ];
+
+/// The organisation, written for a prompt.
+///
+/// One place that renders the table into words, so the chain brief and the conversational brief
+/// cannot come to describe different armies. Names the rank and the reporting line for every
+/// agent, and states plainly what Carl may and may not do with that knowledge.
+pub fn as_brief() -> String {
+    let mut out = String::from(
+        "THE ARMY. You are Carl, the chief executive. These agents exist and work for you:\n",
+    );
+    for a in ORG {
+        if a.rank == Rank::Human {
+            continue;
+        }
+        let under = match a.reports_to {
+            Some(boss) => format!(", under {boss}"),
+            None => String::new(),
+        };
+        out.push_str(&format!(
+            "  {} ({}{}): {}\n",
+            a.name, a.rank, under, a.remit
+        ));
+    }
+    out.push_str(
+        "\nYou hand work only to the agents directly below you, which is your leads. You never \
+         write, review or rewrite the work itself, and you hold no tools for it, which is \
+         deliberate rather than a fault. If JJ asks about an agent who is not one of your direct \
+         reports, say whose they are and offer to ask that lead. Never say you have not heard of \
+         somebody who is on this list.",
+    );
+    out
+}
 
 pub fn everyone() -> &'static [Agent] {
     ORG
@@ -492,6 +524,193 @@ mod tests {
             let chain = chain_to_root(a.name);
             assert!(chain.len() <= everyone().len(), "{} loops", a.name);
             assert_eq!(chain[0].name, a.name);
+        }
+    }
+
+    /// The shape JJ specified: exactly three operational layers, with JJ outside them.
+    ///
+    /// Written as one test rather than spread through the file because the whole point is that
+    /// it is checkable at a glance. If somebody adds a sub department this fails, which is the
+    /// intent: deeper hierarchy is a decision, not something that arrives by accident.
+    #[test]
+    fn the_army_is_exactly_three_layers_deep_below_jj() {
+        for a in everyone() {
+            let depth = chain_to_root(a.name).len();
+            let allowed = match a.rank {
+                Rank::Human => 1,  // JJ, outside the army
+                Rank::Chief => 2,  // Carl under JJ
+                Rank::Lead => 3,   // a lead under Carl
+                Rank::Worker => 4, // an agent under its lead
+            };
+            assert_eq!(
+                depth, allowed,
+                "{} is {} steps from JJ, which is not where a {} sits",
+                a.name, depth, a.rank
+            );
+        }
+    }
+
+    /// Carl manages leads. Every worker belongs to exactly one lead and to no other.
+    #[test]
+    fn carl_reaches_every_lead_and_no_worker() {
+        for a in everyone() {
+            match a.rank {
+                Rank::Lead => assert!(
+                    may_delegate("carl", a.name),
+                    "carl cannot reach his own lead {}",
+                    a.name
+                ),
+                Rank::Worker => assert!(
+                    !may_delegate("carl", a.name),
+                    "carl reaches past a lead to {}",
+                    a.name
+                ),
+                _ => {}
+            }
+        }
+    }
+
+    /// A lead may hand work to its own agents and to nobody else's.
+    #[test]
+    fn a_lead_cannot_take_another_leads_agent() {
+        for lead in everyone().iter().filter(|a| a.rank == Rank::Lead) {
+            for worker in everyone().iter().filter(|a| a.rank == Rank::Worker) {
+                let mine = worker.reports_to == Some(lead.name);
+                assert_eq!(
+                    may_delegate(lead.name, worker.name),
+                    mine,
+                    "{} and {} : reports_to is {:?}",
+                    lead.name,
+                    worker.name,
+                    worker.reports_to
+                );
+            }
+        }
+    }
+
+    /// JJ is not in the army. Nothing may be handed to him and he holds no folder.
+    #[test]
+    fn jj_sits_outside_the_operational_army() {
+        let jj = require("jj").unwrap();
+        assert!(jj.is_root(), "JJ answers to nobody");
+        assert_eq!(jj.rank, Rank::Human);
+        assert_eq!(
+            reports_of("jj").iter().map(|a| a.name).collect::<Vec<_>>(),
+            vec!["carl"],
+            "and only Carl is under him"
+        );
+        for a in everyone() {
+            assert!(
+                !may_delegate(a.name, "jj"),
+                "{} can hand work to JJ, who is not in the army",
+                a.name
+            );
+        }
+    }
+
+    /// JJ asked Carl how Miles was getting on and Carl said he did not know who Miles is.
+    ///
+    /// He was right about what he had been told. The conversational brief described a general
+    /// assistant and never mentioned an army. The chain brief had the chart, but that is a
+    /// different prompt, so the Carl JJ actually talks to had never seen it.
+    #[test]
+    fn the_brief_names_every_agent_and_who_they_answer_to() {
+        let brief = as_brief();
+        for a in everyone() {
+            if a.rank == Rank::Human {
+                continue;
+            }
+            assert!(brief.contains(a.name), "{} is not in the brief", a.name);
+        }
+        assert!(
+            brief.contains("miles"),
+            "miles specifically, which is the case that failed"
+        );
+        assert!(
+            brief.contains("under olivia"),
+            "and who Miles answers to, so Carl can point at her"
+        );
+    }
+
+    /// JJ is not an agent and must not appear in a list headed "these agents work for you".
+    #[test]
+    fn the_brief_leaves_jj_out_of_the_army() {
+        let brief = as_brief();
+        for line in brief.lines().filter(|l| l.starts_with("  ")) {
+            assert!(
+                !line.starts_with("  jj "),
+                "JJ is listed as an agent: {line}"
+            );
+        }
+    }
+
+    /// Handing Carl the chart must not read as permission to use all of it.
+    #[test]
+    fn the_brief_repeats_the_rule_that_goes_with_the_chart() {
+        let brief = as_brief();
+        assert!(brief.contains("only to the agents directly below you"));
+        assert!(brief.contains("never write, review or rewrite"));
+        assert!(
+            brief.contains("Never say you have not heard of somebody"),
+            "the actual failure is not named, so it can come back"
+        );
+    }
+
+    /// The matrix JJ wrote out, checked pair by pair rather than by rule.
+    ///
+    /// The other tests check the shape in general terms. This one is the literal list, so if
+    /// somebody changes a reporting line the failure names the exact pair that broke rather
+    /// than a property somebody then has to interpret.
+    #[test]
+    fn the_delegation_matrix_jj_specified_holds() {
+        let allowed = [
+            ("carl", "adrian"),
+            ("carl", "mason"),
+            ("carl", "olivia"),
+            ("carl", "serena"),
+            ("carl", "rowan"),
+            ("adrian", "iris"),
+            ("adrian", "evan"),
+            ("mason", "nora"),
+            ("olivia", "miles"),
+        ];
+        for (from, to) in allowed {
+            assert!(
+                may_delegate(from, to),
+                "{from} to {to} should be allowed and is not"
+            );
+        }
+
+        let refused = [
+            // Carl reaching past a lead to an ordinary agent.
+            ("carl", "iris"),
+            ("carl", "evan"),
+            ("carl", "nora"),
+            ("carl", "miles"),
+            // One lead taking another lead's agent.
+            ("adrian", "nora"),
+            ("adrian", "miles"),
+            ("mason", "iris"),
+            ("mason", "evan"),
+            ("mason", "miles"),
+            ("olivia", "iris"),
+            ("olivia", "nora"),
+            // A lead handing to another lead, which is Carl's to do.
+            ("adrian", "mason"),
+            ("mason", "olivia"),
+            ("olivia", "serena"),
+            // Upward, and to JJ, who is not in the army.
+            ("nora", "mason"),
+            ("iris", "adrian"),
+            ("miles", "olivia"),
+            ("carl", "jj"),
+            ("adrian", "jj"),
+        ];
+        for (from, to) in refused {
+            assert!(
+                !may_delegate(from, to),
+                "{from} to {to} should be refused and is allowed"
+            );
         }
     }
 }

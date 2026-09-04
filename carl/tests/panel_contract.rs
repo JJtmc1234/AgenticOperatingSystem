@@ -87,6 +87,7 @@ fn one_army_event(journal: &mut Journal, goal: &str) -> u64 {
                 must: t.verification.must.clone(),
                 project: None,
                 workspace: None,
+                objective: None,
             },
         )
         .unwrap()
@@ -243,10 +244,11 @@ fn observing_an_unfounded_army_does_not_bring_one_into_existence() {
     // claim that these agents have state, which is the honest answer.
     // Everybody in the table except JJ, who is the human and has no folder to be missing.
     // Counted from the table rather than written down, so growing the organisation does not
-    // silently make this assertion about a number nobody meant.
+    // silently make this assertion about a number nobody meant. By rank rather than by name,
+    // so a second human does not quietly break it.
     let agents = carl::army::org::everyone()
         .iter()
-        .filter(|a| a.name != "jj")
+        .filter(|a| a.rank != carl::army::org::Rank::Human)
         .count();
     assert_eq!(
         snapshot.agents.len(),

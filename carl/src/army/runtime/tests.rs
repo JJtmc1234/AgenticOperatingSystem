@@ -612,7 +612,14 @@ fn at_local_hour(wanted: u32) -> u64 {
 /// and makes for a poor fixture.
 fn all_sleeping(dir: &Path, hours: crate::army::personnel::Hours) -> Personnel {
     found(dir, 100).unwrap();
-    for name in ["carl", "adrian", "mason", "nora"] {
+    // Everybody, taken from the table. Founding already gives night hours to every rank but
+    // the chief, so a list of four names here would have left the rest on their own hours and
+    // quietly stopped testing what the name of this helper claims.
+    for agent in crate::army::org::everyone() {
+        if agent.rank == crate::army::org::Rank::Human {
+            continue;
+        }
+        let name = agent.name;
         let path = dir.join("army").join(name).join("config.json");
         let mut config: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();

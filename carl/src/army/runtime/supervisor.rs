@@ -400,6 +400,13 @@ impl Supervisor {
     /// Refused for an agent this supervisor is not holding, including one that is running under
     /// a supervisor that has since gone, because that process is alive and unreachable.
     pub fn deliver(&mut self, agent: &AgentId, text: &str, deadline: Duration) -> Result<String> {
+        // Taken before the borrow below, so the notes can say who this was without holding a
+        // second reference to `self` while the session is being asked.
+        let home = self.home.clone();
+        let name = self
+            .roll
+            .get(agent)
+            .map_or_else(|| agent.to_string(), |r| r.name.clone());
         let session = self
             .live
             .iter_mut()
@@ -413,14 +420,24 @@ impl Supervisor {
             })?;
 
         let began = std::time::Instant::now();
+        // Written down as it happens. The supervisor holds the pipe for every agent that is not
+        // being asked from the panel, so a message delivered here used to be the least visible
+        // work in the army: nothing at all between "delivered" and whatever came back minutes
+        // later. Recording cannot fail the delivery, see `watching`.
+        let mut notes = crate::army::watching::Watching::of(&home, &name);
+        notes.asked(text);
         let answer = session.ask(
             text,
-            &mut |_| crate::claude::Flow::Continue,
+            &mut |say| {
+                notes.saw(say);
+                crate::claude::Flow::Continue
+            },
             &mut || match began.elapsed() > deadline {
                 true => crate::claude::Flow::Stop,
                 false => crate::claude::Flow::Continue,
             },
         )?;
+        notes.answered(&answer.text, answer.interrupted);
 
         match answer.interrupted {
             true => Err(crate::Error::Claude(format!(
@@ -509,10 +526,24 @@ impl Supervisor {
         record.supervisor = None;
         record.updated_at = now;
         // A process that stayed up did not fail to start, whatever ended it.
-        record.attempts = match policy::was_healthy(since, now) {
+        let stuck = policy::was_healthy(since, now);
+        record.attempts = match stuck {
             true => 0,
             false => record.attempts.saturating_add(1),
         };
+        // A resume that did not stick is the signal that matters. `--resume` on an id claude
+        // never wrote fails immediately and identically every time, so one failed resume is
+        // enough to stop trusting the id. Anything else leaves it alone: an agent killed one
+        // second after starting still created its conversation, and throwing that away would
+        // lose the continuity the whole design exists to protect.
+        if !stuck
+            && record
+                .continuity
+                .as_ref()
+                .is_some_and(|c| c.session == continuity::Session::Resumed)
+        {
+            record.established = false;
+        }
 
         // Written before the record is saved. A crash after the write leaves an outcome that can
         // be looked up. A crash before it loses the only evidence anything happened at all.
@@ -563,11 +594,32 @@ impl Supervisor {
             record.abandoned.push(old);
         }
 
+        // A session being replaced is kept rather than overwritten. The id is the only handle
+        // on whatever that process was in the middle of, and a start that quietly dropped it
+        // would lose the evidence while looking like it had done nothing.
+        //
+        // This became reachable when unestablished sessions stopped being resumed: the start
+        // that used to be a Resume is now a Fresh, and Fresh used to assume there was nothing
+        // to keep.
+        if how != Start::Resume
+            && let Some(old) = record.session.take()
+            && !record.abandoned.contains(&old)
+        {
+            record.abandoned.push(old);
+        }
+
         let session = match (how, &record.session) {
             (Start::Resume, Some(existing)) => existing.clone(),
             _ => SessionId::fresh()?,
         };
         let resume = how == Start::Resume && record.session.is_some();
+        // A fresh or renewed id has proved nothing. Carrying the old flag over would let the
+        // next attempt resume a conversation that has never been written.
+        // A pinned id is one claude creates as it starts, so it is established from here. A
+        // resume changes nothing: whether that conversation exists is exactly what is in doubt.
+        if !resume {
+            record.established = true;
+        }
 
         let workdir = people.folder(name);
         // Asked before the process starts, because after it there is nothing to do about the
@@ -579,7 +631,11 @@ impl Supervisor {
             brief_for(folder.agent),
             memory::embedded_fact(&workdir)
         );
-        let runner = Runner::at(&self.program).allowing(tools_for(folder.agent.rank));
+        let runner = Runner::at(&self.program)
+            .allowing(tools_for(folder.agent.rank))
+            // The folder says which model. Passing it is the whole point of the field, and for
+            // a while nothing did, so an agent set to one model quietly ran another.
+            .running(folder.config.model.id());
 
         record.name = name.to_string();
         record.session = Some(session.clone());

@@ -236,7 +236,13 @@ mod tests {
     #[test]
     fn only_the_chief_may_enlist() {
         assert!(may_enlist("carl").is_ok());
-        for other in ["adrian", "mason", "nora"] {
+        // Every rank that is not the chief, from the table, so a department added later is
+        // covered without anybody remembering to add its lead to a list here.
+        for other in crate::army::org::everyone()
+            .iter()
+            .filter(|a| a.rank != crate::army::org::Rank::Chief)
+        {
+            let other = other.name;
             let err = may_enlist(other).unwrap_err().to_string();
             assert!(err.contains("may not enlist"), "{other}: {err}");
         }

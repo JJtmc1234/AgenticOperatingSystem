@@ -89,9 +89,14 @@ impl App {
                 from: Speaker::Jj,
                 text,
                 streaming: false,
+                thinking: String::new(),
+                doing: Vec::new(),
+                thought_tokens: None,
             }),
 
             PanelEvent::CarlSaid { text, streaming } => self.carl_said(&text, streaming),
+            PanelEvent::CarlThinking { text, tokens } => self.carl_thinking(&text, tokens),
+            PanelEvent::CarlDoing { tool, detail } => self.carl_doing(&tool, &detail),
 
             PanelEvent::DecisionRaised(decision) => {
                 let id = decision.id.clone();
@@ -101,6 +106,43 @@ impl App {
 
             PanelEvent::DecisionSettled { id } => {
                 self.snapshot.decisions.retain(|d| d.id != id);
+            }
+
+            // Replaced rather than pushed, so the backlog a fresh subscriber is sent cannot put
+            // the same question on screen twice.
+            PanelEvent::PermissionAsked(request) => {
+                let id = request.id.clone();
+                self.snapshot.permissions.retain(|p| p.id != id);
+                self.snapshot.permissions.push(*request);
+            }
+
+            // Off the screen whoever ended it, including when nobody did and it timed out. A
+            // question left showing after the process behind it gave up is a button that does
+            // nothing, which is worse than no button.
+            // Off the screen, and say so.
+            //
+            // Removing the row silently is why the button read as broken. JJ pressed Allow, the
+            // answer landed, the tool call went through, and the band still had a question in
+            // it because the army had asked another one in the meantime. Nothing on screen
+            // distinguished "your click worked" from "your click did nothing", so the working
+            // case and the broken case looked identical.
+            PanelEvent::PermissionSettled { id, allowed } => {
+                let tool = self
+                    .snapshot
+                    .permissions
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| p.tool.clone());
+                self.snapshot.permissions.retain(|p| p.id != id);
+                if let Some(tool) = tool {
+                    self.notice = Some((
+                        format!("{} {tool}", if allowed { "allowed" } else { "refused" }),
+                        allowed,
+                    ));
+                    // And in the band itself, which is where JJ was looking when he pressed it.
+                    self.just_settled
+                        .push((tool, allowed, std::time::Instant::now()));
+                }
             }
 
             PanelEvent::Delegated(delegation) => {
@@ -157,9 +199,20 @@ impl App {
         self.link = link;
 
         if now_live && !was_live {
-            // Back after a gap. Everything on screen predates the gap and nothing filled it,
-            // so it is replaced rather than continued.
+            // Back after a gap. The army half of the screen predates the gap and nothing filled
+            // it, so it is replaced rather than continued.
+            //
+            // The conversation and the event list are not the army half. The backend keeps
+            // neither: a snapshot carries no turns and no records, so what comes back has both
+            // empty, and assigning it wholesale wipes them. They are this session's own history,
+            // built from frames as they arrived, and there is nowhere to fetch them from again.
+            // Blanking them would punish JJ for a dropped socket by deleting what he just said
+            // and everything he had watched happen.
+            let talking = std::mem::take(&mut self.snapshot.conversation);
+            let watched = std::mem::take(&mut self.snapshot.events);
             self.snapshot = self.source.snapshot();
+            self.snapshot.conversation = talking;
+            self.snapshot.events = watched;
             self.resynced_at = Some(Instant::now());
             self.lit.clear();
         }
@@ -183,9 +236,62 @@ impl App {
                 from: Speaker::Carl,
                 text: text.to_string(),
                 streaming,
+                thinking: String::new(),
+                doing: Vec::new(),
+                thought_tokens: None,
             });
         }
         self.conversation_at_end = true;
+    }
+
+    /// Adds to the reasoning of the turn Carl is producing.
+    ///
+    /// Opens a turn if none is open, because reasoning normally arrives before the first word
+    /// of the answer. Requiring words first would mean the reasoning had nowhere to go for
+    /// exactly the stretch it is most wanted.
+    fn carl_thinking(&mut self, text: &str, tokens: Option<u32>) {
+        let turn = self.open_carl_turn();
+        turn.thinking.push_str(text);
+        // The CLI redacts the reasoning and reports its size, so for most turns this is the
+        // only thing there is. Keeping the largest rather than summing, because each delta
+        // carries a running estimate of the same block and adding them up would multiply it.
+        if let Some(n) = tokens {
+            turn.thought_tokens = Some(turn.thought_tokens.unwrap_or(0).max(n));
+        }
+        self.conversation_at_end = true;
+    }
+
+    /// Records a tool call against the turn Carl is producing.
+    fn carl_doing(&mut self, tool: &str, detail: &str) {
+        self.open_carl_turn().doing.push(crate::model::ToolCall {
+            tool: tool.to_string(),
+            detail: detail.to_string(),
+        });
+        self.conversation_at_end = true;
+    }
+
+    /// The turn Carl is currently producing, started if there is not one.
+    fn open_carl_turn(&mut self) -> &mut Turn {
+        let open = self
+            .snapshot
+            .conversation
+            .last()
+            .is_some_and(|t| t.from == Speaker::Carl && t.streaming);
+        if !open {
+            self.snapshot.conversation.push(Turn {
+                at: self.snapshot.at,
+                from: Speaker::Carl,
+                text: String::new(),
+                streaming: true,
+                thinking: String::new(),
+                doing: Vec::new(),
+                thought_tokens: None,
+            });
+        }
+        self.snapshot
+            .conversation
+            .last_mut()
+            .expect("just pushed one if it was missing")
     }
 
     /// Marks a row as just changed, so the change can be seen landing.

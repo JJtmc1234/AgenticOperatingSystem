@@ -16,7 +16,7 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 
 use anyhow::Result;
-use carl::claude::{Flow, Pool, Runner};
+use carl::claude::{Flow, Pool};
 use carl::turn;
 
 /// Words that end the conversation, on their own on a line.
@@ -30,8 +30,10 @@ pub fn run(home: &Path, thread: &str) -> Result<()> {
 
     // One process for the whole session, opened on the first question rather than now, so
     // starting the terminal and never typing anything costs nothing.
+    // JJ's own terminal, so it reads the `jj` permits rather than the defaults. It used to take
+    // `Runner::default()`, which is why nothing JJ wrote in permissions.json ever reached here.
     let mut pool = Pool::new(
-        Runner::default(),
+        carl::turn::runner_for(home, carl::claude::permits::Surface::Jj)?,
         home.join("workspace"),
         carl::brief::IDENTITY,
     );
@@ -91,7 +93,41 @@ pub fn run(home: &Path, thread: &str) -> Result<()> {
             said_by: Some(carl::brief::OWNER),
         };
 
-        let mut on_text = |chunk: &str| {
+        let mut on_text = |chunk: carl::Say<'_>| {
+            // Notes are printed and never kept. Only the words are the answer, so only the
+            // words go into `whole`, which is what gets remembered and reprinted.
+            let chunk = match chunk {
+                carl::Say::Words(t) => t,
+                carl::Say::Thinking { text, tokens } => {
+                    // The text is usually redacted and the size is what there is, so a
+                    // silent terminal would be the only sign of a long think.
+                    match (text.is_empty(), tokens) {
+                        (true, Some(n)) => {
+                            let _ = write!(out, "\x1b[2m[thinking, ~{n} tokens]\x1b[0m");
+                        }
+                        (true, None) => {}
+                        (false, _) => {
+                            let _ = write!(out, "\x1b[2m{text}\x1b[0m");
+                        }
+                    }
+                    let _ = out.flush();
+                    return Flow::Continue;
+                }
+                carl::Say::Doing { tool, detail } => {
+                    let _ = write!(
+                        out,
+                        "\x1b[2m{}\x1b[0m",
+                        carl::claude::doing_line(tool, detail)
+                    );
+                    let _ = out.flush();
+                    return Flow::Continue;
+                }
+                carl::Say::Refused { tool, why } => {
+                    let _ = write!(out, "{}", carl::claude::refusal_line(tool, why));
+                    let _ = out.flush();
+                    return Flow::Continue;
+                }
+            };
             whole.push_str(chunk);
             let visible = carl::remember::split(&whole).text;
 

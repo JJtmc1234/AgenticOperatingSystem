@@ -156,6 +156,26 @@ pub struct Decision {
     pub options: Vec<String>,
 }
 
+/// A tool call Carl is holding still, waiting for JJ.
+///
+/// Its own type rather than a `Decision`, even though both are questions with two buttons. A
+/// decision is identified by the journal sequence that raised it and is answered by writing to
+/// the journal. This is identified by a string the hook minted, is answered over a different
+/// channel, and is not a thing that happened to the army until JJ says so. Sharing a type would
+/// mean sharing an id field, and the decision path parses that id as a number.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Permission {
+    /// Minted by the hook. Opaque, and never parsed.
+    pub id: String,
+    /// As the CLI names it: `Bash`, `Write`, `Read`.
+    pub tool: String,
+    /// The part worth reading before deciding: the command, or the path.
+    pub detail: String,
+    /// Which surface asked, so JJ can see whether this came from him or from Slack.
+    pub surface: String,
+    pub asked_at: u64,
+}
+
 /// One turn in the conversation with Carl.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Turn {
@@ -164,6 +184,32 @@ pub struct Turn {
     pub text: String,
     /// True while the text is still arriving.
     pub streaming: bool,
+    /// Carl's reasoning for this turn, in the order he produced it.
+    ///
+    /// Held apart from `text` rather than folded into it. It is not the answer, it must never
+    /// reach the transcript, and it is the thing a reader wants collapsed by default and open
+    /// when an answer is taking a suspiciously long time.
+    pub thinking: String,
+    /// Roughly how many tokens Carl spent reasoning on this turn.
+    ///
+    /// Separate from `thinking` because they arrive separately and usually only this one
+    /// arrives. The CLI sends the thinking events with the text redacted and the size attached,
+    /// so a turn with real reasoning behind it has an empty string and a number.
+    pub thought_tokens: Option<u32>,
+    /// The tools picked up during this turn, in order, with duplicates kept.
+    ///
+    /// Kept as a list rather than a rendered string so the panel can count them. Twelve reads
+    /// in a row is a fact about what Carl is doing, and a paragraph cannot be counted.
+    pub doing: Vec<ToolCall>,
+}
+
+/// One tool call, as the stream reported it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCall {
+    /// `Bash`, `Read`, `Grep`, as the CLI names it.
+    pub tool: String,
+    /// The command or the path. Empty when the call carried neither.
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +245,12 @@ pub struct Snapshot {
     pub diagnostics: Vec<Diagnostic>,
     pub conversation: Vec<Turn>,
     pub decisions: Vec<Decision>,
+    /// Tool calls waiting on JJ right now.
+    ///
+    /// Not part of the backend snapshot and deliberately so. A question exists only while a
+    /// process is holding still for it, so it is pushed and withdrawn on the live stream rather
+    /// than being a thing a snapshot could resurrect after it had already timed out.
+    pub permissions: Vec<Permission>,
     pub delegations: Vec<Delegation>,
     pub events: Vec<carl::army::event::Record>,
     /// Unix seconds the snapshot was taken.

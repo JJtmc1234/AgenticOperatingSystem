@@ -74,9 +74,39 @@ pub enum PanelEvent {
         /// True while more is coming. The panel shows a caret and does not treat it as final.
         streaming: bool,
     },
+    /// Part of Carl's reasoning, as he produces it.
+    ///
+    /// Its own event rather than more `CarlSaid`, because the panel has to be able to put it
+    /// somewhere other than the reply. Folded into the answer it reads as Carl talking to
+    /// himself mid sentence, which is exactly what it looked like before there was a frame
+    /// for it.
+    CarlThinking {
+        text: String,
+        /// Roughly how many tokens of reasoning. The CLI redacts the text and reports the size,
+        /// so this is usually the only thing there is to put on screen.
+        tokens: Option<u32>,
+    },
+    /// A tool Carl has just picked up, kept apart so it can be counted and laid out.
+    CarlDoing {
+        tool: String,
+        detail: String,
+    },
     /// JJ's own message, echoed back once the backend has it.
     JjSaid(String),
     DecisionRaised(Box<crate::model::Decision>),
+    /// Carl is asking whether he may do something, and a tool call is held still for it.
+    ///
+    /// Carries no sequence. Being asked is not something that happened to the army, and putting
+    /// one on the event timeline would number a thing the journal never issued.
+    PermissionAsked(Box<crate::model::Permission>),
+    /// A question is over, whoever ended it, including nobody.
+    ///
+    /// Arrives on every panel and not only the one that answered, so a question does not sit on
+    /// a second screen after it has been decided on the first.
+    PermissionSettled {
+        id: String,
+        allowed: bool,
+    },
     DecisionSettled {
         id: String,
     },

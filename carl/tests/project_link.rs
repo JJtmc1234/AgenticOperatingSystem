@@ -98,6 +98,7 @@ fn delegate(journal: &mut Journal, t: &Task) {
                 project: t.project.clone(),
 
                 workspace: t.workspace.clone(),
+                objective: None,
             },
         )
         .unwrap();
