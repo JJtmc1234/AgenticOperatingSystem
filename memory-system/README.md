@@ -77,6 +77,7 @@ carry either a route into a personal machine or a child's teachers by name and a
 | `shared/work/mail.md` | one line of school addresses, redacted in place |
 | `agents/olivia/miles/brief.md` | one line of school addresses, redacted in place |
 | `ACTION-ITEMS.md` | teachers, classes and when they meet, which together say where a child is |
+| `agents/olivia/miles/pending.md` | the same, for the mail Miles is waiting on JJ for |
 
 The four in `shared/` keep their rows in `INDEX.md`. An index that quietly omits a file it
 knows about teaches the reader that the index is incomplete, which costs more than the omission
