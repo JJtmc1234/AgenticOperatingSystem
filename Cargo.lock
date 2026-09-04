@@ -166,6 +166,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aos-memory"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "aos-panel"
 version = "0.1.0"
 dependencies = [

@@ -40,6 +40,19 @@ covers that agent's own job. Neither is decoration:
   audited. An index that silently dropped it would leave a file in every agent folder that
   looks current.
 
+Checked by `crates/aos-memory`, which walks this folder and fails if either of the first two
+stops being true. This said "checked" for a month before anything checked it, which is the same
+class of mistake as a rule nobody can reach: written down, believed, and doing nothing.
+
+Both directions means both failures, because they fail differently. A file with no row is a
+file no agent will ever find. A row with no file sends an agent to read something that is not
+there, and an agent that follows a dead row once has learned the index is unreliable, which
+costs more than the missing row did.
+
+```sh
+cargo test -p aos-memory
+```
+
 ## What learning means here
 
 `learned.md` is promoted, not drafted. A pattern becomes a rule on the third separate sighting.
