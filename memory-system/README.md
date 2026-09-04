@@ -62,14 +62,30 @@ carry either a route into a personal machine or a child's teachers by name and a
 | `shared/machine/virtualbox.md` | the internal network and what it reaches |
 | `shared/people/contacts.md` | teachers and their addresses |
 | `shared/work/mail.md` | one line of school addresses, redacted in place |
+| `agents/olivia/miles/brief.md` | one line of school addresses, redacted in place |
+| `ACTION-ITEMS.md` | teachers, classes and when they meet, which together say where a child is |
 
-Their rows stay in `INDEX.md`. An index that quietly omits a file it knows about teaches the
-reader that the index is incomplete, which costs more than the omission saves.
+The four in `shared/` keep their rows in `INDEX.md`. An index that quietly omits a file it
+knows about teaches the reader that the index is incomplete, which costs more than the omission
+saves. The other two are not in that index because it only covers `shared/`, so this table is
+where they are named.
 
 The complete system, with those files intact, is the private repository
 `JJtmc1234/army-memory`.
 
 ## Where the code is
 
-The agents, the ranks, the delegation checks and the promotion engine are in
-`JJtmc1234/carl`. This folder is the memory those agents read, not the runtime that reads it.
+In `../carl`, in this repository. The agents, the ranks, the delegation checks and the
+promotion engine used to be the separate `JJtmc1234/carl`, and were brought in with their
+history in September 2026 because one project in four repositories is four places to look for
+one answer.
+
+This folder is still the memory those agents read rather than the runtime that reads it. The
+split is worth keeping inside one repository: memory is text a person can check, and the
+runtime is code a test can check.
+
+## Why army-memory is still a separate repository
+
+Its history is the reason. The files above are stubs at the tip of this branch, but they are
+real in every commit that private repository ever made, and importing that history here would
+publish what the stubs exist to hold back. So the content is mirrored and the history is not.
