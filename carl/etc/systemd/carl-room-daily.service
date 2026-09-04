@@ -1,0 +1,10 @@
+[Unit]
+Description=Carl looks for anything worth raising
+Documentation=https://github.com/JJtmc1234/AOS/issues/39
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/Projects/AOS/carl/portal/room-proactive.sh
+TimeoutStartSec=600

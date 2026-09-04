@@ -1,0 +1,16 @@
+[Unit]
+Description=Carl looks at the room every two minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+# A tick that finds nothing costs one HTTPS request, so the interval is set by how long
+# somebody should wait for an answer rather than by what it costs to look.
+#
+# Deliberately NOT Persistent. Catching up on missed ticks after a suspend would fire several
+# runs at once, and every one of them would find the same backlog the first one already read.
+Persistent=false
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

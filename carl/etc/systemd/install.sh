@@ -5,10 +5,11 @@
 #   carl-listen   the microphone
 #   carl-slack    Slack
 #   carl-army     the Army Runtime Supervisor, which keeps agent processes alive
+#   carl-room     Carl answering the shared room, and once an hour raising something himself
 #
-# The first three are ways of talking to Carl. The fourth is the army being up, and it is the
-# one that costs money while nobody is watching, so it is only started when there is an army
-# to supervise.
+# The first three are ways of talking to Carl. The fourth is the army being up. The fifth is
+# two timers rather than a daemon, and like the army it only starts when there is something for
+# it to do, because both of them cost money while nobody is watching.
 #
 # User services, not system ones. Carl needs the microphone, the speakers and the screen,
 # all of which belong to a logged in person and none of which a root daemon can reach
@@ -35,8 +36,13 @@ install -m755 "$repo/etc/carl-python" "$HOME/.local/bin/carl-python"
 install -m755 "$repo/target/release/carl-panel" "$HOME/.local/bin/carl-panel"
 echo "installed $HOME/.local/bin/carl, carl-panel and carl-python"
 
-for unit in carl-aec carl-listen carl-slack carl-army carl-panel-backend carl-panel; do
+for unit in carl-aec carl-listen carl-slack carl-army carl-panel-backend carl-panel carl-room carl-room-daily; do
   install -m644 "$here/$unit.service" "$units/$unit.service"
+done
+# The room is timers rather than a daemon. Nothing runs between ticks, and a tick on a quiet
+# room is one request and no model call.
+for unit in carl-room carl-room-daily; do
+  install -m644 "$here/$unit.timer" "$units/$unit.timer"
 done
 
 # The unit files name the repo path for the canceller config, so the repo has to stay put.
@@ -67,6 +73,17 @@ else
   echo
   echo "skipping carl-army, no army has been founded yet."
   echo "found one and start it with: carl army found && systemctl --user enable --now carl-army"
+fi
+
+# The room needs credentials before it is worth starting. Without portal.json every tick would
+# find no room and log that it found no room, forever.
+if [ -f "$HOME/.carl/portal.json" ]; then
+  want+=(carl-room.timer carl-room-daily.timer)
+else
+  echo
+  echo "skipping carl-room, there is no ~/.carl/portal.json yet."
+  echo "write it as portal/README.md describes, then:"
+  echo "  systemctl --user enable --now carl-room.timer carl-room-daily.timer"
 fi
 
 systemctl --user enable --now "${want[@]}"

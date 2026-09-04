@@ -1,0 +1,14 @@
+[Unit]
+# Carl answering the room, as opposed to Carl being alive, which is carl-army.service.
+Description=Carl reacts to the room
+Documentation=https://github.com/JJtmc1234/AOS/issues/39
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/Projects/AOS/carl/portal/room-watch.sh
+# A quiet tick is a fraction of a second. This is the budget for the one case that costs
+# anything, which is a `claude` turn that reads the room and writes one reply. Past this it is
+# stuck rather than thinking, and the next tick would put a second Carl in the same room.
+TimeoutStartSec=600

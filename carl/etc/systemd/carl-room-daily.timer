@@ -1,0 +1,11 @@
+[Unit]
+Description=Carl raises anything worth raising, once an hour
+
+[Timer]
+OnCalendar=hourly
+# Unlike the two minute one, a missed day is worth catching up on. This fires at most once.
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target
