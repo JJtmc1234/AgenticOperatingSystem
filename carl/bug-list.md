@@ -186,3 +186,18 @@ the overlap check, the empty state check and the workspace check, and they pass.
 `text_the_clip_threw_away_is_not_reported_as_an_overlap` asserts that both rows were recorded
 and stacked before asserting that no collision is reported, because a test that could pass by
 never painting the second row would prove nothing.
+
+## Finished reasoning still said thinking
+
+The panel ignored the finished state when reasoning arrived as a token count
+with no text. It now draws a finished reasoning label.
+`finished_redacted_reasoning_is_drawn_as_finished` inspects the rendered text
+for both states. It failed on the old label before the fix.
+
+## Carl was not told about his organisation
+
+The identity now names the leads, separates questions from work and routes
+Miles through Olivia.
+`the_chief_is_told_to_delegate_work_through_his_leads` guards that instruction.
+It fails when the organisation section is removed. This checks the brief,
+not a live model decision. The local delegation permission still needs approval.

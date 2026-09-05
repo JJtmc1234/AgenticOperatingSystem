@@ -1,4 +1,5 @@
 use super::*;
+use eframe::egui;
 
 fn call(tool: &str, detail: &str) -> ToolCall {
     ToolCall {
@@ -66,4 +67,34 @@ fn a_finished_heading_gives_the_size_rather_than_a_fragment() {
 #[test]
 fn a_finished_heading_never_pretends_it_is_still_thinking() {
     assert!(!heading_for("done", false).contains("THINKING"));
+}
+
+#[test]
+fn finished_redacted_reasoning_is_drawn_as_finished() {
+    fn labels(shape: &egui::epaint::Shape, into: &mut String) {
+        match shape {
+            egui::epaint::Shape::Text(text) => into.push_str(text.galley.text()),
+            egui::epaint::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    labels(shape, into);
+                }
+            }
+            _ => {}
+        }
+    }
+    let ctx = egui::Context::default();
+    for streaming in [true, false] {
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                thinking(ui, "", Some(50), streaming);
+            });
+        });
+        let mut drawn = String::new();
+        for shape in output.shapes {
+            labels(&shape.shape, &mut drawn);
+        }
+        assert!(drawn.contains("50"), "the count must be drawn: {drawn}");
+        assert_eq!(drawn.contains("thinking"), streaming, "{drawn}");
+        assert_eq!(drawn.contains("so far"), streaming, "{drawn}");
+    }
 }

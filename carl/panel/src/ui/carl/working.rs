@@ -93,9 +93,13 @@ fn thinking(ui: &mut Ui, text: &str, tokens: Option<u32>, streaming: bool) {
     if text.is_empty() {
         if let Some(n) = tokens {
             ui.label(
-                RichText::new(format!("  thinking, about {n} tokens so far"))
-                    .font(theme::label())
-                    .color(theme::FAINT),
+                RichText::new(if streaming {
+                    format!("  thinking, about {n} tokens so far")
+                } else {
+                    format!("  REASONING, about {n} tokens")
+                })
+                .font(theme::label())
+                .color(theme::FAINT),
             );
         }
         return;

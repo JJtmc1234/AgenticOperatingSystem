@@ -240,7 +240,7 @@ impl PanelDataSource for LivePanelDataSource {
 
     fn poll(&mut self) -> Vec<PanelEvent> {
         // Anything said locally goes out first, so JJ's own line is above the answer to it.
-        let mut out: Vec<PanelEvent> = self.echoed.drain(..).collect();
+        let mut out: Vec<PanelEvent> = std::mem::take(&mut self.echoed);
         loop {
             match self.incoming.try_recv() {
                 Ok(FromBackend::Update(update)) => self.take(*update, &mut out),
