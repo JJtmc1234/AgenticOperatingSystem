@@ -61,12 +61,15 @@ def issue_plans(repo, head, findings):
         ids=sorted(identifier(repo,f) for f in group)
         marker=hashlib.sha256('|'.join(ids).encode()).hexdigest()[:24]
         title=group[0]['title'] if len(group)==1 else f"{group[0]['path'].split('/')[0]}: {len(group)} related {group[0]['kind']} findings"
-        body=['Source analysis by Iris with independent review. Runtime reproduction has not been performed.',f'Inspected commit: `{head}`.']
+        body=[]
         for f in group:
             from urllib.parse import quote
-            body += [f"### {f['title']}",f['impact'],f"Source: https://github.com/{repo}/blob/{head}/{quote(f['path'],safe='/')}#L{f['line']}",
-                     '```\n'+f['excerpt'].replace('```','` ` `')+'\n```',f['mechanism'],
+            body += ["## What happens" if len(group)==1 else f"### {f['title']}",f['impact'],
+                     "**Why this happens**",f['mechanism'],"**Source evidence**",f"Source: https://github.com/{repo}/blob/{head}/{quote(f['path'],safe='/')}#L{f['line']}",
+                     '```\n'+f['excerpt'].replace('```','` ` `')+'\n```',
                      '**Completion criteria and proposed test**',f['validation'],f"<!-- aos-iris-finding:{identifier(repo,f)} -->"]
+        body += ['Evidence level: source analysis with independent review. Runtime reproduction has not been performed.',
+                 f'Inspected commit: `{head}`.']
         plans.append(dict(title=title,body='\n\n'.join(body),marker=marker,
                           priority=0 if group[0]['severity']=='major' else 1))
     return sorted(plans,key=lambda p:(p['priority'],p['title']))

@@ -225,3 +225,11 @@ Iris reproduced a browser defect against the committed portal source. `integrati
 ## Notification acceptance was mistaken for visibility
 
 The desktop service returned an ID on Ubuntu, but JJ was using Arch and did not see the notice. `test_acceptance_does_not_claim_visibility_and_notice_is_persistent` fails against the old implementation. Reports now distinguish service acceptance from unknown user visibility, and notices request persistence. `test_idle_poll_does_not_hide_published_issues_or_browser_failure` guards a durable overview that keeps issue links and test failures visible after routine polls.
+
+## Iris findings buried the visible problem
+
+Issues now lead with what the user sees and retain an explicit statement when runtime testing has not occurred. `test_issue_leads_with_user_visible_problem_and_labels_unexecuted_test` fails against the old template. The overlapping poll test now checks the stored count separately from the displayed count. Three original runs showed one stored message and two displayed messages. Three isolated comparison runs showed one of each.
+
+## Iris status required write access
+
+Status now renders the journal without writing to the state directory. `test_status_does_not_write_to_the_state_directory` fails against the old CLI. Both new Python regressions pass with the fixes, along with all 47 workflow tests.

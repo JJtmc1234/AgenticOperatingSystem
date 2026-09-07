@@ -68,18 +68,19 @@ test('the owner admits a new member through the browser', async ({ page, browser
     await expect(page.locator('#doorBtn')).toBeHidden();
   } finally { await context.close(); }
 });
-test('overlapping polls display each message once', async ({ page, request }) => {
-  await request.post('/say', { headers: { Authorization: 'Bearer fixture-member-only' },
+test('overlapping polls display each message once', async ({ page, request }, testInfo) => {
+  const sent = await request.post('/say', { headers: { Authorization: 'Bearer fixture-member-only' },
     data: { text: 'one stored message' } });
+  expect(sent.status()).toBe(200);
   let release;
   let started;
   const paused = new Promise(resolve => { started = resolve; });
   const resume = new Promise(resolve => { release = resolve; });
   let reads = 0;
   await page.route('**/read?after=0', async route => {
-    reads++;
+    const ordinal = ++reads;
     const response = await route.fetch();
-    if (reads === 1) { started(); await resume; }
+    if (ordinal === 1) { started(); await resume; }
     await route.fulfill({ response });
   });
   await login(page);
@@ -90,5 +91,12 @@ test('overlapping polls display each message once', async ({ page, request }) =>
   release();
   await (await response).finished();
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const stored = await (await request.get('/read?after=0', {
+    headers: { Authorization: 'Bearer fixture-member-only' },
+  })).json();
+  const displayed = await page.locator('#room .said .text').allTextContents();
+  await testInfo.attach('observed-counts.json', { contentType: 'application/json',
+    body: JSON.stringify({ storedMessages: stored, displayedMessages: displayed, readRequests: reads }, null, 2) });
+  expect(stored).toHaveLength(1);
   await expect(page.locator('#room .said')).toHaveCount(1);
 });
