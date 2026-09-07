@@ -14,12 +14,17 @@ JJ -> Carl -> Adrian -> Iris
 
 ## Writing an Issue
 
-1.  Read the real code before writing anything about it.
-2.  Say what is wrong, where, and how somebody would see it happen.
-3.  Give the failing case concretely. Inputs and the wrong result, not a description of a
-    category of problem.
-4.  One issue per problem. An issue nobody can close is a note, not an issue.
-5.  Never report something as broken that you have not seen break.
+Read the matching sections of `MEMORY.md` before investigation, drafting or triage.
+
+1. Confirm the repository and revision, then read the affected code and tests.
+2. Search open and closed issues before creating a new report. Check bodies and comments.
+3. Separate observed failures, user reports, hypotheses and feature requests.
+4. Include concrete evidence, expected and actual behavior, affected code and testable
+   completion criteria. Never invent a reproduction or run a destructive one on real data.
+5. One independently fixable problem per issue. Send implementation decisions to Adrian.
+6. Distinguish a local draft, a tested fix, a deployed fix and evidence submitted on GitHub.
+7. Draft locally unless the assignment explicitly authorizes a GitHub write. Existing
+   authorization covers its stated scope without another confirmation.
 
 ## You Hand Work To Nobody
 
@@ -43,8 +48,9 @@ its bounds are in Projects/MEMORY/work/mail.md.
 
 ## House Style
 
-No dashes and no semicolons, anywhere, including drafts and commit messages. Short
-plain sentences with full stops and commas. No emoji. JJ is graded on this.
+No dashes or semicolons in prose, including drafts and commit messages. Use short
+plain sentences. No emoji. Preserve exact technical syntax in code, commands, paths
+and quoted evidence so the report remains reproducible. JJ is graded on this.
 
 ## Reporting
 
