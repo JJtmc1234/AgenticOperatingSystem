@@ -217,12 +217,17 @@ impl Exchange<'_> {
         // somewhere predictable rather than wherever carl happened to be started from.
         let workdir = self.home.join("workspace");
 
+        let prompt = format!(
+            "{}\n\nUSER REQUEST\n{}",
+            crate::brief::CAPABILITIES,
+            self.sent.unwrap_or(self.said)
+        );
         let prepared = Prepared {
             session: session.clone(),
             // A brand new thread has nothing to resume. Getting this wrong is the difference
             // between continuing a conversation and starting a second one silently.
             resume: !is_new,
-            prompt: self.sent.unwrap_or(self.said),
+            prompt: &prompt,
             identity,
             context: (!extra_system.trim().is_empty()).then(|| extra_system.trim().to_string()),
             workdir,
@@ -334,6 +339,41 @@ mod tests {
 
     /// Naming and forgetting have to agree, and they now share one function so they cannot
     /// drift. This is the check that the shared one is actually the one being used here.
+    #[test]
+    fn resumed_turns_carry_the_current_handoff_route_without_rewriting_history() {
+        let home = tempfile::tempdir().unwrap();
+        let thread = ThreadId::new("panel").unwrap();
+        for resumed in [false, true] {
+            Exchange {
+                home: home.path(),
+                thread: &thread,
+                said: "Please check mail",
+                sent: None,
+                author: None,
+                extra: None,
+            }
+            .run(|p| {
+                assert_eq!(p.resume, resumed);
+                assert!(p.prompt.contains("Bash tool"));
+                assert!(p.prompt.contains("carl handoff --from carl --to olivia"));
+                assert!(p.prompt.contains("carl handoff --from carl --to adrian"));
+                assert!(p.prompt.contains("Keep the work in this Carl conversation"));
+                assert!(p.question_with_context().contains("ToolSearch"));
+                Ok(Answer {
+                    text: "acknowledged".into(),
+                    interrupted: false,
+                    session_id: None,
+                    cost_usd: None,
+                })
+            })
+            .unwrap();
+        }
+        let rows = crate::log::read(home.path().join("conversations.jsonl")).unwrap();
+        for row in rows.iter().filter(|r| r.speaker == Speaker::Human) {
+            assert_eq!(row.text, "Please check mail");
+        }
+    }
+
     #[test]
     fn a_note_can_be_forgotten_by_its_words_or_by_its_filename() {
         let dir = tempfile::tempdir().unwrap();

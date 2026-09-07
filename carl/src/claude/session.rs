@@ -15,11 +15,12 @@
 //! that moves into the message instead. Only what never changes, which is who Carl is, stays
 //! in the system prompt.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
-use std::thread::JoinHandle;
+#[path = "session_reader.rs"]
+pub(super) mod reader;
 
 use serde_json::json;
 
@@ -41,7 +42,7 @@ pub struct Session {
     child: Child,
     stdin: Option<ChildStdin>,
     chunks: Receiver<Chunk>,
-    reader: Option<JoinHandle<()>>,
+    reader: Option<reader::Reader>,
     /// True when a turn was abandoned before its answer finished.
     ///
     /// The model does not stop because the listener walked away. The rest of that answer is
@@ -136,18 +137,7 @@ impl Runner {
         // blocks for as long as the sentence takes, and nothing may stop draining the child's
         // output while that happens.
         let (tx, chunks) = channel();
-        let reader = std::thread::spawn(move || {
-            for line in BufReader::new(out)
-                .lines()
-                .map_while(std::result::Result::ok)
-            {
-                if let Some(chunk) = chunk_of(&line)
-                    && tx.send(chunk).is_err()
-                {
-                    break;
-                }
-            }
-        });
+        let reader = reader::Reader::start(out, tx);
 
         Ok(Session {
             child,
@@ -337,9 +327,9 @@ impl Drop for Session {
         // Closing stdin first asks it to finish. Killing without that leaves the transcript
         // half written, and the transcript is what a later `--resume` reads.
         self.stdin.take();
-        let _ = self.child.wait();
+        reader::finish(&mut self.child);
         if let Some(r) = self.reader.take() {
-            let _ = r.join();
+            r.stop();
         }
     }
 }
@@ -457,3 +447,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "session_cleanup_tests.rs"]
+mod cleanup_tests;

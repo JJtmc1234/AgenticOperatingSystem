@@ -24,3 +24,14 @@ class StatusTests(unittest.TestCase):
             home=Path(directory)
             (home/'events.jsonl').write_text('{"seq":1,"kind":"run_started"}\n{"seq":')
             self.assertIn('in progress',render(home))
+
+    def test_published_draft_is_not_reported_as_unpublished_with_legacy_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory)
+            events=[dict(kind='draft_saved',repo='owner/repo',marker='abc',path='/draft.md'),
+                    dict(kind='published',repo='owner/repo',marker='<!-- aos-iris:abc -->',url='https://github.com/owner/repo/issues/1')]
+            (home/'events.jsonl').write_text(''.join(json.dumps(dict(e,seq=i))+'\n' for i,e in enumerate(events)))
+            text=render(home)
+            self.assertNotIn('/draft.md',text)
+            self.assertIn('https://github.com/owner/repo/issues/1',text)
+            self.assertIn('Budget limits queue new reviews',text)

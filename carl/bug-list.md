@@ -250,3 +250,25 @@ resuming publication. Models and GitHub writes in these tests are mocked.
 All 66 workflow tests pass with these changes. One real committed file review produced three
 local drafts. Operator reproduction corrected one weak proposed example without publishing it.
 See `integrations/iris/manual-verification.md` for the exact boundary of that evidence.
+
+## Iris requests stay in Carl chat
+
+`iris_work_stays_in_carl_chat_and_goes_through_adrian` fails with the previous capability brief.
+Carl now routes Iris work to Adrian, and Adrian routes it to Iris. The worker preserves scope
+and draft intent and uses the status command for status questions. The existing resumed-turn
+regression also checks that the Iris route reaches subsequent panel conversation turns without
+changing the recorded user message. Verification uses the established panel socket and delegation
+chain, with no separate Iris interface or expanded tool permissions.
+
+## Completed Iris answers were trapped during cleanup
+
+The real panel request reached Iris, who recorded her answer, but the handoff waited for process
+and stdout cleanup instead of returning it. `completed_handoff_does_not_wait_for_inherited_stdout`
+fails when reader cancellation is removed. `panel_turn_returns_final_answer_without_waiting_for_stdout_eof`
+fails when final answer handling resumes waiting for EOF. Both regressions take about four seconds
+without the fix and finish promptly with it. `completed_session_has_a_deadline_when_child_ignores_eof`
+checks the bounded child exit grace. The real retry returned through Iris, Adrian and Carl.
+
+`test_published_draft_is_not_reported_as_unpublished_with_legacy_marker` fails against the prior
+status renderer. Publication now removes a matching draft from the unpublished list. Carl's
+instructions explicitly forbid diagnosing killed handoffs from the review allowance.

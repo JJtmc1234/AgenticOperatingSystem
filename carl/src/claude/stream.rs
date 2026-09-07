@@ -8,7 +8,8 @@
 //! `--output-format stream-json` emits one JSON object per line as the answer is generated.
 //! Only two kinds matter: a text delta, and the final envelope.
 
-use std::io::{BufRead, BufReader, Write};
+use super::session::reader;
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, channel};
 
@@ -179,19 +180,7 @@ impl Runner {
             .ok_or_else(|| Error::Claude("no stdout on the child".into()))?;
 
         let (tx, rx): (_, Receiver<Chunk>) = channel();
-        let reader = std::thread::spawn(move || {
-            for line in BufReader::new(out)
-                .lines()
-                .map_while(std::result::Result::ok)
-            {
-                if let Some(chunk) = chunk_of(&line)
-                    && tx.send(chunk).is_err()
-                {
-                    // Nobody is listening any more, which means Carl was interrupted.
-                    break;
-                }
-            }
-        });
+        let reader = reader::Reader::start(out, tx);
 
         let mut said = String::new();
         let mut envelope = None;
@@ -238,7 +227,10 @@ impl Runner {
                         break;
                     }
                 }
-                Chunk::Final(a) => envelope = Some(*a),
+                Chunk::Final(a) => {
+                    envelope = Some(*a);
+                    break;
+                }
             }
         }
 
@@ -246,9 +238,9 @@ impl Runner {
             // Killed rather than waited for. The answer is already irrelevant, and leaving
             // Claude running would hold the session open against the next question.
             let _ = child.kill();
-            let _ = child.wait();
+            reader::finish(&mut child);
             drop(rx);
-            let _ = reader.join();
+            reader.stop();
 
             return Ok(Answer {
                 text: said,
@@ -258,8 +250,8 @@ impl Runner {
             });
         }
 
-        let _ = reader.join();
-        let status = child.wait()?;
+        reader.stop();
+        let status = reader::finish(&mut child);
 
         if let Some(answer) = envelope {
             return Ok(answer);
@@ -273,7 +265,7 @@ impl Runner {
             let _ = err.read_to_string(&mut why);
         }
         Err(Error::Claude(format!(
-            "claude exited with {status} before finishing: {}",
+            "claude exited with {status:?} before finishing: {}",
             why.lines()
                 .find(|l| !l.trim().is_empty())
                 .unwrap_or(if said.is_empty() { "no output" } else { &said })

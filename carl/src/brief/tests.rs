@@ -69,3 +69,11 @@ fn the_chief_is_told_to_delegate_work_through_his_leads() {
     assert!(IDENTITY.contains("Work goes down the chain. Questions do not."));
     assert!(IDENTITY.contains("say so and stop rather than picking the work up"));
 }
+
+#[test]
+fn iris_work_stays_in_carl_chat_and_goes_through_adrian() {
+    assert!(CAPABILITIES.contains("carl handoff --from carl --to adrian"));
+    assert!(CAPABILITIES.contains("Adrian delegates to Iris"));
+    assert!(CAPABILITIES.contains("Keep the work in this Carl conversation"));
+    assert!(CAPABILITIES.contains("A draft is not a published issue"));
+}

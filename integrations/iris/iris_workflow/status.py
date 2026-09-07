@@ -24,12 +24,13 @@ def render(home):
     day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     reserved=sum(e['amount'] for e in events if e['kind']=='budget_reserved' and e['day']==day)
     lines=['# Iris', '', f"Model allowance: ${reserved:.2f} reserved of ${settings['max_daily_usd']:.2f} today. Resets at 00:00 UTC.", '']
+    lines+=['Budget limits queue new reviews. Status checks do not spend review allowance or kill handoff processes.', '']
     starts=[e for e in events if e['kind']=='run_started']
     finishes=[e for e in events if e['kind'] in ('run_finished','run_failed')]
     if starts and (not finishes or starts[-1]['seq']>finishes[-1]['seq']):
         lines+=['Investigation in progress.', '']
     published=[e for e in events if e['kind']=='published']
-    lines+=['## Published issues', '']
+    lines+=['## Published issues', '', 'Titles are recorded locally and may differ from later GitHub edits.', '']
     seen=set()
     for event in reversed(published):
         url=event['url']
@@ -40,7 +41,10 @@ def render(home):
         lines.append(f'- [{title or url}]({url})')
         if len(seen)==10:break
     if not seen:lines.append('No published issues yet.')
-    drafts=[e for e in events if e['kind']=='draft_saved']
+    canonical=lambda marker: marker.removeprefix('<!-- aos-iris:').removesuffix(' -->')
+    published_markers={(e['repo'],canonical(e.get('marker',''))) for e in published}
+    drafts=[e for e in events if e['kind']=='draft_saved' and
+            (e['repo'],canonical(e.get('marker',''))) not in published_markers]
     if drafts:
         lines+=['', '## Recent drafts', '']
         shown=set()

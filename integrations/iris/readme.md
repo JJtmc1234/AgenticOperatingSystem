@@ -173,3 +173,19 @@ unfinished work hourly, and detects every new default branch commit. It does not
 a commit is a completely new feature, and unchanged completed source is not repeatedly sent to
 models. The existing owner-wide scope is preserved. Set an explicit `repositories` list to narrow
 future reviews, and keep `--repo` on a manual request intended for one project.
+
+## Through Carl in the graphical panel
+
+Use the existing Carl conversation. For example, say:
+
+> Have Iris review JJtmc1234/AgenticOperatingSystem for bugs and return drafts here.
+
+Or:
+
+> Ask Iris for her current status and the links to her latest issues.
+
+Carl hands the request to Adrian, who delegates to Iris. Iris runs the controlled workflow and
+returns the result through Adrian to Carl. Repository selection, file paths and draft intent
+must survive both handoffs. The same chat receives real issue links, draft paths or the exact
+reason work is queued. Status requests do not start a new review. There is no separate Iris
+window, and JJ does not need a terminal for these requests.
