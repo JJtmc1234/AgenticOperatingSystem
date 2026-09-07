@@ -93,3 +93,12 @@ Read the returned report and log. Report exact passed, failed, skipped and flaky
 Failures do not authorize changing the test to hide them. Distinguish test mistakes from
 application defects, verify source and preserve screenshots and traces before filing findings.
 The command does not publish automatically. Other repositories need their own reviewed suite.
+
+## Specific issue requests
+
+For one repository, always pass its configured `--repo owner/name` rather than leaving the
+selection implicit. For a particular bug or requested enhancement, use `carl iris issue --repo
+owner/name --request "the requested outcome"`. Add repeatable `--path` arguments for exact
+committed files when known. Use `--draft` for verification. Return existing duplicate links,
+draft paths or confirmed published URLs exactly as the runtime reports them. Budget exhaustion
+means queued work, not a clean review. The latest manual report survives scheduled polling.

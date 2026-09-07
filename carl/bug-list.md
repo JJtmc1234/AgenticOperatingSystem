@@ -233,3 +233,20 @@ Issues now lead with what the user sees and retain an explicit statement when ru
 ## Iris status required write access
 
 Status now renders the journal without writing to the state directory. `test_status_does_not_write_to_the_state_directory` fails against the old CLI. Both new Python regressions pass with the fixes, along with all 47 workflow tests.
+
+## Iris manual requests and review reports
+
+`test_specific_issue_checks_only_selected_committed_source_and_reuses_draft` verifies the new
+specific issue route and exact committed file selection. `test_existing_closed_finding_reports_link_without_new_issue`
+keeps prior issue links visible. `test_new_closed_issue_blocks_stale_reviewed_plan` and three other
+publication regressions fail against the old publication function. Fresh history is checked before
+resuming publication. Models and GitHub writes in these tests are mocked.
+
+`test_daily_budget_reports_actual_reason_without_calling_model`,
+`test_discovery_failure_finishes_status_and_preserves_failure`,
+`test_no_findings_is_explicit_and_manual_report_survives_poll`,
+`test_minor_findings_group_by_file_without_burying_major_findings`, and
+`test_suggested_direction_is_distinct_from_acceptance_criteria` all fail against the prior code.
+All 66 workflow tests pass with these changes. One real committed file review produced three
+local drafts. Operator reproduction corrected one weak proposed example without publishing it.
+See `integrations/iris/manual-verification.md` for the exact boundary of that evidence.

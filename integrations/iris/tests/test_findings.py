@@ -11,3 +11,23 @@ class FindingsTests(unittest.TestCase):
         self.assertTrue(body.startswith('## What happens\n\n'+finding['impact']))
         self.assertLess(body.index(finding['impact']),body.index('Source evidence'))
         self.assertIn('Runtime reproduction has not been performed.',body)
+
+    def test_minor_findings_group_by_file_without_burying_major_findings(self):
+        from test_workflow import finding
+        first=finding() | dict(severity='minor',path='carl/chat.py')
+        second=first | dict(title='A related failure',mechanism='A second mechanism')
+        unrelated=first | dict(path='carl/storage.py',mechanism='Different operation')
+        major=first | dict(severity='major',path='carl/guard.py',mechanism='Destructive access')
+        plans=issue_plans('owner/repo','a'*40,[first,second,unrelated,major])
+        self.assertEqual(len(plans),3)
+        self.assertEqual(plans[0]['priority'],0)
+        grouped=next(p for p in plans if '2 related' in p['title'])
+        self.assertIn('carl/chat.py',grouped['title'])
+        self.assertNotIn('storage.py',grouped['body'])
+
+    def test_suggested_direction_is_distinct_from_acceptance_criteria(self):
+        from test_workflow import finding
+        item=finding() | dict(direction='Return a typed error for zero before dividing.')
+        body=issue_plans('owner/repo','a'*40,[item])[0]['body']
+        self.assertIn('**Suggested direction**\n\n'+item['direction'],body)
+        self.assertIn('**Acceptance criteria and proposed test**',body)

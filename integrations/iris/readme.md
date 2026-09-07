@@ -13,6 +13,26 @@ carl iris status
 carl iris run --repo JJtmc1234/AgenticOperatingSystem --draft
 ```
 
+For a specific bug or requested enhancement, use the same reviewed publication path:
+
+```sh
+carl iris issue --repo JJtmc1234/AgenticOperatingSystem \
+  --path carl/portal/page.js \
+  --request "Check whether a slow chat refresh can display one message twice" --draft
+```
+
+`--path` selects an exact committed file. Repeat it for callers and tests. Missing, uncommitted,
+excluded or sensitive files fail visibly. Without paths, review covers eligible source in bounded
+batches and may need several runs. A specific issue request restricts the investigators to JJ's
+requested problem. Enhancement requests are labelled as requests, not invented defects.
+
+Keep `--draft` to inspect the result locally. Omit it to use the existing `publish` configuration.
+No command line flag can enable publication when that configuration disables it. Run the same
+command again to resume or publish an already reviewed draft without repeating completed model work.
+A budget stop reports the reserved amount, required allowance and UTC reset time. It is not a
+no-findings result. `carl iris status` links recent drafts and the latest manual report, which
+scheduled polls do not overwrite.
+
 Install with `bash integrations/iris/install.sh`, then enable the user timer with
 `systemctl --user enable --now aos-iris.timer`. Installation preserves existing configuration.
 New installations enable publication because JJ authorized it for this workflow.
@@ -45,8 +65,12 @@ issues and comments. Findings outside the assigned batch are rejected. No test r
 Published reports explicitly label source analysis and state that runtime reproduction was not
 performed. Performance claims need a source-supported mechanism, not invented timing figures.
 
-Major findings get individual issues. Related minor findings are grouped by component and type.
-Stable issue and finding markers cover both open and closed issues. A timed out publication is
+Major findings get individual issues. Related minor findings are grouped by source file and type so unrelated components stay separate.
+Stable issue and finding markers cover both open and closed issues. Publication refreshes issue
+history even for stored drafts and capped runs. Existing matches return their URLs. A partial
+individual-marker match conservatively suppresses the overlapping grouped plan. Differently worded
+duplicates still depend on the bounded independent review, which reads five related issue bodies
+and their latest ten comments. This is duplicate resistance, not a guarantee of semantic identity. A timed out publication is
 reconciled before another run can create anything. Successful creation is read back and checked.
 Iris never closes issues, edits existing issues, adds labels or sends email through this workflow.
 
@@ -135,3 +159,17 @@ mean an alert reached another Arch machine. Run the notification installer in th
 session too. An ID means `accepted_by_service`, while `visible_to_user` remains unknown.
 Notices request persistence and register under AOS Notifications. Desktop environments may still
 apply their own banner and do-not-disturb settings. No global desktop preference is changed.
+
+## Current verification scope
+
+The September 7 manual review used real GitHub source and real tool-free model investigators for
+one file, `carl/src/pushback.rs`, at revision `20297ec61ae0`. It produced three local drafts and
+published nothing. Operator inspection exercised the detection functions in an isolated Rust
+executable and corrected one proposed example that did not demonstrate its claimed difference.
+See `manual-verification.md` for evidence and remaining limits.
+
+The existing timer is enabled on Tensor. It checks revisions every five minutes, resumes eligible
+unfinished work hourly, and detects every new default branch commit. It does not classify whether
+a commit is a completely new feature, and unchanged completed source is not repeatedly sent to
+models. The existing owner-wide scope is preserved. Set an explicit `repositories` list to narrow
+future reviews, and keep `--repo` on a manual request intended for one project.

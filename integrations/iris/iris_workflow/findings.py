@@ -15,9 +15,9 @@ def validated(raw, repository):
     findings=[]
     for item in raw['findings']:
         expected={'title','kind','severity','path','line','excerpt','mechanism','impact','validation'}
-        if not isinstance(item,dict) or set(item)!=expected:
+        if not isinstance(item,dict) or set(item) not in (expected,expected|{'direction'}):
             raise ValueError('Invalid finding fields')
-        if item['kind'] not in ('bug','performance','maintainability') or item['severity'] not in ('major','minor'):
+        if item['kind'] not in ('bug','performance','maintainability','request') or item['severity'] not in ('major','minor'):
             raise ValueError('Invalid finding category')
         if type(item['line']) is not int or item['line']<1:
             raise ValueError('Invalid source line')
@@ -28,6 +28,9 @@ def validated(raw, repository):
             raise ValueError('Finding is too verbose')
         if any(contains_credential(item[key]) for key in expected-{'line'}):
             raise ValueError('Finding may contain a credential')
+        if 'direction' in item and (not isinstance(item['direction'],str) or not item['direction'].strip()
+                                    or len(item['direction'])>400 or contains_credential(item['direction'])):
+            raise ValueError('Invalid suggested direction')
         source=repository.source(item['path']).splitlines()
         excerpt=item['excerpt'].splitlines()
         actual='\n'.join(source[item['line']-1:item['line']-1+len(excerpt)])
@@ -53,21 +56,24 @@ def duplicate(finding, issues):
 def issue_plans(repo, head, findings):
     groups={}
     for f in findings:
-        component=f['path'].split('/')[0]
+        component=f['path']
         key=identifier(repo,f) if f['severity']=='major' else 'minor:'+component+':'+f['kind']
         groups.setdefault(key,[]).append(f)
     plans=[]
     for group in groups.values():
         ids=sorted(identifier(repo,f) for f in group)
         marker=hashlib.sha256('|'.join(ids).encode()).hexdigest()[:24]
-        title=group[0]['title'] if len(group)==1 else f"{group[0]['path'].split('/')[0]}: {len(group)} related {group[0]['kind']} findings"
+        title=group[0]['title'] if len(group)==1 else f"{group[0]['path']}: {len(group)} related {group[0]['kind']} findings"
         body=[]
         for f in group:
             from urllib.parse import quote
             body += ["## What happens" if len(group)==1 else f"### {f['title']}",f['impact'],
                      "**Why this happens**",f['mechanism'],"**Source evidence**",f"Source: https://github.com/{repo}/blob/{head}/{quote(f['path'],safe='/')}#L{f['line']}",
                      '```\n'+f['excerpt'].replace('```','` ` `')+'\n```',
-                     '**Completion criteria and proposed test**',f['validation'],f"<!-- aos-iris-finding:{identifier(repo,f)} -->"]
+                     '**Suggested direction**',f.get('direction','Use the proposed regression to guide a minimal change at the referenced code.'),
+                     '**Acceptance criteria and proposed test**',f['validation'],f"<!-- aos-iris-finding:{identifier(repo,f)} -->"]
+        if any(f['kind']=='request' for f in group):
+            body.insert(0,'Requested enhancement from JJ. Current limitations are source reviewed, not a reproduced defect.')
         body += ['Evidence level: source analysis with independent review. Runtime reproduction has not been performed.',
                  f'Inspected commit: `{head}`.']
         plans.append(dict(title=title,body='\n\n'.join(body),marker=marker,
