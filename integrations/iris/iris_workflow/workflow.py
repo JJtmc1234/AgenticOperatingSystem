@@ -3,7 +3,7 @@ import datetime
 import hashlib
 import json
 from pathlib import Path
-from . import cache, report
+from . import cache, report, notifications
 from .github import GitHub
 from .ledger import Ledger
 from .model import Model
@@ -40,6 +40,7 @@ def run(home, config, selected=None, request='', trigger='manual', force=False,
             result['repositories'].append(row)
         ledger.append('run_finished',report=result)
         report.write(home,result)
+        notifications.completed(ledger,result)
         return result
 
 

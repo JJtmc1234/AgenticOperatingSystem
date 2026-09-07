@@ -105,3 +105,20 @@ A local draft and source review accompany it.
 
 The runner follows Playwright's [local web server configuration](https://playwright.dev/docs/test-webserver)
 and [retrying assertions](https://playwright.dev/docs/test-assertions).
+
+## Completion notifications
+
+Run `python3 integrations/iris/install-notifications.py` to install `aos-notify` and configure
+the user-level Codex completion hook. The installer preserves the previous config in a backup
+and refuses to overwrite a different notification handler. New Codex sessions load the hook.
+It follows the official [Codex notification configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#notifications).
+
+The installed Iris workflow sends local desktop notices after manual investigations, meaningful
+scheduled investigations and browser tests. Idle polls stay quiet. Repeated identical idle
+failures are suppressed. A missing desktop notification service does not fail the work.
+Notification requests and delivery results are audited. Codex delivery results are recorded
+in `~/.local/state/aos-notifications/events.jsonl`. Prompt and answer text are never displayed
+or logged by the notifier. Linux needs `notify-send` and a desktop notification service.
+
+Iris's first reviewed browser finding is published as
+[issue 45](https://github.com/JJtmc1234/AgenticOperatingSystem/issues/45).

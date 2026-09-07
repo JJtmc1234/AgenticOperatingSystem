@@ -8,6 +8,9 @@ from iris_workflow import browser
 
 class BrowserTests(unittest.TestCase):
     def setUp(self):
+        notifier=patch("iris_workflow.notifications.emit",return_value={"delivered":True})
+        notifier.start()
+        self.addCleanup(notifier.stop)
         self.temp=tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)
@@ -51,6 +54,6 @@ class BrowserTests(unittest.TestCase):
             return Mock(wait=Mock(return_value=0))
         with patch('pathlib.Path.home',return_value=self.root), patch.object(browser.subprocess,'Popen',side_effect=execute):
             self.assertEqual(browser.run(self.home),0)
-        event=json.loads((self.home/'events.jsonl').read_text().splitlines()[-1])
+        event=next(e for e in map(json.loads,(self.home/'events.jsonl').read_text().splitlines()) if e['kind']=='browser_test_finished')
         self.assertTrue(event['passed'])
         self.assertIn('portal/page.js',event['sources'])

@@ -4,7 +4,7 @@ Verified on Ubuntu on 7 September 2026. Arch boot and authentication remain targ
 
 ## Automated checks
 
-38 Python tests passed using real temporary Git repositories and mocked model and GitHub writes.
+42 Python tests passed using real temporary Git repositories and mocked model and GitHub writes.
 The installed Carl build passed 1399 Rust tests, with zero failures and one ignored test.
 Rust formatting and Clippy passed for that build. Installer ShellCheck passed.
 Regression tests were run against deliberately restored old behavior and failed before restoration.
@@ -42,11 +42,18 @@ for the next scheduled check. Reports and audit state are under `~/.carl/iris`.
 Adrian handed `carl iris test` to Iris and received 5 passed, 1 failed, 0 skipped and 0 flaky
 in 14.7 seconds. The failure screenshot shows one stored message rendered twice. The source
 SHA256 matches the cached GitHub revision. A second investigator accepted the resulting finding.
-The issue draft is local because automatic publication approval was rejected for the exact payload.
-No issue was published.
+After JJ explicitly confirmed publication, the reviewed finding was published as GitHub issue 45
+and read back through the issue adapter. The earlier approval rejection did not trigger a write.
 
 The browser suite uses Chromium, real HTTP portal handlers and real temporary SQLite through
 a local D1 adapter. It does not exercise the Cloudflare edge runtime or the native egui panel.
 The first membership test expectation was corrected to match the actual successful UI response.
 The remaining failure is an application defect reproduced in separate runs and retained as a
 regression. Its report, trace and screenshot are recorded in Iris browser run `20260907T210913973694Z`.
+
+## Notification verification
+
+The desktop service accepted the installed notifier test and returned notification ID 22.
+The Codex user config contains the completion hook. Notification tests cover quiet idle polls,
+repeated failure suppression, literal arguments, missing desktop services and exclusion of
+private prompt and answer text. A future automatic Codex completion event has not yet been observed.

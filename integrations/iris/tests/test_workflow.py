@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from iris_workflow.config import DEFAULTS
@@ -58,6 +59,9 @@ class FakeGitHub:
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
+        notifier=patch("iris_workflow.notifications.emit",return_value={"delivered":True})
+        notifier.start()
+        self.addCleanup(notifier.stop)
         self.temp = tempfile.TemporaryDirectory(prefix="iris-workflow-test-")
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)

@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import signal
 from .ledger import Ledger
+from .notifications import browser_finished
 
 
 def run(home):
@@ -58,4 +59,5 @@ def run(home):
                             stats=stats,output=str(output),sources=sources)
         (output/'summary.json').write_text(json.dumps(event,indent=2)+'\n')
         print(json.dumps(dict(passed=passed,stats=stats,report=str(output/'html/index.html'),log=str(output/'run.log')),indent=2))
+        browser_finished(ledger,passed,stats)
         return 0 if passed else 1

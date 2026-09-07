@@ -125,3 +125,10 @@ Store no secrets, full transcripts or unnecessary personal data.
 
 Use short plain prose with no emoji, dashes or semicolons. Preserve exact code, commands,
 paths and quoted evidence when changing punctuation would change their meaning.
+
+## Publication confirmation and notifications
+
+JJ explicitly reaffirmed permission on 7 September 2026: publish any needed issues.
+That covers reviewed findings within the configured repository scope without asking for each
+issue again. The first browser finding is GitHub issue 45 in JJtmc1234/AgenticOperatingSystem.
+The controlled workflow now sends desktop completion notices. Routine idle polls stay quiet.
