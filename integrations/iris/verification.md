@@ -4,7 +4,7 @@ Verified on Ubuntu on 7 September 2026. Arch boot and authentication remain targ
 
 ## Automated checks
 
-42 Python tests passed using real temporary Git repositories and mocked model and GitHub writes.
+45 Python tests passed using real temporary Git repositories and mocked model and GitHub writes.
 The installed Carl build passed 1399 Rust tests, with zero failures and one ignored test.
 Rust formatting and Clippy passed for that build. Installer ShellCheck passed.
 Regression tests were run against deliberately restored old behavior and failed before restoration.
@@ -57,3 +57,9 @@ The desktop service accepted the installed notifier test and returned notificati
 The Codex user config contains the completion hook. Notification tests cover quiet idle polls,
 repeated failure suppression, literal arguments, missing desktop services and exclusion of
 private prompt and answer text. A future automatic Codex completion event has not yet been observed.
+
+The user reported not seeing the notification and clarified they use Arch. This session accesses
+Ubuntu 26.04.1, so the earlier service acceptance did not verify delivery on Arch. The revised
+notifier records acceptance separately from unknown visibility. Durable status tests pass,
+and installed `carl iris status` shows issue 45 alongside the five passing and one failing
+browser tests. The notification installer still needs to run in the target Arch desktop session.

@@ -36,9 +36,13 @@ for name in ['aos-iris.service','aos-iris.timer']:
     dest=units/name
     if dest.exists():shutil.copy2(dest,release/(name+'.previous'))
     shutil.copy2(source/'systemd'/name,dest)
+overview=home/'Projects/AOS/iris-status.md'
+if overview.parent.is_dir() and not overview.exists() and not overview.is_symlink():
+    overview.symlink_to(state/'overview.md')
 print('Installed workflow:',release)
 print('Configuration:',config)
 PY
 systemctl --user daemon-reload
 "$HOME/.local/bin/aos-iris" doctor
+"$HOME/.local/bin/aos-iris" status >/dev/null
 printf '%s\n' 'Enable scheduled publishing after checks: systemctl --user enable --now aos-iris.timer'

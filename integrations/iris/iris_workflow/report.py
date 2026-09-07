@@ -19,3 +19,6 @@ def write(home, value):
             out.flush()
             os.fsync(out.fileno())
         os.replace(out.name,home/('latest-report.'+suffix))
+
+    from .status import write as overview
+    overview(home)

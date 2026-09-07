@@ -122,3 +122,16 @@ or logged by the notifier. Linux needs `notify-send` and a desktop notification 
 
 Iris's first reviewed browser finding is published as
 [issue 45](https://github.com/JJtmc1234/AgenticOperatingSystem/issues/45).
+
+## Persistent results and notification location
+
+`carl iris status` now shows recent published issues, the latest browser result and current
+investigation state. Routine polls no longer replace that history with a waiting message.
+The derived overview is `~/.carl/iris/overview.md`. On JJ's layout the installer links it from
+`~/Projects/AOS/iris-status.md` so it is easy to find.
+
+Notifications appear on the machine running the notifier. Ubuntu desktop acceptance does not
+mean an alert reached another Arch machine. Run the notification installer in the Arch desktop
+session too. An ID means `accepted_by_service`, while `visible_to_user` remains unknown.
+Notices request persistence and register under AOS Notifications. Desktop environments may still
+apply their own banner and do-not-disturb settings. No global desktop preference is changed.

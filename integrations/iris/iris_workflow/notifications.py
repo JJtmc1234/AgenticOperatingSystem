@@ -14,12 +14,13 @@ def emit(title, body):
     runtime=env.setdefault('XDG_RUNTIME_DIR','/run/user/'+str(os.getuid()))
     env.setdefault('DBUS_SESSION_BUS_ADDRESS','unix:path='+runtime+'/bus')
     try:
-        result=subprocess.run(['notify-send','--print-id','--app-name=AOS','--expire-time=15000',
+        result=subprocess.run(['notify-send','--print-id','--app-name=AOS','--expire-time=0','--hint=boolean:resident:true',
+            '--hint=string:desktop-entry:aos-notifications',
             '--hint=string:sound-name:complete','--',title,html.escape(body[:400])],
             env=env,capture_output=True,text=True,timeout=5)
-        return dict(delivered=result.returncode==0,notification_id=result.stdout.strip() if result.returncode==0 else None)
+        return dict(accepted_by_service=result.returncode==0,visible_to_user=None,notification_id=result.stdout.strip() if result.returncode==0 else None)
     except (OSError,subprocess.TimeoutExpired):
-        return dict(delivered=False,notification_id=None)
+        return dict(accepted_by_service=False,visible_to_user=None,notification_id=None)
 
 
 def completed(ledger, result):
@@ -53,7 +54,7 @@ def main():
         if event.get('type') not in ('agent-turn-complete','aos-work-complete'):
             return 0
         title='Codex finished' if event['type']=='agent-turn-complete' else 'AOS work finished'
-        body='Your task is finished. Open the conversation to see the result.'
+        body='A response is ready. Open the conversation to see the result.'
         result=emit(title,body)
         state=Path.home()/'.local/state/aos-notifications'
         state.mkdir(parents=True,exist_ok=True,mode=0o700)

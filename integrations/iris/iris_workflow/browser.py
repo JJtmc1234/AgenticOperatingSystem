@@ -59,5 +59,7 @@ def run(home):
                             stats=stats,output=str(output),sources=sources)
         (output/'summary.json').write_text(json.dumps(event,indent=2)+'\n')
         print(json.dumps(dict(passed=passed,stats=stats,report=str(output/'html/index.html'),log=str(output/'run.log')),indent=2))
+        from .status import write as overview
+        overview(home)
         browser_finished(ledger,passed,stats)
         return 0 if passed else 1

@@ -1,0 +1,62 @@
+"""Build a durable overview from the journal without hiding results behind idle polls."""
+import json
+import os
+import tempfile
+from pathlib import Path
+
+
+def render(home):
+    home=Path(home)
+    path=home/'events.jsonl'
+    events=[]
+    if path.exists():
+        raw=path.read_text()
+        lines=raw.splitlines()
+        for index,line in enumerate(lines):
+            try:
+                events.append(json.loads(line))
+            except ValueError:
+                if index!=len(lines)-1 or raw.endswith('\n'):
+                    raise ValueError('Iris journal is corrupt') from None
+    lines=['# Iris', '']
+    starts=[e for e in events if e['kind']=='run_started']
+    finishes=[e for e in events if e['kind']=='run_finished']
+    if starts and (not finishes or starts[-1]['seq']>finishes[-1]['seq']):
+        lines+=['Investigation in progress.', '']
+    published=[e for e in events if e['kind']=='published']
+    lines+=['## Published issues', '']
+    seen=set()
+    for event in reversed(published):
+        url=event['url']
+        if url in seen:continue
+        seen.add(url)
+        title=next((e.get('title') for e in reversed(events) if e['kind']=='publication_requested'
+                    and e.get('repo')==event['repo'] and e.get('marker')==event['marker']),None)
+        lines.append(f'- [{title or url}]({url})')
+        if len(seen)==10:break
+    if not seen:lines.append('No published issues yet.')
+    tests=[e for e in events if e['kind']=='browser_test_finished']
+    if tests:
+        test=tests[-1]
+        stats=test['stats']
+        output=Path(test['output'])
+        lines+=['', '## Latest browser test', '',
+                f"{stats.get('expected',0)} passed, {stats.get('unexpected',0)} failed, {stats.get('skipped',0)} skipped.",
+                f"[Open report]({output/'html/index.html'})", f"[Run log]({output/'run.log'})"]
+    if finishes:
+        report=finishes[-1]['report']
+        failed=sum(row['status'].startswith('Failed:') for row in report['repositories'])
+        lines+=['', '## Latest repository check', '',
+                f"{len(report['repositories'])} repositories checked, {failed} failed. Trigger: {report['trigger']}.",
+                f"[Full report]({home/'latest-report.md'})"]
+    return '\n'.join(lines)+'\n'
+
+
+def write(home):
+    home=Path(home)
+    text=render(home)
+    home.mkdir(parents=True,exist_ok=True)
+    with tempfile.NamedTemporaryFile('w',dir=home,delete=False) as out:
+        out.write(text)
+    os.replace(out.name,home/'overview.md')
+    return text

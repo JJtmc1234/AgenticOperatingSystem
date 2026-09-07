@@ -221,3 +221,7 @@ A live 29 file investigation returned `error_max_budget_usd`. Default batches no
 ## Room renders duplicate messages when polls overlap
 
 Iris reproduced a browser defect against the committed portal source. `integrations/iris/browser-tests/tests/portal.spec.js` test `overlapping polls display each message once` expects one DOM message and receives two after a delayed response. The regression remains failing until the application is fixed. The other five browser cases pass. Independent review accepted the local issue draft in `integrations/iris/findings/overlapping-polls.md`.
+
+## Notification acceptance was mistaken for visibility
+
+The desktop service returned an ID on Ubuntu, but JJ was using Arch and did not see the notice. `test_acceptance_does_not_claim_visibility_and_notice_is_persistent` fails against the old implementation. Reports now distinguish service acceptance from unknown user visibility, and notices request persistence. `test_idle_poll_does_not_hide_published_issues_or_browser_failure` guards a durable overview that keeps issue links and test failures visible after routine polls.

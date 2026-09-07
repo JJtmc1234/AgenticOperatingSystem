@@ -31,11 +31,20 @@ class NotificationTests(unittest.TestCase):
 
     def test_desktop_failure_is_nonfatal_and_arguments_are_literal(self):
         with patch.object(notifications.subprocess,'run',return_value=subprocess.CompletedProcess([],1,'','')) as run:
-            self.assertFalse(notifications.emit('Iris finished','<b>$(not code)</b>')['delivered'])
+            self.assertFalse(notifications.emit('Iris finished','<b>$(not code)</b>')['accepted_by_service'])
             self.assertNotIn('shell',run.call_args.kwargs)
             self.assertIn('&lt;b&gt;$(not code)&lt;/b&gt;',run.call_args.args[0])
         with patch.object(notifications.subprocess,'run',side_effect=FileNotFoundError):
-            self.assertFalse(notifications.emit('Iris finished','Done')['delivered'])
+            self.assertFalse(notifications.emit('Iris finished','Done')['accepted_by_service'])
+
+    def test_acceptance_does_not_claim_visibility_and_notice_is_persistent(self):
+        with patch.object(notifications.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'42','')) as run:
+            result=notifications.emit('Iris finished','Done')
+            self.assertTrue(result['accepted_by_service'])
+            self.assertIsNone(result['visible_to_user'])
+            self.assertNotIn('delivered',result)
+            self.assertIn('--expire-time=0',run.call_args.args[0])
+            self.assertIn('--hint=boolean:resident:true',run.call_args.args[0])
 
     def test_codex_payload_does_not_expose_prompt_or_answer(self):
         event={'type':'agent-turn-complete','last-assistant-message':'private answer','input-messages':['private prompt']}

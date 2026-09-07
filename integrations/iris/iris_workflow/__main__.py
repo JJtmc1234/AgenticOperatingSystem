@@ -29,8 +29,8 @@ def main():
             from .browser import run as browser_test
             return browser_test(args.home)
         if args.command=='status':
-            path=args.home/'latest-report.md'
-            print(path.read_text() if path.exists() else 'Iris has not run yet.')
+            from .status import write
+            print(write(args.home))
         elif args.command=='doctor':
             from shutil import which
             missing=[name for name in ['git','gh','claude'] if not which(name)]

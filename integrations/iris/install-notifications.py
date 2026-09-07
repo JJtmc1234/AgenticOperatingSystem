@@ -32,5 +32,8 @@ if settings.get('notify') != command:
     with os.fdopen(fd,'w') as out:out.write(updated)
     os.replace(name,config)
     print('Previous Codex config:',backup)
+desktop=home/'.local/share/applications/aos-notifications.desktop'
+desktop.parent.mkdir(parents=True,exist_ok=True)
+desktop.write_text('[Desktop Entry]\nType=Application\nName=AOS Notifications\nExec='+str(launcher)+'\nIcon=dialog-information\nNoDisplay=true\nX-GNOME-UsesNotifications=true\n')
 print('Installed:',launcher)
 print('Codex completion hook configured. New sessions load the setting.')
