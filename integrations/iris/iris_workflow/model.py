@@ -4,6 +4,7 @@ import datetime
 import os
 import subprocess
 import tempfile
+from .repository import contains_credential
 
 FIELDS = dict(title={'type':'string'}, kind={'enum':['bug','performance','maintainability']},
               severity={'enum':['major','minor']}, path={'type':'string'}, line={'type':'integer'},
@@ -54,11 +55,17 @@ class Model:
         with tempfile.TemporaryDirectory(prefix='iris-investigator-') as cwd:
             result=subprocess.run(argv,input=prompt,text=True,capture_output=True,cwd=cwd,
                                   env=env,timeout=self.config['timeout'])
-        if result.returncode:
-            raise RuntimeError('Iris investigator failed with exit '+str(result.returncode))
-        value=json.loads(result.stdout)
-        if value.get('is_error') or value.get('subtype') not in (None,'success'):
-            raise RuntimeError('Iris investigator did not finish successfully')
+        try:
+            value=json.loads(result.stdout)
+        except ValueError:
+            value={}
+        if not isinstance(value,dict):
+            value={}
+        if result.returncode or value.get('is_error') or value.get('subtype') not in (None,'success'):
+            detail=str(value.get('subtype') or result.stderr.strip() or 'No diagnostic returned')
+            if contains_credential(detail):
+                detail='Sensitive diagnostic excluded'
+            raise RuntimeError('Iris investigator failed with exit '+str(result.returncode)+': '+detail[:600])
         answer=value.get('structured_output')
         if not isinstance(answer,dict):
             raise ValueError('Iris investigator returned no structured output')

@@ -33,6 +33,18 @@ class ModelTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):model.ask('iris/test','test',FINDINGS)
                 self.assertEqual(process.call_count,1)
 
+    def test_failed_process_reports_budget_reason_without_exposing_credentials(self):
+        with tempfile.TemporaryDirectory() as directory, Ledger(directory) as ledger:
+            model=Model(DEFAULTS,ledger)
+            result=subprocess.CompletedProcess([],1,'{"subtype":"error_max_budget_usd","is_error":true}','')
+            with patch('iris_workflow.model.subprocess.run',return_value=result):
+                with self.assertRaisesRegex(RuntimeError,'error_max_budget_usd'):
+                    model.ask('iris/test','test',FINDINGS)
+            result=subprocess.CompletedProcess([],1,'','ghp_'+'a'*32)
+            with patch('iris_workflow.model.subprocess.run',return_value=result):
+                with self.assertRaisesRegex(RuntimeError,'Sensitive diagnostic excluded'):
+                    model.ask('iris/test','test',FINDINGS)
+
     def test_concurrent_runs_and_corrupt_journal_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             with Ledger(directory):
