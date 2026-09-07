@@ -104,7 +104,7 @@ class Repository:
             raise ValueError("Potential credential content is excluded")
         return text
 
-    def batches(self, max_bytes=120000, max_files=30) -> list:
+    def batches(self, max_bytes=65536, max_files=8) -> list:
         if max_bytes < MAX_BYTES or max_files < 1:
             raise ValueError("Batch limits must fit one eligible file and at least one file")
         if self.head is None:

@@ -70,6 +70,16 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue(all(sum(len(item["content"].encode()) for item in batch) <= 65536
                             for batch in batches))
 
+    def test_default_batches_fit_the_live_model_budget(self):
+        for i in range(9):
+            self.write(f"file{i}.py", "x" * 10000)
+        self.commit()
+        batches = Repository(self.root).batches()
+        self.assertEqual(sum(len(batch) for batch in batches), 9)
+        self.assertTrue(all(len(batch) <= 8 for batch in batches))
+        self.assertTrue(all(sum(len(f["content"].encode()) for f in batch) <= 65536
+                            for batch in batches))
+
     def test_factorio_and_other_source_languages_are_included(self):
         from iris_workflow.repository import eligible
         for name in ['control.lua','src/main.rs','boot/start.S','game.gd','panel.vue']:

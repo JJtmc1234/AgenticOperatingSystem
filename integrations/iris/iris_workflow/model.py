@@ -47,14 +47,17 @@ class Model:
         self.reserved += amount
         self.ledger.append('investigator_started', identity=identity, parent='iris', tools=[])
         argv = [self.executable, '-p', '--output-format','json','--json-schema',json.dumps(schema),
-                '--model',self.config['model'],'--max-budget-usd',str(amount),
+                '--model',self.config['model'],'--effort','medium','--max-budget-usd',str(amount),
                 '--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}',
                 '--setting-sources','user','--no-session-persistence','--system-prompt',SYSTEM]
         env=dict(os.environ)
         env.pop('CLAUDECODE',None)
-        with tempfile.TemporaryDirectory(prefix='iris-investigator-') as cwd:
-            result=subprocess.run(argv,input=prompt,text=True,capture_output=True,cwd=cwd,
-                                  env=env,timeout=self.config['timeout'])
+        try:
+            with tempfile.TemporaryDirectory(prefix='iris-investigator-') as cwd:
+                result=subprocess.run(argv,input=prompt,text=True,capture_output=True,cwd=cwd,
+                                      env=env,timeout=self.config['timeout'])
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('Iris investigator timed out after '+str(self.config['timeout'])+' seconds. No findings published.') from None
         try:
             value=json.loads(result.stdout)
         except ValueError:

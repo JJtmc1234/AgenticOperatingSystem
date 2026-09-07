@@ -17,6 +17,7 @@ class ModelTests(unittest.TestCase):
                 self.assertEqual(ledger.events[-2]['kind'],'budget_reserved')
                 self.assertEqual(argv[argv.index('--tools')+1],'')
                 self.assertIn('--strict-mcp-config',argv)
+                self.assertEqual(argv[argv.index('--effort')+1],'medium')
                 self.assertNotIn('--dangerously-skip-permissions',argv)
                 self.assertIn('--no-session-persistence',argv)
                 self.assertEqual(kwargs['input'],'literal $(no execution)')
@@ -44,6 +45,14 @@ class ModelTests(unittest.TestCase):
             with patch('iris_workflow.model.subprocess.run',return_value=result):
                 with self.assertRaisesRegex(RuntimeError,'Sensitive diagnostic excluded'):
                     model.ask('iris/test','test',FINDINGS)
+
+    def test_timeout_reports_duration_without_dumping_prompt_or_command(self):
+        with tempfile.TemporaryDirectory() as directory, Ledger(directory) as ledger:
+            model=Model(DEFAULTS,ledger)
+            with patch('iris_workflow.model.subprocess.run',side_effect=subprocess.TimeoutExpired('private command',240)):
+                with self.assertRaisesRegex(RuntimeError,'timed out after 240 seconds') as caught:
+                    model.ask('iris/test','private prompt',FINDINGS)
+                self.assertNotIn('private',str(caught.exception))
 
     def test_concurrent_runs_and_corrupt_journal_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:

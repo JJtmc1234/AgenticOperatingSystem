@@ -52,7 +52,8 @@ Iris never closes issues, edits existing issues, adds labels or sends email thro
 
 ## Limits and continuity
 
-Defaults are one batch and at most three issues per run, at most $0.50 per model call,
+Defaults are one batch of at most eight files and 64 KiB, with medium reasoning effort,
+and at most three issues per run, at most $0.50 per model call,
 $1.50 per run and $5 per UTC day. Unused or failed call reservations are conservatively retained
 for that day. These are model budget limits, not guarantees about how a subscription bills.
 A batch reserves room for two investigators and a reviewer before starting. Remaining source
