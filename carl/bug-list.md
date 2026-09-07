@@ -217,3 +217,7 @@ A live investigator exited without its reason reaching the report. The CLI JSON 
 ## Iris investigation exhausted its call budget
 
 A live 29 file investigation returned `error_max_budget_usd`. Default batches now contain at most eight files and 64 KiB of source, and reasoning effort is explicitly medium. `test_default_batches_fit_the_live_model_budget` and `test_tool_free_argv_and_reservation_before_process` fail against the old settings. `test_timeout_reports_duration_without_dumping_prompt_or_command` also fails against the old timeout diagnostic. Source validation and independent review remain required.
+
+## Room renders duplicate messages when polls overlap
+
+Iris reproduced a browser defect against the committed portal source. `integrations/iris/browser-tests/tests/portal.spec.js` test `overlapping polls display each message once` expects one DOM message and receives two after a delayed response. The regression remains failing until the application is fixed. The other five browser cases pass. Independent review accepted the local issue draft in `integrations/iris/findings/overlapping-polls.md`.

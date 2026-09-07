@@ -20,10 +20,14 @@ def main():
     run.add_argument('--draft',action='store_true',help='Save local drafts instead of publishing')
     commands.add_parser('status')
     commands.add_parser('doctor')
+    commands.add_parser('test',help='Run the installed local portal Playwright suite')
     args=parser.parse_args()
     os.umask(0o077)
     try:
         settings=config.load(args.home)
+        if args.command=='test':
+            from .browser import run as browser_test
+            return browser_test(args.home)
         if args.command=='status':
             path=args.home/'latest-report.md'
             print(path.read_text() if path.exists() else 'Iris has not run yet.')

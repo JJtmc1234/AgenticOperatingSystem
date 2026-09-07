@@ -78,3 +78,30 @@ They cover secret exclusion, committed snapshots, complete batching, literal com
 budgets, concurrent runs, malformed results, source mismatch, duplicate prevention, draft to
 publish conversion and recovery after publication limits. Live verification is recorded separately
 so mocked issue creation is never presented as evidence of actual publication.
+
+## Playwright browser tests
+
+Install the separate browser dependencies with `bash integrations/iris/install-browser-tests.sh`,
+then run `carl iris test`. Node 22.13 or newer with SQLite support is required. The installer
+uses a pinned Playwright lockfile and downloads Chromium. It installs a reviewed snapshot of
+the portal page and handlers with source hashes. Reinstall it after intended source changes.
+
+The suite drives Chromium through real login, messaging and membership flows over loopback HTTP.
+It uses the actual portal handlers and SQLite statements through a local D1 adapter. This is
+not a Cloudflare runtime or deployment test. Synthetic accounts and an in-memory database keep
+all test messages away from the live room. The native egui panel is outside Playwright scope.
+
+Iris has no arbitrary command, URL or repository option through this test entry point.
+The runner rejects modified source, records an audit event before execution, refuses an occupied
+test server port, bounds execution time and reports a nonzero status for failures or empty runs.
+Reports, source hashes, screenshots and failure traces live under `~/.carl/iris/browser-tests/`.
+There is no model charge for running the browser suite. Investigation and issue review retain
+their normal model budget. Browser test runs do not publish automatically.
+
+The first corrected live suite ran through Adrian to Iris: five passed and one failed.
+The failure reproduces duplicate rendered messages under overlapping poll responses.
+It is retained as a failing application regression, not hidden by retries or altered expectations.
+A local draft and source review accompany it.
+
+The runner follows Playwright's [local web server configuration](https://playwright.dev/docs/test-webserver)
+and [retrying assertions](https://playwright.dev/docs/test-assertions).

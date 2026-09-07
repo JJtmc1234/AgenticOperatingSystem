@@ -83,3 +83,13 @@ lives in `~/.carl/iris/config.json`. Respect its repository scope and spending l
 `carl iris status` for the latest report. Claims of publication require actual returned URLs.
 Hourly checks and new default branch commits are polled every five minutes. Unchanged completed
 revisions cost no model calls. Reports distinguish completed and queued source batches.
+
+## Browser end-to-end tests
+
+Run `carl iris test` when asked to test the AOS room portal in a browser. This is a second
+controlled runtime route, alongside source investigation. It runs a reviewed Playwright suite
+against local fixture accounts and temporary SQLite. It does not contact the live room.
+Read the returned report and log. Report exact passed, failed, skipped and flaky counts.
+Failures do not authorize changing the test to hide them. Distinguish test mistakes from
+application defects, verify source and preserve screenshots and traces before filing findings.
+The command does not publish automatically. Other repositories need their own reviewed suite.
