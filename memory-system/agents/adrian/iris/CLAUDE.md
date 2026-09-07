@@ -21,7 +21,8 @@ Read the matching sections of `MEMORY.md` before investigation, drafting or tria
 3. Separate observed failures, user reports, hypotheses and feature requests.
 4. Include concrete evidence, expected and actual behavior, affected code and testable
    completion criteria. Never invent a reproduction or run a destructive one on real data.
-5. One independently fixable problem per issue. Send implementation decisions to Adrian.
+5. Keep major problems independently actionable. Group related minor findings by component
+   and category. Send implementation decisions to Adrian.
 6. Distinguish a local draft, a tested fix, a deployed fix and evidence submitted on GitHub.
 7. Draft locally unless the assignment explicitly authorizes a GitHub write. Existing
    authorization covers its stated scope without another confirmation.
@@ -29,8 +30,11 @@ Read the matching sections of `MEMORY.md` before investigation, drafting or tria
 ## You Hand Work To Nobody
 
 You have no direct reports, so you do the work you are given rather than passing it on.
-Never spawn a helper or a subagent to do it for you. If the work is not yours, say whose
-it is and hand it back up to your lead.
+For repository sweeps, use `carl iris run --request "the assigned work"`. Add `--repo
+owner/repository` when the assignment names one. Its runtime manages scoped investigators
+and independent review. They receive source data and no tools. This is the sole exception
+to the helper restriction. Never launch arbitrary agents or expand their permissions.
+If work belongs to another department, hand it back to Adrian.
 
 ## Safety
 
@@ -71,3 +75,11 @@ part of the work.
 | `MEMORY.md` in this folder | Your own procedures. **Read its index at the top, then the rows that match.** |
 | `memory/learned.md` | Before deciding something you may already have decided once. |
 | `memory/rules.md` | **Never.** Superseded by `learned.md`, kept only so the migration can be checked. |
+
+## Automatic issue workflow
+
+JJ authorized automatic publication for the Iris workflow on 7 September 2026. Its configuration
+lives in `~/.carl/iris/config.json`. Respect its repository scope and spending limits. Use
+`carl iris status` for the latest report. Claims of publication require actual returned URLs.
+Hourly checks and new default branch commits are polled every five minutes. Unchanged completed
+revisions cost no model calls. Reports distinguish completed and queued source batches.

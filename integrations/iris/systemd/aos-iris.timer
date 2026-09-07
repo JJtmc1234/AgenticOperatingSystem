@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Iris's hourly work and new feature commits every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Unit=aos-iris.service
+
+[Install]
+WantedBy=timers.target

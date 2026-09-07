@@ -30,6 +30,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Run the governed Iris issue investigation workflow.
+    Iris {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<std::ffi::OsString>,
+    },
+
     /// Say something to Carl and get an answer.
     Ask {
         message: Vec<String>,
@@ -452,6 +458,14 @@ fn main() -> Result<()> {
     let home = expand(&cli.home);
 
     match cli.command {
+        Command::Iris { args } => {
+            let status = carl::iris::run(&home, &args)?;
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
+            }
+            Ok(())
+        }
+
         Command::Ask { message, thread } => {
             let thread = ThreadId::new(thread)?;
             let said = message.join(" ");
@@ -1516,3 +1530,7 @@ fn ask_one_agent(home: &std::path::Path, agent: &str, question: &str) -> Result<
     }
     Ok(said)
 }
+
+#[cfg(test)]
+#[path = "iris_cli_tests.rs"]
+mod iris_cli_tests;

@@ -28,6 +28,7 @@ pub mod claude;
 pub mod game;
 pub mod heard;
 pub mod hypr;
+pub mod iris;
 pub mod log;
 pub mod memory;
 pub mod panel;

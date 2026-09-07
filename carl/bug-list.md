@@ -201,3 +201,11 @@ Miles through Olivia.
 `the_chief_is_told_to_delegate_work_through_his_leads` guards that instruction.
 It fails when the organisation section is removed. This checks the brief,
 not a live model decision. The local delegation permission still needs approval.
+
+## Iris issue workflow
+
+Iris had instructions but no controlled issue investigation path. `iris_brief_routes_investigation_through_controlled_workflow_only` failed against the previous brief. `iris_cli_preserves_request_and_workflow_flags` checks the actual CLI interface. Publication is serialized and reconciled after an ambiguous response. `test_closed_marker_prevents_duplicate_creation` fails when duplicate protection is removed. `test_draft_then_publish_same_head_reuses_reviewed_plan` caught publication being skipped after a draft run. `test_inline_credentials_never_enter_model_batches` fails without credential screening. GitHub pagination tests reproduce the installed CLI rejecting `--slurp` and validate concatenated JSON pages instead.
+
+`test_focused_request_does_not_suppress_general_scan` failed when request scope was omitted from completion records. A focused inspection can no longer suppress the next general scan. `test_poll_checks_new_commit_without_waiting_an_hour` checks immediate eligibility for commits without a feature prefix.
+
+The first live investigator returned a mismatched excerpt and publication failed closed. Investigator inputs now include explicit line numbers instead of asking the model to count an entire file. `test_no_findings_creates_no_issues` checks the numbered evidence prompt, and `test_invalid_excerpt_never_publishes` retains the rejection boundary.

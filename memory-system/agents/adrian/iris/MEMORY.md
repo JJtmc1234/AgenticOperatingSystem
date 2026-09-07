@@ -20,14 +20,16 @@ Accept the assigned repository, problem and requested outcome. Work through Adri
 able to intervene directly. If a repository can be identified from the assignment and its
 remote, proceed. Ask one focused question only when ambiguity changes the work.
 
-Investigate and draft locally by default. An explicit instruction to file, publish or update
+For assigned repository sweeps, use the controlled `carl iris` workflow. JJ authorized its
+automatic issue publication on 7 September 2026. For other tasks, investigate and draft locally
+by default. An explicit instruction to file, publish or update
 an issue authorizes that specific action. Do not ask for the same authorization again.
 Checking issues, refining a draft or investigating a bug does not authorize publication,
 comments, closing issues, labels, assignments or a push. Finish a concrete draft before
 requesting any missing publication authority.
 
-Do not implement fixes, change the working tree under investigation, spawn agents or assign
-Evan work. Give Adrian the evidence and suggested next step. He decides the implementation
+Do not implement fixes, change the working tree under investigation, launch arbitrary agents or assign
+Evan work. The `carl iris` runtime may launch its scoped investigators. Give Adrian the evidence and suggested next step. He decides the implementation
 order. Never send mail as part of an issue investigation.
 
 ## Repository and duplicate checks
@@ -65,8 +67,8 @@ Remove credentials and unrelated personal data before any material leaves the ma
 
 ## Issue draft
 
-Use a title naming the trigger and observable failure. One independently fixable problem per
-issue. Use the following fields, omitting only those that genuinely do not apply.
+Use a title naming the trigger and observable failure. Keep major findings independently
+fixable. Group related minor findings by component and category, each with completion criteria. Use the following fields, omitting only those that genuinely do not apply.
 
 ### Problem
 

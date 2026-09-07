@@ -27,6 +27,7 @@
 pub mod assign;
 mod drive;
 mod handback;
+mod iris;
 pub mod objective;
 mod run;
 mod staffing;
@@ -255,8 +256,9 @@ pub fn brief_for(agent: &Agent) -> String {
         ));
     }
 
+    let role = iris::brief(agent.name);
     format!(
-        "You are {}. {}\n\n{position}\n\n{}\n\n{rank}\n\n{STANDING}",
+        "You are {}. {}\n\n{position}\n\n{}\n\n{rank}\n\n{STANDING}\n\n{role}",
         agent.display,
         agent.remit,
         the_organisation()

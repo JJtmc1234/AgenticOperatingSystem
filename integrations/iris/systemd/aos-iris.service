@@ -1,0 +1,14 @@
+[Unit]
+Description=Iris repository investigation and issue creation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/aos-iris --home %h/.carl/iris run --trigger poll
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h
+TimeoutStartSec=45min
+KillMode=control-group
+UMask=0077
+Nice=10

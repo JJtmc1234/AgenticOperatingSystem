@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aos-iris"
+version = "0.1.0"
+description = "Bounded source investigations and verified GitHub issue publication for Iris"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+aos-iris = "iris_workflow.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["iris_workflow"]
