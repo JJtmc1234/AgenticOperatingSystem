@@ -65,7 +65,7 @@ impl Chunk {
             }),
             Chunk::Doing { tool, detail } => Some(Say::Doing { tool, detail }),
             Chunk::Refused { tool, why } => Some(Say::Refused { tool, why }),
-            Chunk::Final(_) => None,
+            Chunk::Final(_) | Chunk::Failed(_) => None,
         }
     }
 }
@@ -102,6 +102,8 @@ pub enum Chunk {
     },
     /// The final envelope, which carries the session id and the cost.
     Final(Box<Answer>),
+    /// A terminal provider error must end the waiting turn.
+    Failed(String),
     /// A tool call that was refused for want of permission.
     ///
     /// Headless has nobody to ask, so this is not a prompt somebody missed, it is a decision
@@ -231,6 +233,13 @@ impl Runner {
                     envelope = Some(*a);
                     break;
                 }
+                Chunk::Failed(why) => {
+                    let _ = child.kill();
+                    reader::finish(&mut child);
+                    drop(rx);
+                    reader.stop();
+                    return Err(Error::Claude(why));
+                }
             }
         }
 
@@ -280,7 +289,10 @@ pub fn chunk_of(line: &str) -> Option<Chunk> {
     match v.get("type")?.as_str()? {
         // The final envelope has exactly the shape the non streaming mode returns, so it is
         // parsed by the same code. One definition of what an answer is.
-        "result" => parse(line).ok().map(|a| Chunk::Final(Box::new(a))),
+        "result" => Some(match parse(line) {
+            Ok(answer) => Chunk::Final(Box::new(answer)),
+            Err(error) => Chunk::Failed(error.to_string()),
+        }),
         "stream_event" => {
             let event = v.get("event")?;
             if event.get("type")?.as_str()? != "content_block_delta" {
@@ -355,7 +367,9 @@ fn doing(v: &serde_json::Value) -> Option<Chunk> {
 fn refusal(v: &serde_json::Value) -> Option<Chunk> {
     let content = v.get("message")?.get("content")?.as_array()?;
     for block in content {
-        if block.get("type")?.as_str()? != "tool_result" {
+        if block.get("type")?.as_str()? != "tool_result"
+            || block.get("is_error").and_then(serde_json::Value::as_bool) != Some(true)
+        {
             continue;
         }
         let text = match block.get("content") {
@@ -541,9 +555,11 @@ mod tests {
 
     /// An error envelope arrives on the same result line, so it must still be caught.
     #[test]
-    fn an_error_envelope_produces_no_chunk_rather_than_a_false_answer() {
+    fn an_error_envelope_produces_a_failure_rather_than_a_false_answer() {
         let line = r#"{"type":"result","is_error":true,"result":"session not found"}"#;
-        assert_eq!(chunk_of(line), None);
+        assert!(
+            matches!(chunk_of(line), Some(Chunk::Failed(why)) if why.contains("session not found"))
+        );
     }
 }
 
@@ -765,5 +781,18 @@ mod refusal_tests {
     fn a_call_with_no_detail_still_names_the_tool() {
         let line = crate::claude::doing_line("Glob", "");
         assert!(line.contains("Glob"), "{line:?}");
+    }
+}
+
+#[cfg(test)]
+mod successful_read_tests {
+    #[test]
+    fn reading_permission_rules_is_not_a_tool_refusal() {
+        for flag in ["", ",\"is_error\":false"] {
+            let line = format!(
+                r#"{{"type":"user","message":{{"content":[{{"type":"tool_result"{flag},"content":"Read the permission rules. Some tools are not allowed."}}]}}}}"#
+            );
+            assert!(super::chunk_of(&line).is_none());
+        }
     }
 }

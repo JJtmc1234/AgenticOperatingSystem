@@ -1105,8 +1105,9 @@ fn main() -> Result<()> {
 
         Command::PermitHook { surface, settings } => {
             if settings {
-                let me = std::env::current_exe()?;
-                println!("{}", carl::claude::asking::settings(&me, &home, &surface));
+                let settings = carl::claude::asking::for_this_build(&home, &surface)
+                    .expect("hook resolution always produces a decision");
+                println!("{settings}");
                 return Ok(());
             }
             print!(

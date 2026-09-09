@@ -98,3 +98,29 @@ fn finished_redacted_reasoning_is_drawn_as_finished() {
         assert_eq!(drawn.contains("so far"), streaming, "{drawn}");
     }
 }
+
+#[test]
+fn a_live_provider_summary_is_visible_without_a_click() {
+    let ctx = egui::Context::default();
+    let text = format!("Visible beginning. {}", "more detail ".repeat(15));
+    let mut drawn = String::new();
+    for _ in 0..2 {
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                thinking(ui, &text, None, true);
+            });
+        });
+        fn labels(shape: &egui::epaint::Shape, into: &mut String) {
+            match shape {
+                egui::epaint::Shape::Text(t) => into.push_str(t.galley.text()),
+                egui::epaint::Shape::Vec(v) => v.iter().for_each(|s| labels(s, into)),
+                _ => {}
+            }
+        }
+        for shape in output.shapes {
+            labels(&shape.shape, &mut drawn);
+        }
+    }
+    assert!(drawn.contains("Visible beginning."), "{drawn}");
+    assert!(drawn.contains("Provider thinking summary"), "{drawn}");
+}

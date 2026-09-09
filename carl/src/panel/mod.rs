@@ -41,6 +41,8 @@ pub mod hook;
 pub mod listen;
 pub mod live;
 pub mod permission;
+mod safe_commands;
+mod safe_metadata;
 pub mod serve;
 pub mod snapshot;
 pub mod tasks;
@@ -63,3 +65,5 @@ pub use view::{
     TaskView,
 };
 pub use wire::{Ask, Frame, PanelEvent, Reply, Request, VERSION};
+
+mod safe_grep;

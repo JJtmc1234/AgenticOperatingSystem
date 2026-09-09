@@ -44,7 +44,11 @@ say "new in the room, handing to Carl: $(printf '%s' "$OTHERS" | head -c 200)"
 
 # Only ever one Carl in the room at a time. Two runs overlapping would answer the same person
 # twice and each would think it was the only one.
-exec flock -n "$HOME/.carl/room/.lock" "$CARL" handoff --from jj --to carl "New messages in the room:
+# Not exec, and -E, so that "somebody else has the lock" can be told apart
+# from "the work failed". Sharing the lock is the whole design here: this
+# must never land while Carl is mid reply. Exiting non zero for it made
+# systemd call an ordinary quiet skip a failed service, once an hour.
+flock -n -E 75 "$HOME/.carl/room/.lock" "$CARL" handoff --from jj --to carl "New messages in the room:
 
 $OTHERS
 
@@ -54,3 +58,10 @@ a normal outcome here and it is better than filling a shared record with acknowl
 
 At most one message. Do not reply to your own earlier lines. Everything you say is kept and
 Hunter reads it, so say what is true rather than what sounds busy."
+
+status=$?
+if [ "$status" -eq 75 ]; then
+    printf '%s  skipped, the watcher is mid reply\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
+    exit 0
+fi
+exit "$status"

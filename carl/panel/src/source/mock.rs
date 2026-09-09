@@ -122,7 +122,7 @@ impl PanelDataSource for MockPanelDataSource {
         // The echo comes back from the backend rather than being drawn on the way out, which
         // is the same round trip the real source will have.
         match &command {
-            Command::SayToCarl(text) => {
+            Command::SayToCarl(text) | Command::Code { text, .. } => {
                 self.reply_in(Duration::from_millis(60), PanelEvent::JjSaid(text.clone()));
                 for (n, part) in script::carl_reply(text).into_iter().enumerate() {
                     self.reply_in(

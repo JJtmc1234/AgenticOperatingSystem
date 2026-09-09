@@ -273,26 +273,6 @@ impl App {
     /// vanished optimistically and then failed to send would leave JJ believing he had answered
     /// something that is still sitting there.
     pub fn answer_permission(&mut self, question: &str, allow: bool) {
-        // Off the screen on the press, not when the backend gets round to confirming.
-        //
-        // It used to wait for the confirmation, so that a row could never claim to be answered
-        // before anybody had answered it. That was the right worry and the wrong trade: the army
-        // asks often enough that another question takes the place of the one you just answered,
-        // so a press looked like it had done nothing at all. The honest version of the same care
-        // is to remove it now and say plainly if the answer turns out not to have landed, which
-        // the notice does.
-        let tool = self
-            .snapshot
-            .permissions
-            .iter()
-            .find(|p| p.id == question)
-            .map(|p| p.tool.clone());
-        self.snapshot.permissions.retain(|p| p.id != question);
-        if let Some(tool) = tool {
-            self.just_settled
-                .push((tool, allow, std::time::Instant::now()));
-        }
-
         self.submit(Command::AnswerPermission {
             question: question.to_string(),
             allow,

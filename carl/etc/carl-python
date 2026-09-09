@@ -41,7 +41,7 @@ exec bwrap \
   --symlink usr/lib /lib \
   --symlink usr/lib64 /lib64 \
   --symlink usr/sbin /sbin \
-  --ro-bind /etc/alternatives /etc/alternatives \
+  --ro-bind-try /etc/alternatives /etc/alternatives \
   --dev /dev \
   --proc /proc \
   --tmpfs /tmp \

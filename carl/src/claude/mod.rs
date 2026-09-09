@@ -13,10 +13,12 @@ use serde::Deserialize;
 use crate::{Error, Result, SessionId};
 
 pub mod asking;
+pub mod chief;
 pub mod permits;
 mod pool;
 mod session;
 mod stream;
+pub mod worker;
 pub use pool::{KEEP_OPEN, Pool};
 pub use session::Session;
 pub use stream::{Chunk, Flow, Say, chunk_of};
@@ -70,6 +72,8 @@ pub struct Runner {
     /// Headless has nobody to ask, so a tool that is not listed here is simply refused and
     /// Carl explains that he cannot do the thing rather than doing it.
     allowed: Vec<String>,
+    chief: bool,
+    native_cli: bool,
     /// How much Claude decides for itself about the rest. `Ask` in headless means refuse, which
     /// is why this is worth setting per surface rather than leaving at the default everywhere.
     mode: permits::Mode,
@@ -163,6 +167,8 @@ impl Default for Runner {
         Self {
             program: PathBuf::from("claude"),
             allowed: vec![PYTHON.to_string()],
+            chief: false,
+            native_cli: false,
             model: None,
             mode: permits::Mode::Ask,
             ask_through: None,
@@ -175,6 +181,8 @@ impl Runner {
         Self {
             program: program.into(),
             allowed: vec![PYTHON.to_string()],
+            chief: false,
+            native_cli: false,
             model: None,
             mode: permits::Mode::Ask,
             ask_through: None,
@@ -203,6 +211,20 @@ impl Runner {
     /// caption and nothing else is worse than not having one, because it reads as settled.
     pub fn running(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
+        self
+    }
+
+    /// Full CLI tools with normal approval checks, separate from the chief role.
+    pub fn as_native_cli(mut self) -> Self {
+        self.native_cli = true;
+        self.chief = false;
+        self.allowed.clear();
+        self.mode = permits::Mode::Ask;
+        self
+    }
+
+    pub fn as_chief(mut self) -> Self {
+        self.chief = true;
         self
     }
 
@@ -265,6 +287,32 @@ impl Runner {
         args
     }
 
+    pub(crate) fn control_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        if self.native_cli {
+            args.extend(["--tools".to_string(), "default".to_string()]);
+        } else if self.chief {
+            args.extend(["--tools".to_string(), "Read,Grep,Bash".to_string()]);
+        }
+        // Only when it is not the default. Passing the default explicitly would be a second
+        // place that has to agree with the CLI about what the default is.
+        if let Some(mode) = self.mode.flag() {
+            args.push("--permission-mode".into());
+            args.push(mode.to_string());
+        }
+
+        // The chief always needs his role gate. Other runners ask only in Ask mode.
+        if (self.chief || self.mode == permits::Mode::Ask)
+            && let Some((home, surface)) = &self.ask_through
+            && let Some(settings) = asking::for_this_build(home, surface)
+        {
+            args.push("--settings".into());
+            args.push(settings);
+        }
+
+        args
+    }
+
     pub fn args_for(&self, turn: &Turn<'_>) -> Vec<String> {
         self.args_with(turn, ["--print", "--output-format", "json"])
     }
@@ -296,30 +344,17 @@ impl Runner {
         }
 
         // Before `--allowedTools`, which is variadic and swallows whatever follows its list.
-        args.push("--disallowedTools".into());
-        args.extend(NEVER.iter().map(|s| (*s).to_string()));
+        if !self.native_cli {
+            args.push("--disallowedTools".into());
+            args.extend(NEVER.iter().map(|s| (*s).to_string()));
+        }
 
         if !self.allowed.is_empty() {
             args.push("--allowedTools".into());
             args.extend(self.allowed.iter().cloned());
         }
 
-        // Only when it is not the default. Passing the default explicitly would be a second
-        // place that has to agree with the CLI about what the default is.
-        if let Some(mode) = self.mode.flag() {
-            args.push("--permission-mode".into());
-            args.push(mode.to_string());
-        }
-
-        // Under `Ask` only. The other modes have already decided, and a hook that asked anyway
-        // would put a question on screen about something nobody needed to answer.
-        if self.mode == permits::Mode::Ask
-            && let Some((home, surface)) = &self.ask_through
-            && let Some(settings) = asking::for_this_build(home, surface)
-        {
-            args.push("--settings".into());
-            args.push(settings);
-        }
+        args.extend(self.control_args());
 
         // --session-id pins a new conversation to an id we chose. --resume continues one that
         // already exists. Sending both is an error, which is why `resume` is a flag on the
@@ -723,3 +758,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "asking_tests.rs"]
+mod asking_regression_tests;

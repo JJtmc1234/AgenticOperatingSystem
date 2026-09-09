@@ -1144,16 +1144,15 @@ fn pressing_allow_answers_that_question_and_clears_it() {
         a.notice
     );
 
-    // Gone on the press. It used to wait for the backend to confirm, so that a row could never
-    // claim to be answered before anybody had answered it. That was the right worry and the
-    // wrong trade: the army asks often enough that another question takes the place of the one
-    // just answered, so a press looked like it had done nothing. The care is kept by saying
-    // plainly when an answer did not land, rather than by leaving the row up.
-    let left: Vec<&str> = a.permissions().iter().map(|p| p.id.as_str()).collect();
-    assert_eq!(left, vec!["q-other"], "the row did not clear on the press");
-    assert_eq!(a.just_settled.len(), 1, "and nothing confirms the press");
+    // Sending is acknowledged immediately, but approval belongs to the backend.
+    // Keep both rows until it confirms, so a failed send is still answerable.
+    let waiting: Vec<&str> = a.permissions().iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(waiting, vec!["q-allow", "q-other"]);
+    assert!(
+        a.just_settled.is_empty(),
+        "an unconfirmed answer claimed success"
+    );
 
-    // The backend's confirmation arrives afterwards and must not disturb what is left.
     a.apply(PanelEvent::PermissionSettled {
         id: "q-allow".into(),
         allowed: true,
@@ -1163,6 +1162,11 @@ fn pressing_allow_answers_that_question_and_clears_it() {
         left,
         vec!["q-other"],
         "the confirmation cleared the wrong row"
+    );
+    assert_eq!(
+        a.just_settled.len(),
+        1,
+        "the confirmed answer needs visible feedback"
     );
 }
 
@@ -1225,4 +1229,27 @@ fn answering_a_question_says_what_happened() {
     let (text, ok) = a.notice.clone().unwrap();
     assert_eq!(text, "refused Write");
     assert!(!ok);
+}
+
+#[test]
+fn an_allow_click_waits_for_confirmation_before_claiming_success() {
+    let mut a = app();
+    a.apply(PanelEvent::PermissionAsked(Box::new(
+        crate::model::Permission {
+            id: "one".into(),
+            tool: "Bash".into(),
+            detail: "work".into(),
+            surface: "nora".into(),
+            asked_at: 1,
+        },
+    )));
+    a.answer_permission("one", true);
+    assert_eq!(a.permissions().len(), 1);
+    assert!(a.just_settled.is_empty());
+    a.apply(PanelEvent::PermissionSettled {
+        id: "one".into(),
+        allowed: true,
+    });
+    assert!(a.permissions().is_empty());
+    assert_eq!(a.just_settled.len(), 1);
 }

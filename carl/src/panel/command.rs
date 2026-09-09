@@ -34,6 +34,12 @@ use crate::{Error, Result};
 pub enum PanelCommand {
     /// An ordinary message to Carl, in the same conversation every other surface uses.
     Say { text: String },
+    /// Direct Claude Code tools in a separate project conversation.
+    Code {
+        text: String,
+        cwd: String,
+        model: String,
+    },
     /// A new objective for Carl. Recorded, because an objective outlives the sentence.
     Objective { text: String },
     /// An answer to something Carl put to JJ, tied to the sequence that asked.
@@ -100,7 +106,9 @@ impl PanelCommand {
                 .then(|| Error::Refused(format!("{what} cannot be empty")))
         };
         let bad = match self {
-            PanelCommand::Say { text } => empty("a message", text),
+            PanelCommand::Say { text } | PanelCommand::Code { text, .. } => {
+                empty("a message", text)
+            }
             PanelCommand::Objective { text } => empty("an objective", text),
             PanelCommand::Answer { seq, text } => {
                 if *seq == 0 {

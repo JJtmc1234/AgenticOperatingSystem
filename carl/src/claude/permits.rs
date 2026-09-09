@@ -104,7 +104,7 @@ pub fn narrow_to_rank(allow: &[String], rank: crate::army::org::Rank) -> Vec<Str
             // Compare on the tool, so a narrowed `Bash` still admits the specific Bash permits
             // JJ wrote and a forbidden `Write` is dropped however it was spelled.
             let tool = wanted.split(['(', ' ']).next().unwrap_or(wanted);
-            permitted.iter().any(|p| p == tool)
+            permitted.iter().any(|p| p == tool || p == *wanted)
         })
         .cloned()
         .collect()
@@ -209,5 +209,25 @@ mod tests {
         assert_eq!(Mode::Ask.flag(), None, "the default is not passed twice");
         assert_eq!(Mode::AcceptEdits.flag(), Some("acceptEdits"));
         assert_eq!(Mode::BypassPermissions.flag(), Some("bypassPermissions"));
+    }
+}
+
+#[cfg(test)]
+mod delegation_tests {
+    use super::*;
+
+    #[test]
+    fn the_chief_keeps_the_exact_handoff_permit_without_getting_a_shell() {
+        let handoff = crate::army::chain::HANDOFF.to_string();
+        let allow = vec![
+            handoff.clone(),
+            "Bash".into(),
+            "Bash(python3:*)".into(),
+            "Write".into(),
+        ];
+        assert_eq!(
+            narrow_to_rank(&allow, crate::army::org::Rank::Chief),
+            vec![handoff]
+        );
     }
 }

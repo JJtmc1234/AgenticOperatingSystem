@@ -301,6 +301,30 @@ fn a_resynced_snapshot_replaces_provider_state_rather_than_merging_it() {
     let (mut live, first) = LivePanel::open(&backend.socket()).unwrap();
     assert_eq!(first.projects[0].active_tasks.len(), 1);
 
+    // Observe a new event before replacing the journal so this tests an established stream.
+    let people = carl::army::personnel::Personnel::open(dir.path()).unwrap();
+    let mut barrier = Journal::open(people.journal_path()).unwrap();
+    barrier
+        .append(
+            "mason",
+            Event::Decided {
+                task: None,
+                what: "stream ready".into(),
+            },
+        )
+        .unwrap();
+    let ready_by = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        assert!(
+            std::time::Instant::now() < ready_by,
+            "the stream never reached its barrier"
+        );
+        if matches!(live.next_update(), Update::Event(_)) {
+            break;
+        }
+    }
+    drop(barrier);
+
     // The record is replaced under the running panel, so the sequence it holds cannot be
     // honoured. Everything it was showing is now history.
     let people = carl::army::personnel::Personnel::open(dir.path()).unwrap();
@@ -316,7 +340,12 @@ fn a_resynced_snapshot_replaces_provider_state_rather_than_merging_it() {
         )
         .unwrap();
 
+    let resync_by = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let fresh = loop {
+        assert!(
+            std::time::Instant::now() < resync_by,
+            "the live stream never detected journal replacement"
+        );
         match live.next_update() {
             Update::Resynced(s) => break s,
             Update::Health(_)

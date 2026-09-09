@@ -21,6 +21,11 @@ use crate::source::PanelEvent;
 /// What the backend should be asked to do, or `None` when it is not the backend's business.
 pub fn to_wire(command: &Command) -> Option<PanelCommand> {
     Some(match command {
+        Command::Code { text, cwd, model } => PanelCommand::Code {
+            text: text.clone(),
+            cwd: cwd.clone(),
+            model: model.clone(),
+        },
         Command::SayToCarl(text) => PanelCommand::Say { text: text.clone() },
         Command::SetObjective(text) => PanelCommand::Objective { text: text.clone() },
         Command::AnswerDecision { id, answer } => PanelCommand::Answer {

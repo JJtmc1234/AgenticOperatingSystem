@@ -145,6 +145,9 @@ impl Chain {
             // temporary directory has no panel behind it and nothing could answer.
             if let Some(people) = &self.people {
                 runner = runner.asking_jj(people.home(), who);
+                if agent.rank == org::Rank::Chief {
+                    runner = runner.as_chief();
+                }
             }
             // Built before the session opens, so a folder rule that tries to grant authority
             // stops the agent starting rather than being spoken and then regretted.
@@ -177,20 +180,24 @@ impl Chain {
         // nothing. `watching` is that gap, and nothing here can fail because of it.
         let mut notes = watching::Watching::of(&home, who);
         notes.asked(prompt);
-        let answer = voice.ask(
-            prompt,
-            &mut |say| {
-                notes.saw(say);
-                Flow::Continue
-            },
-            &mut || {
-                if began.elapsed() > deadline {
-                    Flow::Stop
-                } else {
+        let answer = voice
+            .ask(
+                prompt,
+                &mut |say| {
+                    notes.saw(say);
                     Flow::Continue
-                }
-            },
-        )?;
+                },
+                &mut || {
+                    if began.elapsed() > deadline {
+                        Flow::Stop
+                    } else {
+                        Flow::Continue
+                    }
+                },
+            )
+            .inspect_err(|error| {
+                notes.answered(&error.to_string(), true);
+            })?;
         notes.answered(&answer.text, answer.interrupted);
 
         if answer.interrupted {

@@ -631,11 +631,14 @@ impl Supervisor {
             brief_for(folder.agent),
             memory::embedded_fact(&workdir)
         );
-        let runner = Runner::at(&self.program)
+        let mut runner = Runner::at(&self.program)
             .allowing(tools_for(folder.agent.rank))
             // The folder says which model. Passing it is the whole point of the field, and for
             // a while nothing did, so an agent set to one model quietly ran another.
             .running(folder.config.model.id());
+        if folder.agent.rank == crate::army::org::Rank::Chief {
+            runner = runner.as_chief().asking_jj(people.home(), "carl");
+        }
 
         record.name = name.to_string();
         record.session = Some(session.clone());

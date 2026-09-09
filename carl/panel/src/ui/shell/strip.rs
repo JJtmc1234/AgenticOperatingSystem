@@ -73,8 +73,6 @@ pub fn draw(app: &mut App, ctx: &eframe::egui::Context) {
                     heartbeat(ui);
                     ui.add_space(20.0);
                     clocks(app, ui);
-                    ui.add_space(20.0);
-                    notices(app, ui);
                 },
             );
         });
@@ -109,22 +107,6 @@ fn clocks(app: &App, ui: &mut Ui) {
             },
         );
         ui.add_space(18.0);
-    }
-}
-
-fn notices(app: &App, ui: &mut Ui) {
-    if let Some((text, ok)) = &app.notice {
-        ui.label(RichText::new(text).font(theme::prose()).color(if *ok {
-            theme::GOOD
-        } else {
-            theme::BAD
-        }));
-        ui.add_space(12.0);
-    }
-    if let Some(at) = app.resynced_at
-        && at.elapsed().as_secs() < 6
-    {
-        widgets::state_chip(ui, widgets::Mark::Filled, "RESYNCHRONISED", theme::GOOD);
     }
 }
 

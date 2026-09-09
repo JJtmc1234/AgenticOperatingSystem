@@ -202,6 +202,117 @@ Miles through Olivia.
 It fails when the organisation section is removed. This checks the brief,
 not a live model decision. The local delegation permission still needs approval.
 
+## Approval answers waited behind the turn they needed to release
+
+The panel ran every command on one blocking queue. A tool waiting for approval kept the
+current command open, so Allow could not reach the backend until that command ended.
+Backend logs showed answers arriving after their ten minute expiry. Permission answers now
+have a separate worker and cannot close Carl's streaming turn. The panel waits for the
+backend's confirmation before claiming that a tool was allowed.
+
+`an_allow_reaches_the_backend_before_the_waiting_turn_finishes` failed against the old queue
+with Allow stuck behind the waiting turn. `answering_permission_does_not_finish_carls_turn`
+and `an_allow_click_waits_for_confirmation_before_claiming_success` cover the display state.
+
+## Rank filtering removed the delegation route but left implementation tools available
+
+The filter compared the bare name Bash with the full scoped handoff rule, so Carl lost a
+handoff permission JJ had explicitly granted. The chief now keeps exact scoped permits.
+`the_chief_keeps_the_exact_handoff_permit_without_getting_a_shell` failed against the old
+filter, which returned an empty list.
+
+Allowed tools only control automatic permission. They do not remove tools from Claude's
+context. Carl now receives an explicit built in tool ceiling and a role hook that rejects
+implementation commands even in permissive modes. Existing scoped approvals are honored.
+Held sessions now carry that hook too. Tests cover the command ceiling, safe delegation,
+rejection of shell composition and same surface approval reuse. The worker Write approval
+transport test still exercises the full socket round trip under the worker's own identity.
+
+## Resumed Carl conversations mistook disabled agent tools for a missing AOS route
+
+Each request now includes the current Bash handoff route, independently of session history.
+Olivia's brief explicitly names her handoff to Miles. The regression
+`resumed_turns_carry_the_current_handoff_route_without_rewriting_history` failed against the
+previous preparation code and now covers fresh and resumed requests and unchanged human logs.
+
+## Terminal provider errors left held sessions waiting forever
+
+The stream parser discarded error results. A held process could wait for another request
+while its caller waited for a result that had already arrived. Errors now terminate the turn
+through held sessions, one shot streams and direct panel agent requests. Failed chain turns
+also close their activity record. `miles_failure_reaches_carl_as_failure` reproduced the
+lost failure with real nested handoff processes and a local deterministic provider fixture.
+`carl_olivia_miles_handoffs_return_the_workers_result` covers the successful return path.
+
+## Worker hooks asked again for tools already permitted by rank
+
+Miles's live send required repeated approvals for memory reads, tool discovery and Gmail.
+Named leads and workers now return no overriding hook decision for tools already in their
+rank's allowed list. Claude still applies its permissions and other hooks. Exact ToolSearch
+selections containing only permitted Gmail tools can load without a second panel question.
+Unlisted tools and unknown surfaces still reach the approval path.
+
+`a_preapproved_worker_read_does_not_wait_for_the_panel` failed against the old hook with a
+Read denial. The nested process fixture now invokes the real hook for its read too.
+`existing_rank_permissions_defer_to_the_cli_without_overriding_denies` and
+`gmail_discovery_is_limited_to_exact_permitted_names` cover the boundaries. The full socket
+approval test retains its Write request and assertions under Olivia, who has no preapproved
+Write, so it still verifies a tool that actually needs approval.
+
+## Successful reads containing permission rules appeared as refusals
+
+The parser searched successful tool output for the word permission. Reading the memory index
+therefore produced a false refusal and copied the whole index into activity. Refusal parsing
+now requires is_error to be true. `reading_permission_rules_is_not_a_tool_refusal` failed
+against the old parser for successful output with both absent and false error flags.
+
+## An established panel stream missed journal replacement
+
+Gap detection ran only on subscription. Replacing the journal after connection left the old
+snapshot visible forever. The stream now checks its position on every journal poll. The
+existing `a_resynced_snapshot_replaces_provider_state_rather_than_merging_it` test now observes
+a barrier event before replacing the journal and has a deadline. All original snapshot
+assertions remain. It failed deterministically against the old stream after twelve seconds.
+
+
+## Harmless command queries asked for permission or were refused
+
+The panel hook now automatically permits literal pwd, whoami, hostname, uname,
+date and uptime queries with explicitly checked options. Shell composition,
+redirection, expansion, wrappers and mutating options do not match. Other calls
+retain the existing role and permission checks, and the separate guard still runs.
+The regression test harmless_shell_queries_do_not_need_a_panel_click failed on
+the old hook before the fix. composition_and_mutating_options_never_auto_approve
+covers attempts to hide another action inside a query.
+
+
+## Directory inspection still stopped for permission
+
+The inspection policy now accepts ls, stat, df, du, free and id with explicit
+options. Literal quoted file paths are supported. Unknown options, shell
+expressions, redirects and executable wrappers retain existing checks.
+directory_and_metadata_queries_do_not_need_a_panel_click failed on the previous
+policy before the fix. file_inspection_refuses_execution_tricks_and_unlisted_options
+checks the boundary, including repeated free output and alternate input sources.
+
+## Deleted executable broke every Claude hook
+
+The dynamic hook used `current_exe()` verbatim and interpolated unquoted arguments. Replacing a running Carl binary added ` (deleted)` to its process path and made the shell reject every tool call. Resolve the configured filesystem path first, remove the deleted marker, quote every argument, and emit an explicit deny decision if the executable is missing or fails. The permission policy and static guard are unchanged.
+
+Regression tests: `hook_paths_and_all_arguments_survive_shell_metacharacters`, `deleted_marker_uses_the_replacement_binary_on_disk`, `missing_binary_returns_explicit_deny_json_with_successful_hook_exit`, and `an_executable_that_fails_cannot_make_the_guard_disappear` all failed against the old implementation. `a_running_unlinked_process_uses_the_installed_replacement` also reproduces a real Linux executable replacement while its process remains alive.
+
+## Arch Python sandbox startup
+
+The sandbox required the Debian directory `/etc/alternatives`, which is absent on Arch. Its optional read only mount now permits absence while retaining every isolation flag. `arch-migration/test-migration.py::MigrationTests::test_python_sandbox_handles_missing_debian_directory` failed against the old script and passes with the fix.
+
+## Status notice overlapping the title
+
+The header let status text expand backwards over CARL when clocks consumed its space. Status notices now occupy their own wrapping band below the title. `refusal_notice_has_its_own_row_below_the_carl_title` failed against the old drawing code and passes at three window widths.
+
+## Common grep searches required approval
+
+`common_grep_searches_are_approved_without_shell_execution` failed before adding the literal grep parser. Regular expression arguments and ordinary read options now pass automatically, while command substitution, redirection, composition and unknown options are refused by the automatic policy. The existing metadata policy also enables ls alongside pwd. `directory_and_metadata_queries_do_not_need_a_panel_click` exercises the complete hook.
+
 ## Iris issue workflow
 
 Iris had instructions but no controlled issue investigation path. `iris_brief_routes_investigation_through_controlled_workflow_only` failed against the previous brief. `iris_cli_preserves_request_and_workflow_flags` checks the actual CLI interface. Publication is serialized and reconciled after an ambiguous response. `test_closed_marker_prevents_duplicate_creation` fails when duplicate protection is removed. `test_draft_then_publish_same_head_reuses_reviewed_plan` caught publication being skipped after a draft run. `test_inline_credentials_never_enter_model_batches` fails without credential screening. GitHub pagination tests reproduce the installed CLI rejecting `--slurp` and validate concatenated JSON pages instead.

@@ -32,7 +32,19 @@ pub fn run(home: &Path, surface: &str, input: &mut dyn Read) -> String {
         return decision(Verdict::Deny, "the tool call was not readable JSON");
     };
 
+    if let Some(decided) = super::safe_commands::decision_for(surface, &payload) {
+        return decided;
+    }
     let (tool, detail) = read_call(&payload);
+    if surface == "code" && matches!(tool.as_str(), "Read" | "Grep" | "Glob") {
+        return "{}".into();
+    }
+    if let Some(decided) = crate::claude::chief::decision_for(home, surface, &payload) {
+        return decided;
+    }
+    if let Some(decided) = crate::claude::worker::decision_for(surface, &payload) {
+        return decided;
+    }
     let request = Request {
         // From the CLI's own session id plus the tool, so two questions in one turn are two
         // questions. Falls back to the clock, which is enough to tell them apart in order.
@@ -67,7 +79,14 @@ fn mint(payload: &serde_json::Value, tool: &str) -> String {
         .get("session_id")
         .and_then(|v| v.as_str())
         .unwrap_or("no-session");
-    format!("{session}:{tool}:{}", crate::army::event::now())
+    format!(
+        "{session}:{tool}:{}:{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    )
 }
 
 #[cfg(test)]
@@ -120,3 +139,17 @@ mod tests {
         assert_ne!(mint(&payload, "Bash"), mint(&payload, "Write"));
     }
 }
+
+#[cfg(test)]
+mod worker_regression_tests {
+    #[test]
+    fn a_preapproved_worker_read_does_not_wait_for_the_panel() {
+        let home = tempfile::tempdir().unwrap();
+        let payload = br#"{"tool_name":"Read","tool_input":{"file_path":"/tmp/example"}}"#;
+        assert_eq!(super::run(home.path(), "miles", &mut &payload[..]), "{}");
+    }
+}
+
+#[cfg(test)]
+#[path = "safe_hook_tests.rs"]
+mod safe_command_regression_tests;

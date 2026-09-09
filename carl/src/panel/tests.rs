@@ -714,7 +714,8 @@ fn a_question(id: &str) -> Permission {
 
 /// What a hook prints, decoded back to the word the CLI reads.
 fn hook_says(home: &std::path::Path, payload: &str) -> String {
-    let printed = super::hook::run(home, "jj", &mut payload.as_bytes());
+    // Olivia has no preapproved Write. This still exercises the entire approval transport.
+    let printed = super::hook::run(home, "olivia", &mut payload.as_bytes());
     let v: serde_json::Value = serde_json::from_str(&printed).expect("valid JSON");
     v["hookSpecificOutput"]["permissionDecision"]
         .as_str()
@@ -939,6 +940,7 @@ fn the_hook_carries_a_real_tool_call_to_the_panel_and_the_answer_back() {
         }
     };
     assert_eq!(asked.tool, "Write");
+    assert_eq!(asked.surface, "olivia");
     assert!(
         asked.detail.contains("/tmp/x"),
         "the panel is shown the path, not just the word Write: {}",

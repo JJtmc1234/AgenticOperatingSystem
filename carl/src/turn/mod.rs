@@ -11,6 +11,7 @@ use crate::claude::{Answer, Flow, Pool, Runner, Say, Turn};
 use crate::{Area, Camera, ThreadId};
 use anyhow::{Context, Result};
 
+pub mod code;
 mod exchange;
 use exchange::Exchange;
 
@@ -36,7 +37,7 @@ pub fn runner_for(home: &Path, surface: crate::claude::permits::Surface) -> Resu
     let permits = book.for_surface(surface);
 
     // Whoever JJ is talking to on these surfaces is Carl, and Carl is the chief. The chief holds
-    // no tools, in the chain and everywhere else. Without this he had two sets of powers: none
+    // scoped tools, in the chain and everywhere else. Without this he had two sets of powers: none
     // when a lead handed him work, and Write and Edit when JJ typed at him, so the agent who is
     // never meant to implement anything was writing code.
     let narrowed = crate::claude::permits::Permits {
@@ -48,6 +49,7 @@ pub fn runner_for(home: &Path, surface: crate::claude::permits::Surface) -> Resu
     };
 
     Ok(Runner::default()
+        .as_chief()
         .permitted_by(&narrowed)
         .asking_jj(home, named))
 }

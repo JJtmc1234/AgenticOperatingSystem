@@ -91,13 +91,16 @@ impl Runner {
             args.push("--add-dir".into());
             args.push(shared);
         }
-        args.push("--disallowedTools".into());
-        args.extend(super::NEVER.iter().map(|s| (*s).to_string()));
+        if !self.native_cli {
+            args.push("--disallowedTools".into());
+            args.extend(super::NEVER.iter().map(|s| (*s).to_string()));
+        }
 
         if !system.is_empty() {
             args.push("--append-system-prompt".into());
             args.push(system.to_string());
         }
+        args.extend(self.control_args());
         args.extend(self.allowed_args());
         args
     }
@@ -236,6 +239,7 @@ impl Session {
                     }
                 }
                 Ok(Chunk::Final(answer)) => return Ok(*answer),
+                Ok(Chunk::Failed(why)) => return Err(Error::Claude(why)),
                 Err(RecvTimeoutError::Timeout) => {
                     if while_waiting() == Flow::Stop {
                         return Ok(self.abandon(said));
@@ -283,7 +287,7 @@ impl Session {
                 | Ok(Chunk::Thinking { .. }) => {
                     continue;
                 }
-                Ok(Chunk::Final(_)) => break,
+                Ok(Chunk::Final(_) | Chunk::Failed(_)) => break,
                 Ok(Chunk::Text(_)) => {}
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -445,6 +449,20 @@ mod tests {
             assert!(args.contains(&expected.to_string()), "{args:?}");
             assert!(!args.contains(&forbidden.to_string()), "{args:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod permission_argument_tests {
+    use super::*;
+
+    #[test]
+    fn held_sessions_keep_the_permission_hook_and_chief_tool_ceiling() {
+        let home = tempfile::tempdir().unwrap();
+        let runner = Runner::default().as_chief().asking_jj(home.path(), "jj");
+        let args = runner.session_args(&SessionId::fresh().unwrap(), "chief", false);
+        assert!(args.contains(&"--settings".to_string()));
+        assert!(args.windows(2).any(|w| w == ["--tools", "Read,Grep,Bash"]));
     }
 }
 

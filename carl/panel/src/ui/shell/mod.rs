@@ -15,6 +15,7 @@ use crate::app::{App, Tab};
 use crate::theme;
 
 mod asking;
+mod notice;
 mod rail;
 mod strip;
 
@@ -26,6 +27,7 @@ pub use rail::wants_attention;
 pub fn draw(app: &mut App, ctx: &Context) {
     rail::draw(app, ctx);
     strip::draw(app, ctx);
+    notice::draw(app, ctx);
     warning(app, ctx);
     // Below the not live band on purpose. If the link is down these buttons cannot send, and
     // the reason why has to be the first thing read.

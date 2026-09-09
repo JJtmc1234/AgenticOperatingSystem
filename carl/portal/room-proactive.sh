@@ -20,7 +20,11 @@ printf '%s  proactive run\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
 [ -r "$HOME/.carl/portal.json" ] || exit 0
 
 # Shares the watcher's lock, so this never lands while Carl is mid reply to somebody.
-exec flock -n "$HOME/.carl/room/.lock" "$CARL" handoff --from jj --to carl "Your daily look at the room.
+# Not exec, and -E, so that "somebody else has the lock" can be told apart
+# from "the work failed". Sharing the lock is the whole design here: this
+# must never land while Carl is mid reply. Exiting non zero for it made
+# systemd call an ordinary quiet skip a failed service, once an hour.
+flock -n -E 75 "$HOME/.carl/room/.lock" "$CARL" handoff --from jj --to carl "Your daily look at the room.
 
 Run \`carl portal read --all\` to see what is there, then decide whether you have anything worth
 saying that nobody has asked you for. Something finished, something stuck, something JJ or
@@ -31,3 +35,10 @@ work it was. If you do not, say nothing at all and end your turn. Most days that
 answer, and a room full of updates that say nothing is worse than a quiet one.
 
 Never post a status update just because this ran."
+
+status=$?
+if [ "$status" -eq 75 ]; then
+    printf '%s  skipped, the watcher is mid reply\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG"
+    exit 0
+fi
+exit "$status"

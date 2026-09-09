@@ -15,6 +15,8 @@ To check an entry is real, revert the fix, run the named test, and watch it fail
 | 3 | The daemon test harness killed the daemon on drop but not its agents, so a failing test left real processes running on the machine. | Three stray `sleep 400` processes surviving a failed `cargo test`. | `Drop for Aosd` in `tests/daemon.rs` now sends `stop_all` before killing the daemon |
 | 4 | `bind` narrowed the process wide umask across the bind call, so any other thread creating a directory at that moment got one with no execute bit and could not use it. | A flaky `Permission denied` in `cargo test`, one run in three. | `binding_concurrently_does_not_disturb_other_threads` |
 | 5 | The fix for bug 4 bound under a staging name that is longer than the real one, so a run directory whose socket path fitted under the 108 byte limit could still overflow it. | `aosd` refusing to start in a deep scratch directory, with `path must be shorter than SUN_LEN`. | `a_long_run_directory_still_binds` |
+| 35 | `carl-room.service` and `carl-room-daily.service` had `TimeoutStartSec=600` while the permission hook they wait on gives up after 660 seconds. A run that asked JJ for anything was killed while the hook was still waiting, so it could neither succeed nor fail cleanly. Every hour it timed out having used 6 seconds of processor time across ten minutes of wall clock. | JJ asked whether Carl still polls the room. The timer was firing and the service was red. The tell was the ratio: 6.5s of CPU over 600s of clock is waiting, not working. | `carl/portal/check-services.sh`, which reads the hook timeout out of the source and refuses any unit whose start timeout does not exceed it |
+| 36 | `room-proactive.sh` and `room-watch.sh` used `exec flock -n`, so when the other one already held the lock, flock's non zero status became the service's exit status. Sharing that lock is the entire design, and the proactive run is supposed to stand aside while Carl is mid reply. An ordinary quiet skip was reported as a failed service once an hour. | Same investigation. After bug 35 was fixed the run stopped hanging and started exiting 1 in nineteen seconds, with the lock provably held by the watcher. | `carl/portal/check-services.sh`, which fails on `exec flock` and requires the `-E 75` skip path |
 
 ## bug 1, in full
 
@@ -1295,3 +1297,16 @@ Every test that reached the prompting path by writing `"ceiling":"destructive"` 
 tier it tests. `examples/risky.json` was the same fiction and now runs `rm -f` on a scratch path.
 The destructive programs in the test suite are pointed at paths carrying the test process id
 that cannot exist, so `-f` exits 0 having deleted nothing.
+
+
+## Homework audit on 9 September 2026
+
+The room appended overlapping poll responses twice. The Playwright regression
+`overlapping polls display each message once` failed on the original page with one stored
+message and two rendered messages. The display loop now skips IDs at or below its watermark.
+This also prevents a delayed response from moving the watermark backwards. GitHub issue 45.
+
+Iris's handbook omitted its publication section from its index and gave the index itself a
+section heading without an index row. `every_index_in_the_shipped_memory_system_is_true`
+failed with both missing entries before the handbook was corrected. The original memory
+regression tests remain unchanged. GitHub issues 40 and 44.

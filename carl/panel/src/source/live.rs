@@ -53,6 +53,7 @@ enum FromBackend {
     },
     /// A command finished, with whether it was accepted.
     Settled(Result<(), String>),
+    PermissionAnswered(Result<(), String>),
 }
 
 pub struct LivePanelDataSource {
@@ -160,39 +161,16 @@ fn reader(mut live: LivePanel, tx: Sender<FromBackend>) {
     });
 }
 
-/// The command runner, one at a time and never on the UI thread.
+/// Normal commands remain ordered. Permission answers have their own worker.
 fn commander(socket: PathBuf, orders: Receiver<Command>, tx: Sender<FromBackend>) {
+    let (work, take_work) = channel();
+    let (answers, take_answers) = channel::<(String, bool)>();
+    let command_socket = socket.clone();
+    let command_tx = tx.clone();
     thread::spawn(move || {
-        for order in orders {
-            // Answered first, because it is not a `PanelCommand` and never becomes one. A
-            // process is holding a tool call still for this, so it goes on its own connection
-            // and does not queue behind whatever Carl is in the middle of saying.
-            if let Command::AnswerPermission { question, allow } = &order {
-                let verdict = match allow {
-                    true => carl::panel::permission::Verdict::Allow,
-                    false => carl::panel::permission::Verdict::Deny,
-                };
-                // The backend's own words, not a blanket "sent". Answering a question that
-                // has already expired is not a failure to send, it is an answer that landed on
-                // nothing, and the two looked identical: JJ pressed Allow on a question that
-                // had timed out and the panel told him it was sent.
-                let outcome = PanelClient::connect(&socket)
-                    .and_then(|mut client| client.answer(question, verdict))
-                    .map_err(|e| e.to_string())
-                    .and_then(|done| {
-                        if done.what.contains("nothing was waiting") {
-                            Err("too late, that one had already timed out and been refused"
-                                .to_string())
-                        } else {
-                            Ok(())
-                        }
-                    });
-                if tx.send(FromBackend::Settled(outcome)).is_err() {
-                    break;
-                }
-                continue;
-            }
-
+        let socket = command_socket;
+        let tx = command_tx;
+        for order in take_work {
             let Some(wire) = translate::to_wire(&order) else {
                 // Workspace requests never reach the backend in this build. Process 3 owns
                 // what fills the pane, and the panel opens the container itself.
@@ -231,6 +209,47 @@ fn commander(socket: PathBuf, orders: Receiver<Command>, tx: Sender<FromBackend>
             }
         }
     });
+    thread::spawn(move || {
+        for (question, allow) in take_answers {
+            let verdict = if allow {
+                carl::panel::permission::Verdict::Allow
+            } else {
+                carl::panel::permission::Verdict::Deny
+            };
+            let outcome = PanelClient::connect(&socket)
+                .and_then(|mut client| {
+                    client.read_timeout(Some(std::time::Duration::from_secs(5)))?;
+                    client.answer(&question, verdict)
+                })
+                .map_err(|e| e.to_string())
+                .and_then(|done| {
+                    if done.what.contains("nothing was waiting") {
+                        Err("too late, that one had already timed out and been refused".to_string())
+                    } else {
+                        Ok(())
+                    }
+                });
+            if tx.send(FromBackend::PermissionAnswered(outcome)).is_err() {
+                break;
+            }
+        }
+    });
+    thread::spawn(move || {
+        for order in orders {
+            match order {
+                Command::AnswerPermission { question, allow } => {
+                    if answers.send((question, allow)).is_err() {
+                        break;
+                    }
+                }
+                other => {
+                    if work.send(other).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
 }
 
 impl PanelDataSource for LivePanelDataSource {
@@ -261,6 +280,11 @@ impl PanelDataSource for LivePanelDataSource {
                 Ok(FromBackend::Doing { tool, detail }) => {
                     self.speaking = true;
                     out.push(PanelEvent::CarlDoing { tool, detail });
+                }
+                Ok(FromBackend::PermissionAnswered(result)) => {
+                    if let Err(why) = result {
+                        out.push(PanelEvent::CommandRefused(why));
+                    }
                 }
                 Ok(FromBackend::Settled(result)) => {
                     // The end of an answer closes the turn, so the caret goes out only when the
@@ -308,7 +332,7 @@ impl PanelDataSource for LivePanelDataSource {
         // gap between sending and his first word was silent, so there was nothing to tell a
         // person their message had been taken. It is replaced by his real first words.
         match &command {
-            Command::SayToCarl(text) => {
+            Command::SayToCarl(text) | Command::Code { text, .. } => {
                 self.echoed.push(PanelEvent::JjSaid(text.clone()));
                 self.echoed.push(PanelEvent::CarlSaid {
                     text: String::new(),
@@ -428,3 +452,6 @@ fn home() -> PathBuf {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod approval_tests;

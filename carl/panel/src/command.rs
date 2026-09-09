@@ -11,6 +11,11 @@
 pub enum Command {
     /// Ordinary conversation with Carl.
     SayToCarl(String),
+    Code {
+        text: String,
+        cwd: String,
+        model: String,
+    },
     /// A new objective, which is a different thing from a message and is sent as one.
     SetObjective(String),
     /// An answer to something Carl asked.

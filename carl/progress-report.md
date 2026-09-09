@@ -207,3 +207,64 @@ person in it, and the mentoring it was built for has not actually happened.
 3. Hunter implements Alex's half of A2A and the two agents actually talk.
 4. Hunter and Atlas actually in the room, which is the only thing that makes it a mentoring
    surface rather than a chat JJ and Carl have in public.
+
+## Carl approval and delegation repair, September 5
+
+Reproduced the permission queue deadlock and the dropped scoped handoff permit with failing
+regression tests. Approval answers now travel independently of running commands. Carl's role
+is enforced on his tools and hook, and his existing handoff permit survives rank filtering.
+The panel reports approval only after confirmation. This changes runtime behavior, not just
+Carl's instructions.
+
+Validation completed with 1,367 passing tests and one existing ignored test. Formatting and
+Clippy passed. The release permission hook accepted the configured handoff and rejected Write
+and arbitrary Python against JJ's current permissions without executing any tool. Installed
+both binaries with backups and restarted only the panel backend and window. Both running
+executables match the tested builds and the backend answered a socket ping. A live model
+choosing and completing a delegation has not been exercised in this repair.
+
+## Carl and Miles chain verification on September 5
+
+Target is September 6 at 2:30 pm Pacific. Fixed stale delegation instructions and discarded
+terminal errors. Local tests now exercise real nested handoff processes from Carl to Olivia
+to Miles, worker output returning through Olivia and worker errors returning as failures.
+The deterministic fixture accesses no mail and calls no live model.
+
+The workspace suite passed 1,371 tests with one existing ignored test. After adding failure
+activity settlement, both handoff tests passed again. Clippy and formatting passed. Live
+model selection of the route and live Gmail access remain unverified. An earlier live model
+probe was rejected by automatic approval review and requires explicit approval.
+
+The release build is installed with `.before-chain-fix` backups. Both panel services are
+active and their running executable hashes match the new release. Live acceptance remains
+the outstanding check before declaring Carl and Miles fully working.
+
+## Live Hunter email test
+
+JJ confirmed hunter@protocolvr.com and authorized one test email. Carl delegated to Olivia,
+Olivia delegated to Miles and Miles called Gmail send_message. Independent Gmail inspection
+confirmed message 1a073cf19406e04c in SENT with subject AOS email test and the approved text.
+Miles verified the message and recorded it in the shared sent-mail log.
+
+This run required individual panel approvals for worker reads, Gmail tool discovery, the
+send and verification. Worker hooks still ask for tools already present in their rank's
+allowed list. This remains a usability defect and the successful send is not proof that
+unattended approvals are fixed.
+
+## Approval reuse and live panel repair
+
+Named worker and lead hooks now leave existing rank permissions to Claude's normal checks.
+Exact discovery of already permitted Gmail tools avoids a second panel prompt. Unlisted
+operations retain the panel approval path. Successful reads are no longer mislabeled as
+permission failures. Live streams detect journal replacement and request a fresh snapshot.
+
+All 1,376 workspace tests passed with one existing ignored test. Formatting and Clippy
+passed. Regressions for repeated Read approval, false refusals and an established stream
+missing journal replacement all failed against the old code first. Installed both release
+binaries with backups. The active backend and panel executable hashes match the release.
+
+Live acceptance passed after installation. Carl delegated a read-only check to Olivia, who
+handed it to Miles and independently reviewed his result. They confirmed the existing SENT
+message 1a073cf19406e04c and Hunter's receipt reply 1a073d01f77a3061. The panel monitor observed
+zero new approval requests during the complete run, which exited successfully. The agent
+transcripts contain no send, draft or editing tool calls for this check.

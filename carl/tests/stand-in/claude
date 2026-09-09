@@ -1,0 +1,39 @@
+#!/usr/bin/python3
+"""Local deterministic handoff fixture. No model or network is used."""
+import json
+import os
+import shlex
+import subprocess
+import sys
+
+args = sys.argv[1:]
+brief = args[args.index('--append-system-prompt') + 1]
+who = 'olivia' if brief.startswith('You are Olivia.') else 'miles'
+assert brief.startswith('You are ' + who.title() + '.')
+assert '--settings' in args
+settings = json.loads(args[args.index('--settings') + 1])
+assert 'permit-hook --as ' + shlex.quote(who) + ')' in settings['hooks']['PreToolUse'][0]['hooks'][0]['command']
+hook = settings['hooks']['PreToolUse'][0]['hooks'][0]['command']
+check = subprocess.run(['/bin/sh', '-c', hook], input=json.dumps({
+    'tool_name': 'Read', 'tool_input': {'file_path': '/tmp/local-fixture'},
+    'session_id': 'fixture'
+}), capture_output=True, text=True, timeout=3)
+assert check.returncode == 0 and json.loads(check.stdout) == {}, check.stdout
+for line in sys.stdin:
+    request = json.loads(line)['message']['content'][0]['text']
+    with open(os.environ['AOS_TEST_TRACE'], 'a') as trace:
+        trace.write(who + ':' + request + '\n')
+    if who == 'olivia':
+        assert 'Use the Bash tool' in brief
+        result = subprocess.run([os.environ['AOS_TEST_CARL'], '--home', os.environ['AOS_TEST_HOME'],
+            'handoff', '--from', 'olivia', '--to', 'miles', request], capture_output=True, text=True, timeout=15)
+        if result.returncode:
+            print(json.dumps({'type': 'result', 'is_error': True, 'result': result.stderr}), flush=True)
+            continue
+        answer = 'Olivia reviewed: ' + result.stdout.strip()
+    else:
+        if request == 'fail fixture':
+            print(json.dumps({'type': 'result', 'is_error': True, 'result': 'Miles fixture failure'}), flush=True)
+            continue
+        answer = 'Miles checked synthetic inbox: fixture-42'
+    print(json.dumps({'type': 'result', 'result': answer}), flush=True)

@@ -4,10 +4,8 @@
 //! making Carl ask JJ is a matter of installing one, and the hook is Carl himself under
 //! `permit-hook`.
 //!
-//! **Passed as JSON on the command line rather than written to a file.** A settings file would
-//! be a second thing on disk that has to agree with this build about where the binary is, and it
-//! would go stale the first time the binary moved. This is generated from the running
-//! executable's own path every time, so it cannot disagree with itself.
+//! Settings are supplied as JSON. Executable replacement must not turn a stale
+//! process link into shell syntax, and resolution failures must still install a deny hook.
 //!
 //! **This adds a hook, it does not replace the ones JJ has.** `--settings` loads additional
 //! settings, so `guard.sh` in `~/.claude/settings.json` still runs on every Bash call. Two hooks
@@ -17,6 +15,11 @@
 use std::path::Path;
 
 use serde_json::json;
+
+#[path = "hook_command.rs"]
+mod command;
+#[path = "hook_executable.rs"]
+mod executable;
 
 /// How long the CLI waits for the hook, in seconds.
 ///
@@ -37,13 +40,12 @@ const EVERY_TOOL: &str = "*";
 /// `carl` is the running executable, resolved rather than assumed, so a build in a worktree
 /// installs its own hook and not the one in `~/.local/bin`.
 pub fn settings(carl: &Path, home: &Path, surface: &str) -> String {
-    let command = format!(
-        "{} --home {} permit-hook --as {}",
-        carl.display(),
-        home.display(),
-        surface
-    );
+    envelope(command::build(carl, home, surface))
+}
+
+fn envelope(command: String) -> String {
     json!({
+        "showThinkingSummaries": true,
         "hooks": {
             "PreToolUse": [{
                 "matcher": EVERY_TOOL,
@@ -59,14 +61,24 @@ pub fn settings(carl: &Path, home: &Path, surface: &str) -> String {
     .to_string()
 }
 
-/// The same, for the binary that is running right now.
-///
-/// `None` when the executable cannot be located, which is the one case where a hook would be
-/// installed pointing at nothing. A hook that cannot run is worse than none: the CLI treats a
-/// failed hook as no opinion and carries on, so it would look like asking and behave like not.
+/// Always supplies a hook, including a deny decision when resolution fails.
+/// Configured argv and PATH are preferred to the process executable link.
 pub fn for_this_build(home: &Path, surface: &str) -> Option<String> {
-    let me = std::env::current_exe().ok()?;
-    Some(settings(&me, home, surface))
+    let configured = std::env::args_os().next();
+    let fallback = std::env::current_exe().ok();
+    let search = std::env::var_os("PATH");
+    let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
+    Some(
+        match executable::resolve(
+            configured.as_deref(),
+            fallback.as_deref(),
+            search.as_deref(),
+            &cwd,
+        ) {
+            Some(binary) => settings(&binary, home, surface),
+            None => envelope(command::deny("carl binary not found at <unresolved>")),
+        },
+    )
 }
 
 #[cfg(test)]
@@ -83,10 +95,12 @@ mod tests {
         let command = v["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
             .as_str()
             .unwrap();
-        assert_eq!(
-            command,
-            "/opt/carl/target/debug/carl --home /home/jj_tmc/.carl permit-hook --as jj"
+        assert!(
+            command.contains(
+                "/opt/carl/target/debug/carl --home /home/jj_tmc/.carl permit-hook --as jj"
+            )
         );
+        assert!(command.contains("carl binary not found at /opt/carl/target/debug/carl"));
     }
 
     /// A person is the right thing to ask about a file write as much as about a shell command.
@@ -119,6 +133,6 @@ mod tests {
         let command = v["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
             .as_str()
             .unwrap();
-        assert!(command.ends_with("--as nora"), "{command}");
+        assert!(command.contains("permit-hook --as nora"), "{command}");
     }
 }

@@ -216,3 +216,24 @@ fn questions_past_the_visible_few_are_counted_and_not_hidden() {
         frame.words()
     );
 }
+
+#[test]
+fn refusal_notice_has_its_own_row_below_the_carl_title() {
+    for width in [800.0, 1024.0, 1600.0] {
+        let mut a = app();
+        a.tab = Tab::Carl;
+        a.notice = Some(("refused Bash".into(), false));
+        let frame = crate::ui::probe::render(&mut a, eframe::egui::vec2(width, 900.0));
+        let notice = frame.find("refused")[0];
+        let caption = frame
+            .find("command")
+            .into_iter()
+            .find(|p| p.rect.top() < 80.0)
+            .unwrap();
+        assert!(
+            notice.rect.top() >= caption.rect.bottom(),
+            "width {width}: {notice:?} / {caption:?}"
+        );
+        assert!(!notice.cut_off());
+    }
+}

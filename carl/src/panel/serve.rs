@@ -324,10 +324,14 @@ fn stream_from(
     }
 
     loop {
-        let fresh: Vec<Record> = event::read(&path)?
+        let records = event::read(&path)?;
+        if let Some(gap) = gap(&records, last) {
+            return send(out, &Frame::to(None, gap));
+        }
+        let fresh = records
             .into_iter()
             .filter(|r| r.seq > last)
-            .collect();
+            .collect::<Vec<_>>();
         for r in fresh {
             last = r.seq;
             // A write failure is the panel having gone away, which is ordinary.
@@ -463,6 +467,20 @@ fn carry_out(
     // looked would be indistinguishable from one where an army had worked and stopped.
     let intervention = match &command {
         PanelCommand::Say { text } => return speak(home, text, out, id),
+        PanelCommand::Code { text, cwd, model } => {
+            let answer =
+                crate::turn::code::stream(home, text, cwd, model, &mut |chunk| match send(
+                    out,
+                    &Frame::to(None, frame_for(chunk)),
+                ) {
+                    Ok(()) => crate::claude::Flow::Continue,
+                    Err(_) => crate::claude::Flow::Stop,
+                })?;
+            return Ok(Reply::Done {
+                seq: None,
+                what: answer.text,
+            });
+        }
         PanelCommand::Objective { text } => {
             // An objective goes to Carl as well as into the record, because an objective nobody
             // was told about is a note to self.
@@ -736,6 +754,14 @@ fn ask_agent(
     // path builds its command by hand so it does not get the Runner's refusal for free.
     cmd.arg("--disallowedTools")
         .arg(crate::claude::NEVER.join(","));
+    if who.rank == crate::army::org::Rank::Chief {
+        cmd.args(
+            crate::claude::Runner::default()
+                .as_chief()
+                .asking_jj(home, "carl")
+                .control_args(),
+        );
+    }
     if !tools.is_empty() {
         cmd.arg("--allowedTools").arg(tools.join(","));
     }
@@ -782,6 +808,12 @@ fn ask_agent(
                 },
                 // The envelope repeats the whole answer. Kept only as the fallback for a
                 // stream that produced no text deltas at all, never appended to what arrived.
+                crate::claude::Chunk::Failed(why) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    notes.answered(&why, true);
+                    return Err(why);
+                }
                 crate::claude::Chunk::Final(a) => {
                     if said.trim().is_empty() {
                         said = a.text.clone();

@@ -936,3 +936,28 @@ under Carl, and a line from Iris would read as Carl. And the standing rule is th
 speaks to its own lead and its own reports, so Iris posting into a room with JJ's mentor in it
 is the chain being stepped around. What Nora found reaches Hunter up through Mason and Carl,
 with Carl saying whose work it was.
+
+## Panel permission transport
+
+The live adapter routes conversation commands and permission answers to separate workers.
+An approval result never closes a conversation stream. Settlement from the backend removes
+the pending question and displays the actual verdict.
+
+Carl's surface runner separates tool availability from preapproved tool patterns. The chief
+has Read, Grep and scoped Bash routes. The permission hook enforces those routes before
+asking JJ and honors an existing scoped permit. Held sessions carry the same control flags.
+
+Every Carl question carries a current capability reminder so resumed sessions can use the
+Bash handoff despite old tool refusals. Provider result errors are terminal stream events
+and reach the caller as failures. Chain activity records close on errors too.
+
+The panel opens provider thinking summaries during live turns in a bounded scrolling area.
+When text is unavailable it explains that limitation and keeps showing real tool activity.
+The CLI settings request provider summaries without changing the model or thinking effort.
+
+Named lead and worker hooks defer exact rank permissions to Claude's normal permission
+processing. This avoids a second panel decision without overriding CLI deny rules or other
+hooks. Gmail discovery is automatic only for explicit selections of permitted Gmail tools.
+Unknown tools still ask through the panel. Successful tool output is never parsed as refusal.
+Live journal streams recheck their position on each poll and request resynchronization if the
+journal no longer contains that position.

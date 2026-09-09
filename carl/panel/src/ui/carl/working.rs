@@ -27,7 +27,11 @@ const DETAIL_WIDTH: usize = 64;
 /// `id` distinguishes the collapsing sections between turns. Two turns sharing one id share
 /// their open state, which reads as the panel opening a section you did not touch.
 pub(crate) fn draw(ui: &mut Ui, turn: &Turn, id: u64) {
-    if turn.doing.is_empty() && turn.thinking.trim().is_empty() && turn.thought_tokens.is_none() {
+    if !turn.streaming
+        && turn.doing.is_empty()
+        && turn.thinking.trim().is_empty()
+        && turn.thought_tokens.is_none()
+    {
         return;
     }
     ui.push_id(id, |ui| {
@@ -78,10 +82,9 @@ pub(crate) fn line_for(call: &ToolCall) -> String {
     }
 }
 
-/// Carl's reasoning, collapsed by default.
+/// Provider summaries open while Carl is working.
 ///
-/// Collapsed because it is longer than the answer and is not addressed to anybody. Open on one
-/// click because when an answer is taking too long it is the only thing that says why.
+/// The bounded scroll area keeps live progress visible without displacing the conversation.
 fn thinking(ui: &mut Ui, text: &str, tokens: Option<u32>, streaming: bool) {
     let text = text.trim();
 
@@ -102,6 +105,9 @@ fn thinking(ui: &mut Ui, text: &str, tokens: Option<u32>, streaming: bool) {
                 .color(theme::FAINT),
             );
         }
+        if streaming {
+            ui.label(RichText::new("Waiting for a provider summary or tool activity. Hidden reasoning is not available.").font(theme::label()).color(theme::FAINT));
+        }
         return;
     }
     CollapsingHeader::new(
@@ -110,11 +116,18 @@ fn thinking(ui: &mut Ui, text: &str, tokens: Option<u32>, streaming: bool) {
             .color(theme::FAINT),
     )
     .id_salt("thinking")
-    .default_open(false)
+    .default_open(streaming)
     .show(ui, |ui| {
-        ui.add(Label::new(
-            RichText::new(text).font(theme::prose()).color(theme::DIM),
-        ));
+        ui.label("Provider thinking summary");
+        eframe::egui::ScrollArea::vertical()
+            .max_height(180.0)
+            .stick_to_bottom(streaming)
+            .show(ui, |ui| {
+                ui.add(
+                    Label::new(RichText::new(text).font(theme::prose()).color(theme::DIM))
+                        .selectable(true),
+                );
+            });
     });
 }
 
