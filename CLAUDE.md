@@ -116,5 +116,9 @@ Local reversible work is free. Read, edit, build, test, take small steps. Stop a
 before anything hard to undo or visible to other people. Pushing, opening issues or pull
 requests, deleting branches, killing processes outside the sandbox.
 
+JJ updated the publishing rule on 9 September 2026. Commit completed changes and push after
+the relevant tests pass without asking again. Preserve other work and never force push.
+This does not authorize unrelated messages, issue closures or changes to access permissions.
+
 Root goes through the `!` prefix so JJ types the password into sudo directly. Never accept a
 password in chat.

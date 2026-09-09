@@ -124,8 +124,9 @@ their normal model budget. Browser test runs do not publish automatically.
 
 The first corrected live suite ran through Adrian to Iris: five passed and one failed.
 The failure reproduces duplicate rendered messages under overlapping poll responses.
-It is retained as a failing application regression, not hidden by retries or altered expectations.
-A local draft and source review accompany it.
+On 9 September the application fix passed all six browser tests. The unchanged regression
+failed first against the original page with one stored message and two displayed messages.
+The display loop now ignores message IDs it has already rendered. See `homework-audit.md`.
 
 The runner follows Playwright's [local web server configuration](https://playwright.dev/docs/test-webserver)
 and [retrying assertions](https://playwright.dev/docs/test-assertions).

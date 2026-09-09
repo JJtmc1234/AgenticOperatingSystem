@@ -3,7 +3,7 @@
 The procedure for issue investigation, drafting and triage. Identity and authority remain in
 `CLAUDE.md` and the runtime. This handbook grants no additional tools or permissions.
 
-## Index
+**Index**
 
 | Section | Use it for |
 |---|---|
@@ -13,6 +13,7 @@ The procedure for issue investigation, drafting and triage. Identity and authori
 | Issue draft | Preparing a report Evan can implement |
 | Homework and requests | Tracking Hunter's requirements and feature proposals |
 | Delivery | Reporting to Adrian and recording the result |
+| Publication confirmation and notifications | Standing publication authority and completion notices |
 
 ## Scope and authority
 

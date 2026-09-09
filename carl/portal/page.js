@@ -205,7 +205,12 @@ export const ROOM_HTML = `<!doctype html>
       if (!res.ok) { trouble.textContent = "The room answered " + res.status + "."; return; }
       trouble.textContent = "";
       var said = await res.json();
-      for (var i = 0; i < said.length; i++) { show(said[i]); seen = said[i].id; }
+      for (var i = 0; i < said.length; i++) {
+        // An older poll can finish after a newer one has displayed these messages.
+        if (said[i].id <= seen) continue;
+        show(said[i]);
+        seen = said[i].id;
+      }
     } catch (e) {
       trouble.textContent = "Could not reach the room.";
     }
