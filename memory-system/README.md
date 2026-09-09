@@ -1,5 +1,9 @@
 # The memory system
 
+An optional [LangChain vector index](../integrations/langchain-memory/readme.md) now provides
+local semantic retrieval over these files. It uses Chroma HNSW search, cached local embeddings and bounded
+context. The Markdown files and mandatory index checks below remain authoritative.
+
 How ten agents remember things between conversations, and how they find what they remember
 without carrying all of it in every prompt.
 

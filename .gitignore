@@ -4,3 +4,8 @@ target/
 # Runtime state. Allowlist, audit log, agent output, sockets. Never committed.
 # Scoped to the run directory on purpose. A bare *.jsonl would also hide a test fixture.
 /run
+
+# Local Python tooling for the LangChain memory integration.
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/

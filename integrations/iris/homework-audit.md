@@ -43,7 +43,9 @@ and `chat-verification.md`. A fresh complete Carl chat review was not verified t
 67 Iris Python tests passed with model calls and GitHub writes mocked.
 All six Chromium portal tests passed using real local HTTP handlers and temporary SQLite.
 The original page failed the duplicate regression with one stored message and two rendered
-messages. The fixed page displayed one. The portal handler test also passed.
+messages. The fixed page displayed one. All 25 portal handler tests passed on the host. The 17 Chroma integration tests passed
+with synthetic local embeddings in an isolated environment. The old development environment
+pointed to a deleted temporary Python executable, so it could not run.
 Rust formatting and Clippy were checked for both workspaces. Socket tests required a host run
 after the restricted sandbox rejected their local socket operations.
 

@@ -399,3 +399,11 @@ Every gated call is appended, including denied ones, failed ones, and calls nami
 capability that does not exist. A log of only what happened cannot answer what an agent tried
 to do and was stopped from doing, which is the question you ask when something has gone
 wrong. An agent reaching for `shell` is the most interesting line such a log can contain.
+
+## Local vector memory
+
+`integrations/langchain-memory` provides a LangChain store and operator CLI over a derived
+Chroma vector database with a 500 MB admission budget. Directory sync feeds local BGE
+embeddings into namespace snapshots, published through an atomic catalog. Chroma performs
+HNSW search and retrieval bounds context bytes. Markdown and the event log
+retain their existing authority. See the package readme for limits and trusted host integration.

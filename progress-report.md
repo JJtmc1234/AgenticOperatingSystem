@@ -172,3 +172,11 @@ Order is a safety property. Append to the log, then act. A start that is recorde
 fails leaves the log claiming one thing too many, which replay corrects against `/proc`. A
 start that succeeds and is not recorded leaves a process nothing will ever know about. Only
 one of those two mistakes is recoverable, so the code is arranged to only ever make that one.
+
+## Vector memory, September 5, 2026
+
+The LangChain integration now uses Chroma HNSW search with a 500 MB admission budget.
+The existing 64 shared chunks migrated using saved vectors into roughly 1.05 MB of Chroma
+storage. Real model recall retrieved the verification lesson in its top three results and an
+unchanged refresh loaded no model. Tests cover persistent Chroma, namespace isolation, failed
+staging and publication, budget checks, async retrieval and read only SQLite migration.

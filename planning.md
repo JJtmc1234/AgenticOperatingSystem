@@ -167,3 +167,10 @@ Done when a routine fires from an event and the result is useful rather than noi
 | Rust slows early progress | phase 0 was deliberately small, and it is done |
 | the daemon orphans agents on crash | phase 1 acceptance test covers exactly this |
 | scope grows toward a custom distro | brainstorm records that as rejected for now, revisit only after phase 5 |
+
+## Vector memory acceptance
+
+Implemented a Chroma LangChain store, directory sync, bounded recall and snapshot cleanup. Acceptance
+covers persistent retrieval, embedding reuse, namespace filtering and rollback under capacity
+failure, indexed search and migration from the original SQLite database. The default storage
+admission budget is 500 MB and can expand through configuration. Automatic prompt injection in the Rust daemon is outside this library integration.

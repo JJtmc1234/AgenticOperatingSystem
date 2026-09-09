@@ -14,8 +14,36 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  iris:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: PYTHONPATH=integrations/iris python3 -m unittest discover -s integrations/iris/tests -v
+
+  memory:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/langchain-memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.1"
+      - run: uv sync --locked --extra test --python 3.12
+      - run: uv run --locked pytest
+
   check:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory: [".", "carl"]
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +62,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+            carl/target
+          key: cargo-${{ runner.os }}-${{ matrix.directory }}-${{ hashFiles('Cargo.lock', 'carl/Cargo.lock') }}
           restore-keys: cargo-${{ runner.os }}-
 
       # Formatting first. It is the cheapest to fix and the noisiest to leave.
@@ -44,4 +73,4 @@ jobs:
 
       # Spawns real processes and signals them, so it needs a real machine
       # rather than anything sandboxed away from /proc.
-      - run: cargo test
+      - run: cargo test --workspace

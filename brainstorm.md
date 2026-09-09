@@ -63,3 +63,10 @@ runtime that occasionally leaks a process is not a foundation. Phase 0 therefore
 contracts and the supervisor and nothing else.
 
 See [planning.md](planning.md) for the phases.
+
+## Vector memory choice
+
+Chroma replaces the initial custom SQLite scan at JJ's request. A 500 MB storage budget leaves
+room for its HNSW search index. Local embeddings and content reuse still save computation and
+API costs. Snapshot publication preserves live memory on failed refreshes, at the cost of
+rebuilding the changed namespace's index. Markdown remains editable and authoritative.

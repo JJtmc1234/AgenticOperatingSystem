@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aos-langchain-memory"
+version = "0.2.0"
+description = "Local, rebuildable vector memory for AOS"
+requires-python = ">=3.11,<3.15"
+dependencies = ["langchain-core>=1.0,<2", "numpy>=2,<3", "chromadb>=1.5,<2", "filelock>=3.20,<4"]
+
+[project.optional-dependencies]
+local = ["fastembed>=0.7,<0.8"]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+aos-memory = "aos_memory.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["aos_memory"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
