@@ -37,3 +37,14 @@ class ResumeTests(unittest.TestCase):
         self.assertTrue(rows[missing]['status'].startswith('Failed:'))
         self.assertIn('Complete.', rows[REPO]['status'])
         self.assertIn(missing, (self.home / 'manual-report.md').read_text())
+
+    def test_finished_holder_releases_kernel_lock_without_deleting_file(self):
+        from iris_workflow.ledger import Ledger
+        with Ledger(self.home):
+            with self.assertRaisesRegex(RuntimeError, 'kernel lock is held'):
+                with Ledger(self.home):
+                    self.fail('Concurrent investigation was permitted')
+        self.assertTrue((self.home/'run.lock').exists())
+        with Ledger(self.home) as ledger:
+            ledger.append('lock_reacquired')
+        self.assertTrue((self.home/'run.lock').exists())

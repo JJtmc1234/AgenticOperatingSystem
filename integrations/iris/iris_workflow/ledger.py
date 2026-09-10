@@ -20,7 +20,9 @@ class Ledger:
             fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             self.lock.close()
-            raise RuntimeError('Iris already has a running investigation') from None
+            raise RuntimeError('Iris already has a running investigation. The kernel lock is held by '
+                               'another process, which may finish before a process listing runs. '
+                               'Retry later without deleting run.lock. This is not evidence of a stale lock file.') from None
         try:
             if self.path.exists():
                 with self.path.open() as source:

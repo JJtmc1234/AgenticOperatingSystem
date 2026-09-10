@@ -31,6 +31,10 @@ def render(home):
         lines+=['Investigation in progress.', '']
     published=[e for e in events if e['kind']=='published']
     lines+=['## Published issues', '', 'Titles are recorded locally and may differ from later GitHub edits.', '']
+    total=len({event['url'] for event in published})
+    if total:
+        lines += [f'Showing the latest {min(10,total)} of {total} recorded issue links.',
+                  'Omission from this list does not mean an issue was closed or never published.', '']
     seen=set()
     for event in reversed(published):
         url=event['url']

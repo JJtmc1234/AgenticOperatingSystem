@@ -48,3 +48,13 @@ class StatusTests(unittest.TestCase):
             text=render(home)
             self.assertIn('1 complete, 1 queued, 1 waiting, 1 failed',text)
             self.assertNotIn('4 repositories checked,',text)
+
+    def test_recent_issue_list_states_that_older_issues_are_omitted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory)
+            events=[dict(seq=i,kind='published',repo='owner/repo',marker=str(i),
+                         url=f'https://github.com/owner/repo/issues/{i}') for i in range(1,12)]
+            (home/'events.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in events))
+            text=render(home)
+            self.assertIn('Showing the latest 10 of 11 recorded issue links',text)
+            self.assertIn('Omission from this list does not mean an issue was closed or never published',text)

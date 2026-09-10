@@ -207,3 +207,16 @@ ordered by when their files were last reviewed for the same request. Files waiti
 their first review therefore get a turn even when commits arrive between runs.
 No spending limits change. Historical entries without a request scope remain readable,
 but start contributing to fair ordering after their next completed review.
+
+## Smaller review allowance
+
+Append `--call-budget 0.25` to `carl iris run` or `carl iris issue` to lower that run's
+per-call model allowance. It cannot exceed the configured cap and does not change saved
+settings or the daily limit. A cap too low for a model response fails visibly.
+A complete review reserves enough allowance for both investigators and independent review.
+No findings means no third model call and no issue publication.
+
+The latest publication list shows at most ten links and states the total recorded count.
+An older issue missing from that list is not evidence that it was closed or never published.
+
+Current live review and Carl handoff evidence is in [final verification](final-verification.md).

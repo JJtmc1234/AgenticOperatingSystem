@@ -1,6 +1,7 @@
 """Manual and timer entry points for Iris."""
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -25,6 +26,9 @@ def main():
     issue.add_argument('--path',action='append',default=[],help='Exact committed file, repeat for related files')
     issue.add_argument('--draft',action='store_true')
     issue.set_defaults(trigger='manual',force=False)
+    for command in [run,issue]:
+        command.add_argument('--call-budget',type=float,
+                             help='Lower the per-call model allowance for this run only')
     commands.add_parser('status')
     commands.add_parser('doctor')
     commands.add_parser('test',help='Run the installed local portal Playwright suite')
@@ -46,6 +50,10 @@ def main():
             print(json.dumps(dict(owner=settings['owner'],publish=settings['publish'],
                                   daily_budget_usd=settings['max_daily_usd'],tools='available')))
         else:
+            if args.call_budget is not None:
+                if not math.isfinite(args.call_budget) or not 0<args.call_budget<=settings['max_call_usd']:
+                    raise ValueError('Call budget must be positive and cannot exceed the configured limit')
+                settings['max_call_usd']=args.call_budget
             if args.draft:
                 settings['publish']=False
             result=workflow.run(args.home,settings,args.repo,args.request,args.trigger,args.force,

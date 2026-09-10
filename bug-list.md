@@ -1344,3 +1344,24 @@ batches within the same request scope. Completion records carry that scope. It s
 a fresh review for every batch at a new revision, so old findings are not treated as proof
 about changed code. `test_a_focused_review_does_not_reorder_an_unrelated_general_review`
 keeps separate requests from affecting each other's scan order.
+
+
+## Iris final verification on 10 September 2026
+
+The published issue list was capped at ten without saying that older links were omitted.
+In a real Carl handoff he treated missing issue 45 as a discrepancy.
+`test_recent_issue_list_states_that_older_issues_are_omitted` failed before the fix.
+Status now reports both the displayed count and total recorded count, and explicitly states
+that omission does not imply closure or failed publication. Carl acknowledged the correction.
+
+The review CLI now accepts `--call-budget` to lower one run's per-call allowance.
+`test_lower_budget_is_per_run_and_keeps_daily_limit` and
+`test_raised_or_invalid_budget_never_starts_review` failed before implementation.
+Values above the configured cap, zero, negatives and nonfinite numbers are refused.
+The saved configuration, daily limit and publication gate are unchanged.
+
+`test_finished_holder_releases_kernel_lock_without_deleting_file` verifies the
+concurrency diagnostic and reacquisition after the holder exits. It failed against
+the earlier diagnostic. A real Carl retry succeeded without deleting `run.lock`,
+but Carl incorrectly inferred a stale lock from a later process listing. The error
+now says a kernel lock is held and that a process can finish before a listing runs.

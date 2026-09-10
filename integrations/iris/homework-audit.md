@@ -1,5 +1,9 @@
 # Hunter homework audit
 
+Update on 10 September: the push and real public-source review were authorized and
+completed. The Carl handoff returned the persisted review result. See
+[final verification](final-verification.md). The September 9 audit below is historical.
+
 Checked GitHub issues and comments on 9 September 2026. Closed does not mean every historical
 claim was independently repeated today. The latest issue data is the source of status below.
 
