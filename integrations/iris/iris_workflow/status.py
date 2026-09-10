@@ -68,9 +68,17 @@ def render(home):
     completed=[e for e in finishes if e['kind']=='run_finished']
     if completed:
         report=completed[-1]['report']
-        failed=sum(row['status'].startswith('Failed:') for row in report['repositories'])
+        states=[row['status'] for row in report['repositories']]
+        failed=sum(s.startswith('Failed:') for s in states)
+        complete=sum(s.startswith('Unchanged committed revision') or
+                     (s.startswith('Inspected ') and 'Complete.' in s and
+                      'No eligible source' not in s) for s in states)
+        queued=sum('Remaining work queued.' in s for s in states)
+        waiting=sum(s.startswith('Waiting for ') for s in states)
+        other=len(states)-failed-complete-queued-waiting
         lines+=['', '## Latest repository check', '',
-                f"{len(report['repositories'])} repositories checked, {failed} failed. Trigger: {report['trigger']}.",
+                f"Review status: {complete} complete, {queued} queued, {waiting} waiting, {failed} failed, {other} skipped or unclassified. Trigger: {report['trigger']}.",
+                'Waiting means no source review was performed in this poll.',
                 f"[Full report]({home/'latest-report.md'})"]
     if completed:
         reasons=sorted({r.get('blocked_reason','') for r in report['repositories']} - {''})

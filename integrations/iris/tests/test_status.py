@@ -35,3 +35,16 @@ class StatusTests(unittest.TestCase):
             self.assertNotIn('/draft.md',text)
             self.assertIn('https://github.com/owner/repo/issues/1',text)
             self.assertIn('Budget limits queue new reviews',text)
+
+    def test_revision_checks_are_not_reported_as_completed_source_reviews(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory)
+            rows=[{'status':'Inspected 1/4 source batches. Remaining work queued.'},
+                  {'status':'Waiting for hourly check or feature commit'},
+                  {'status':'Unchanged committed revision, already inspected'},
+                  {'status':'Failed: GitHub unavailable'}]
+            event=dict(seq=1,kind='run_finished',report={'trigger':'poll','repositories':rows})
+            (home/'events.jsonl').write_text(json.dumps(event)+'\n')
+            text=render(home)
+            self.assertIn('1 complete, 1 queued, 1 waiting, 1 failed',text)
+            self.assertNotIn('4 repositories checked,',text)

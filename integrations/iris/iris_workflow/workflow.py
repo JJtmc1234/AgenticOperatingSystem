@@ -70,6 +70,7 @@ def process(home,config,entry,request,trigger,force,ledger,model,github,snapshot
     scope=scope_key(request,paths,specific)
     complete=ledger.latest('repo_complete',repo=repo,head=head,publish=config['publish'],scope=scope)
     if complete and not force and not request and not paths:
+        row['issues']=complete.get('issues',[])
         return row | dict(status='Unchanged committed revision, already inspected')
     if trigger=='poll' and not force:
         seen=ledger.latest('repo_checked',repo=repo)
@@ -91,6 +92,7 @@ def process(home,config,entry,request,trigger,force,ledger,model,github,snapshot
         if ledger.latest('batch_done',repo=repo,key=key,publish=config['publish']) and not force:
             previous=ledger.latest('batch_reviewed',repo=repo,key=key) or {'plans':[]}
             verified+=len(previous['plans'])
+            row['issues']+=previous.get('existing_links',[])
             row['issues']+=report.reviewed_outputs(previous['plans'],ledger,repo)
             done+=1
             continue
@@ -103,8 +105,10 @@ def process(home,config,entry,request,trigger,force,ledger,model,github,snapshot
                 blocked=model.blocked_reason() if hasattr(model,'blocked_reason') else 'Model budget cannot cover a review.'
                 break
             ledger.append('batch_started',repo=repo,key=key,head=head)
-            plans=investigate(repo,repository,batch,issues,request,model,github,'iris/'+repo+'/'+key,specific=specific,existing_links=row['issues'])
-            plan=ledger.append('batch_reviewed',repo=repo,key=key,head=head,plans=plans)
+            existing_links=[]
+            plans=investigate(repo,repository,batch,issues,request,model,github,'iris/'+repo+'/'+key,specific=specific,existing_links=existing_links)
+            plan=ledger.append('batch_reviewed',repo=repo,key=key,head=head,plans=plans,existing_links=existing_links)
+        row['issues']+=plan.get('existing_links',[])
         verified+=len(plan['plans'])
         if not publish(home,config,repo,plan['plans'],ledger,github,remaining,row):
             blocked='Run issue limit reached.'
@@ -113,7 +117,7 @@ def process(home,config,entry,request,trigger,force,ledger,model,github,snapshot
         remaining[0]-=1
         done+=1
     if done==len(batches):
-        ledger.append('repo_complete',repo=repo,head=head,publish=config['publish'],scope=scope)
+        ledger.append('repo_complete',repo=repo,head=head,publish=config['publish'],scope=scope,issues=row['issues'])
     row['scope']='Requested files' if paths else 'Eligible repository source'
     row['files_requested']=list(paths)
     row['blocked_reason']=blocked

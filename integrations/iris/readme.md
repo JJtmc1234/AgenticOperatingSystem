@@ -190,3 +190,11 @@ returns the result through Adrian to Carl. Repository selection, file paths and 
 must survive both handoffs. The same chat receives real issue links, draft paths or the exact
 reason work is queued. Status requests do not start a new review. There is no separate Iris
 window, and JJ does not need a terminal for these requests.
+
+## Resuming existing findings
+
+Repeated requests retain existing open or closed issue links through the durable journal,
+including a completed general review. This needs no additional investigator call. Links
+found before this journal field existed may require a fresh review to recover.
+The overview separates complete, queued, waiting and failed reviews. A waiting poll did
+not perform a source review and is never counted as one.

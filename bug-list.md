@@ -1310,3 +1310,17 @@ Iris's handbook omitted its publication section from its index and gave the inde
 section heading without an index row. `every_index_in_the_shipped_memory_system_is_true`
 failed with both missing entries before the handbook was corrected. The original memory
 regression tests remain unchanged. GitHub issues 40 and 44.
+
+
+## Iris resumed reports on 10 September 2026
+
+An existing closed issue link was returned during investigation but not recorded with the
+reviewed batch. Repeating the request lost the link. General review completion also returned
+an empty issue list. `test_repeated_specific_review_keeps_closed_duplicate_link` and
+`test_repeated_general_review_keeps_closed_duplicate_link` both failed before the change.
+The journal now retains matched links with the batch and completed repository record.
+Existing journals remain readable and no additional model call or issue write is needed.
+
+The overview called all repository rows checked even when some only waited for the next hour.
+`test_revision_checks_are_not_reported_as_completed_source_reviews` failed against that wording.
+The overview now separates complete, queued, waiting, failed and unclassified outcomes.
