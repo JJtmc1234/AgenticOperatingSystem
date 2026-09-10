@@ -1324,3 +1324,8 @@ Existing journals remain readable and no additional model call or issue write is
 The overview called all repository rows checked even when some only waited for the next hour.
 `test_revision_checks_are_not_reported_as_completed_source_reviews` failed against that wording.
 The overview now separates complete, queued, waiting, failed and unclassified outcomes.
+
+An explicitly configured repository missing from GitHub discovery was silently omitted.
+`test_missing_configured_repository_is_a_failure_not_silently_omitted` failed before the
+change. Missing configured repositories now get a failure row and durable failure event,
+while reachable configured repositories still run. No new repository access is granted.

@@ -27,3 +27,13 @@ class ResumeTests(unittest.TestCase):
 
     def test_repeated_general_review_keeps_closed_duplicate_link(self):
         self.check_duplicate_resume('')
+
+    def test_missing_configured_repository_is_a_failure_not_silently_omitted(self):
+        missing = 'JJtmc1234/unavailable'
+        self.config['repositories'] = [REPO, missing]
+        result = self.execute(FakeModel([dict(findings=[]), dict(findings=[])]))
+        rows = {row['repo']: row for row in result['repositories']}
+        self.assertIn(missing, rows)
+        self.assertTrue(rows[missing]['status'].startswith('Failed:'))
+        self.assertIn('Complete.', rows[REPO]['status'])
+        self.assertIn(missing, (self.home / 'manual-report.md').read_text())

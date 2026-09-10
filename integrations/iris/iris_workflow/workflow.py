@@ -38,6 +38,12 @@ def run(home, config, selected=None, request='', trigger='manual', force=False,
             # Rotate deferred repositories so a large first repository cannot starve the rest.
             repos.sort(key=lambda r:(ledger.latest('batch_started',repo=r['nameWithOwner']) or {}).get('seq',0))
             result=dict(trigger=trigger,publish=config['publish'],repositories=[])
+            if allowed and not selected:
+                missing=set(allowed)-{r['nameWithOwner'] for r in repos}
+                for repo in sorted(missing):
+                    error='Configured repository was not found in GitHub discovery'
+                    result['repositories'].append(dict(repo=repo,status='Failed: '+error,issues=[]))
+                    ledger.append('repository_failed',repo=repo,error=error)
             remaining=[config['max_batches'],config['max_issues']]
             for entry in repos:
                 repo=entry['nameWithOwner']
