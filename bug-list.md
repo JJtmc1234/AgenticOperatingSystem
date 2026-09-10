@@ -1329,3 +1329,18 @@ An explicitly configured repository missing from GitHub discovery was silently o
 `test_missing_configured_repository_is_a_failure_not_silently_omitted` failed before the
 change. Missing configured repositories now get a failure row and durable failure event,
 while reachable configured repositories still run. No new repository access is granted.
+
+
+## Iris batch fairness across commits
+
+Every new revision invalidated the review keys and restarted the source scan at the first
+alphabetical batch. With a one batch limit, a repository receiving frequent commits could
+leave later files permanently unreviewed.
+`test_new_commits_do_not_starve_the_unreviewed_last_batch` failed before the fix, reviewing
+the first eight files twice while skipping the ninth after a documentation commit.
+
+The scheduler now finishes saved plans and prioritizes the least recently reviewed source
+batches within the same request scope. Completion records carry that scope. It still requires
+a fresh review for every batch at a new revision, so old findings are not treated as proof
+about changed code. `test_a_focused_review_does_not_reorder_an_unrelated_general_review`
+keeps separate requests from affecting each other's scan order.

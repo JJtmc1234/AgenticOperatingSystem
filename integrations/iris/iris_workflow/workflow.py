@@ -1,7 +1,6 @@
 """Serialize runs, resume bounded scans, and publish only reviewed issue plans."""
 import datetime
 import hashlib
-import json
 from pathlib import Path
 from . import cache, report, notifications
 from .github import GitHub
@@ -11,6 +10,7 @@ from .repository import Repository
 from .investigate import investigate
 from .publication import publish
 from .selection import select_batches, scope_key
+from .scheduling import batch_key, ordered_batches
 
 
 def run(home, config, selected=None, request='', trigger='manual', force=False,
@@ -87,6 +87,7 @@ def process(home,config,entry,request,trigger,force,ledger,model,github,snapshot
                 return row | dict(status='Waiting for hourly check or feature commit')
     ledger.append('repo_checked',repo=repo,head=head,trigger=trigger)
     batches=select_batches(repository,paths)
+    batches=ordered_batches(batches,ledger,repo,head,request,scope,paths,specific,config['publish'])
     eligible=sum(len(batch) for batch in batches)
     row['excluded_files']=info['tracked_count']-eligible
     issues=github.issues(repo)
@@ -94,7 +95,7 @@ def process(home,config,entry,request,trigger,force,ledger,model,github,snapshot
     blocked=''
     verified=0
     for batch in batches:
-        key=hashlib.sha256(json.dumps([head,scope if paths or specific else request,batch],sort_keys=True).encode()).hexdigest()[:24]
+        key=batch_key(head,request,scope,paths,specific,batch)
         if ledger.latest('batch_done',repo=repo,key=key,publish=config['publish']) and not force:
             previous=ledger.latest('batch_reviewed',repo=repo,key=key) or {'plans':[]}
             verified+=len(previous['plans'])
@@ -119,7 +120,7 @@ def process(home,config,entry,request,trigger,force,ledger,model,github,snapshot
         if not publish(home,config,repo,plan['plans'],ledger,github,remaining,row):
             blocked='Run issue limit reached.'
             break
-        ledger.append('batch_done',repo=repo,key=key,head=head,publish=config['publish'],files=[f['path'] for f in batch])
+        ledger.append('batch_done',repo=repo,key=key,head=head,scope=scope,publish=config['publish'],files=[f['path'] for f in batch])
         remaining[0]-=1
         done+=1
     if done==len(batches):

@@ -198,3 +198,12 @@ including a completed general review. This needs no additional investigator call
 found before this journal field existed may require a fresh review to recover.
 The overview separates complete, queued, waiting and failed reviews. A waiting poll did
 not perform a source review and is never counted as one.
+
+## Fair progress during active development
+
+New commits still invalidate previous source reviews. They no longer reset every scan to
+the first alphabetical batch. Saved publication work is resumed first, then batches are
+ordered by when their files were last reviewed for the same request. Files waiting for
+their first review therefore get a turn even when commits arrive between runs.
+No spending limits change. Historical entries without a request scope remain readable,
+but start contributing to fair ordering after their next completed review.
