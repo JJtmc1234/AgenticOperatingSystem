@@ -40,7 +40,7 @@ export interface EventPage {
 /** Returns events after `cursor`, at most one page, plus the cursor to ask with next. */
 export function pageEvents(task: TaskRecord, cursor: number, limits: EventLimits): EventPage {
   const oldest = task.events[0]?.seq ?? task.nextSeq;
-  const after = task.events.filter(event => event.seq >= cursor);
+  const after = task.events.filter(event => event.seq > cursor);
   const page = after.slice(0, limits.maxEventsPerPage);
   const result: EventPage = {
     events: page,

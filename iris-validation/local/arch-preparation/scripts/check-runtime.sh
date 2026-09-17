@@ -18,4 +18,4 @@ fi
 if command -v carl-python >/dev/null; then
   carl-python -c 'print(2 + 2)' || fail=1
 fi
-exit 0
+exit "$fail"

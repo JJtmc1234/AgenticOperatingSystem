@@ -6,7 +6,7 @@ import tempfile
 
 def write(home, value):
     lines=['# Iris report', '', 'Trigger: '+value['trigger'],
-           'Mode: '+('draft' if value['publish'] else 'publish'), '']
+           'Mode: '+('publish' if value['publish'] else 'draft'), '']
     for row in value['repositories']:
         lines.append('## '+row['repo'])
         lines.append(row['status'])

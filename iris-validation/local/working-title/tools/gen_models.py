@@ -269,7 +269,7 @@ def ellipse_disc(rx, ry, segments=64):
 
 def translate(part, dx=0.0, dy=0.0, dz=0.0):
     positions, normals, indices = part
-    moved = [(x + dx, y + dy, z - dz) for x, y, z in positions]
+    moved = [(x + dx, y + dy, z + dz) for x, y, z in positions]
     return moved, normals, indices
 
 

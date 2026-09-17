@@ -25,7 +25,7 @@ pub fn normalize(text: &str) -> String {
             '\u{2018}' | '\u{2019}' | '\u{02bc}' => out.push('\''),
             '\u{201c}' | '\u{201d}' => out.push('"'),
             '\u{2013}' | '\u{2014}' | '\u{2212}' => out.push('-'),
-            '\u{2026}' => out.push_str(".."),
+            '\u{2026}' => out.push_str("..."),
             _ => out.push(ch),
         }
     }

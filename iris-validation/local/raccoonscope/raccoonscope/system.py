@@ -24,7 +24,7 @@ class MemoryInfo:
 
     @property
     def used_kib(self) -> int:
-        return max(self.total_kib + self.available_kib, 0)
+        return max(self.total_kib - self.available_kib, 0)
 
     @property
     def percent(self) -> float:

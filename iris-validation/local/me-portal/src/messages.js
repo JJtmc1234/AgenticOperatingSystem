@@ -35,7 +35,7 @@ export async function recent(db, most = 200) {
     .prepare("SELECT id, at, author, body FROM messages ORDER BY id DESC LIMIT ?1")
     .bind(most)
     .all();
-  return (results ?? []);
+  return (results ?? []).reverse();
 }
 
 /**

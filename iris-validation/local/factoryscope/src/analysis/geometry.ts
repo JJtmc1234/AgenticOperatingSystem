@@ -64,5 +64,5 @@ export function unionBounds(rects: Iterable<Rect>): Bounds {
 
 /** The tile a world point falls in. */
 export function tileOf(x: number, y: number): [number, number] {
-  return [Math.trunc(x), Math.trunc(y)];
+  return [Math.floor(x), Math.floor(y)];
 }
