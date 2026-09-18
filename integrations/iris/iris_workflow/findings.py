@@ -35,7 +35,13 @@ def validated(raw, repository):
         excerpt=item['excerpt'].splitlines()
         actual='\n'.join(source[item['line']-1:item['line']-1+len(excerpt)])
         if actual.strip()!=item['excerpt'].strip():
-            raise ValueError('Finding excerpt does not match committed source')
+            matches=[index for index in range(len(source)-len(excerpt)+1)
+                     if '\n'.join(source[index:index+len(excerpt)]).strip()==item['excerpt'].strip()]
+            if len(matches)!=1:
+                raise ValueError('Finding excerpt does not match committed source')
+            # Locate an exact unique quotation, never rewrite code to fit a claim.
+            start=matches[0]
+            item=item | dict(line=start+1,excerpt='\n'.join(source[start:start+len(excerpt)]))
         findings.append(item)
     return findings
 
@@ -45,7 +51,9 @@ def related(findings, issues, limit=5):
         body=(issue.get('title','')+' '+issue.get('body','')).lower()
         return max((difflib.SequenceMatcher(None,f['title'].lower(),issue.get('title','').lower()).ratio()
                     + (0.5 if f['path'].lower() in body else 0) for f in findings),default=0)
-    return sorted(issues,key=score,reverse=True)[:limit]
+    ranked=sorted(((score(issue),index,issue) for index,issue in enumerate(issues)),
+                  key=lambda entry:entry[0],reverse=True)
+    return [issue for relevance,_,issue in ranked if relevance>=0.35][:limit]
 
 
 def duplicate(finding, issues):

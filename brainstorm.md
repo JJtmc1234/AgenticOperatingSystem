@@ -70,3 +70,10 @@ Chroma replaces the initial custom SQLite scan at JJ's request. A 500 MB storage
 room for its HNSW search index. Local embeddings and content reuse still save computation and
 API costs. Snapshot publication preserves live memory on failed refreshes, at the cost of
 rebuilding the changed namespace's index. Markdown remains editable and authoritative.
+
+## Iris validation
+
+Use the existing review runtime and isolated repository branches to test Iris against
+known harmless defects. Real issue creation tests the publication path, while independent
+regressions distinguish a correct report from a plausible one. Keeping the flaws off default
+branches lets the experiment exercise real GitHub reads without disrupting the projects.

@@ -9,9 +9,21 @@ def investigate(repo, repository, batch, issues, request, model, github, identit
     if contains_credential(request):
         raise ValueError('Request may contain credentials')
     clean=lambda text: '[Sensitive text excluded]' if contains_credential(text) else text
+    history={}
+
+    def issue_context(matches):
+        for issue in matches:
+            if issue['number'] not in history:
+                comments=github.comments(repo,issue['number'])
+                history[issue['number']]=dict(title=clean(issue['title']),body=clean(issue.get('body',''))[:6000],
+                                             state=issue['state'],comments=[clean(c.get('body',''))[:2000] for c in comments[-10:]])
+        return [history[i['number']] for i in matches]
+
+    prior=related([dict(title=request,path=f['path']) for f in batch],issues)
     context=dict(repository=repo,revision=repository.head,request=request,
                  sources=[dict(path=f['path'], numbered_lines=[dict(line=n,text=line)
-                     for n,line in enumerate(f['content'].splitlines(),1)]) for f in batch],issue_titles=[clean(i['title']) for i in issues][:200])
+                     for n,line in enumerate(f['content'].splitlines(),1)]) for f in batch],
+                 existing=issue_context(prior),issue_titles=[clean(i['title']) for i in issues][:200])
     focus=('Review only the problem or behavior JJ requested. Do not substitute unrelated findings. '
            'If this is an enhancement, use kind request and describe the current limitation, not an invented bug. '
            'Suggest a small direction and measurable acceptance criteria in validation. ') if specific else ''
@@ -19,7 +31,7 @@ def investigate(repo, repository, batch, issues, request, model, github, identit
     for role in ['correctness','efficiency']:
         prompt=(focus+'Inspect this source batch for '+
                 ('bugs and broken boundaries.' if role=='correctness' else 'algorithmic waste and materially unnecessary complexity.')+
-                ' Return concrete findings only. Do not claim runtime testing. Use the supplied line numbers. Copy a contiguous excerpt exactly, without line numbers or ellipses.\n'+json.dumps(context))
+                ' Return concrete findings only. Do not claim runtime testing. Use the supplied line numbers. Copy a contiguous excerpt exactly, without line numbers or ellipses. Prefer one exact source line demonstrating the mechanism.\n'+json.dumps(context))
         result=model.ask(identity+'/'+role,prompt,FINDINGS)
         for finding in validated(result,repository):
             if finding['kind']=='request' and not specific:
@@ -41,22 +53,26 @@ def investigate(repo, repository, batch, issues, request, model, github, identit
     if not candidates:
         return []
     matches=related(candidates,issues)
-    existing=[]
-    for issue in matches:
-        comments=github.comments(repo,issue['number'])
-        existing.append(dict(title=clean(issue['title']),body=clean(issue.get('body',''))[:6000],state=issue['state'],
-                             comments=[clean(c.get('body',''))[:2000] for c in comments[-10:]]))
+    existing=issue_context(matches)
     prompt='''Independently review these findings using the committed source. Return accepted zero-based
-candidate indexes only. Reject unsupported mechanisms, trivial preferences, duplicates of existing
+candidate indexes in accepted. Use minor for accepted indexes whose severity needs downgrading.
+If both investigators found the same underlying problem, accept only the clearest candidate.
+Reject unsupported mechanisms, trivial preferences, duplicates of existing
 issues including fixes recorded in comments, invented measurements and unactionable proposals.
 Trace each proposed reproduction through the source. Reject examples that do not distinguish
-current behavior from the required behavior, unsupported downstream claims, and major severity
-without security exposure, data loss or an unusable core operation. Require a small suggested change.
+current behavior from the required behavior, and unsupported downstream claims.
+Major severity requires security exposure, data loss or an unusable core operation. If the defect
+is real but its severity is overstated, accept it with a downgrade in minor instead of discarding it.
+Do not invent consequences to justify severity. Require a small suggested change.
 Accept only findings you can justify directly from the source. Empty accepted is correct if unsure.
 '''+json.dumps(dict(candidates=candidates,sources=batch,existing=existing))
     review=model.ask(identity+'/review',focus+prompt+json.dumps(dict(request=request)),REVIEW)
     accepted=review.get('accepted')
-    if set(review)!={'accepted'} or not isinstance(accepted,list) or len(set(map(str,accepted)))!=len(accepted) or any(
-        type(i) is not int or i<0 or i>=len(candidates) for i in accepted):
+    minor=review.get('minor',[])
+    if (set(review) not in ({'accepted'},{'accepted','minor'}) or
+            any(not isinstance(indexes,list) or len(set(map(str,indexes)))!=len(indexes) or
+                any(type(i) is not int or i<0 or i>=len(candidates) for i in indexes)
+                for indexes in (accepted,minor)) or not set(minor)<=set(accepted)):
         raise ValueError('Reviewer returned invalid candidate indexes')
-    return issue_plans(repo,repository.head,[candidates[i] for i in accepted])
+    return issue_plans(repo,repository.head,[candidates[i] | (dict(severity='minor') if i in minor else {})
+                                           for i in accepted])

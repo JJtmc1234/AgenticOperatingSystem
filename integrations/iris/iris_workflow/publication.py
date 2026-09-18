@@ -3,6 +3,26 @@ import re
 from .findings import duplicate
 
 
+def reconcile(repo, ledger, github, issues=None):
+    pending={e['marker']: e for e in ledger.events
+             if e['kind']=='publication_requested' and e.get('repo')==repo
+             and not ledger.latest('published',repo=repo,marker=e['marker'])}
+    if not pending:
+        return
+    issues=github.issues(repo) if issues is None else issues
+    unresolved=[]
+    for marker in pending:
+        match=next((i for i in issues if marker in i.get('body','')),None)
+        if match and match.get('url'):
+            ledger.append('published',repo=repo,marker=marker,url=match['url'],reconciled=True)
+        else:
+            unresolved.append(marker)
+    if unresolved:
+        raise RuntimeError('Issue publication is uncertain. Iris will only read GitHub until the '
+                           'previous write is reconciled. No create retry is allowed, even with '
+                           '--force. Check repository issue history for '+', '.join(unresolved))
+
+
 def existing_issue(plan, issues):
     marker='<!-- aos-iris:'+plan['marker']+' -->'
     findings=set(re.findall(r'<!-- aos-iris-finding:[A-Za-z0-9_.:-]+ -->',plan['body']))
@@ -16,6 +36,7 @@ def existing_issue(plan, issues):
 
 def publish(home,config,repo,plans,ledger,github,remaining,row):
     issues=github.issues(repo) if plans else []
+    reconcile(repo,ledger,github,issues)
     for plan in plans:
         marker='<!-- aos-iris:'+plan['marker']+' -->'
         previous=ledger.latest('published',repo=repo,marker=marker)

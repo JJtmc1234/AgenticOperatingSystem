@@ -2,6 +2,30 @@ import unittest
 from iris_workflow.findings import issue_plans
 
 class FindingsTests(unittest.TestCase):
+    def test_unrelated_issue_history_does_not_fill_the_review_context(self):
+        from iris_workflow.findings import related
+        findings=[dict(title='',path='new/component.py')]
+        self.assertEqual(related(findings,[dict(title='Exam homework',body='Answer the questions')]),[])
+        relevant=dict(title='Earlier fix',body='Changed new/component.py')
+        self.assertEqual(related(findings,[relevant]),[relevant])
+
+    def test_unique_exact_source_excerpt_repairs_only_its_line_number(self):
+        from iris_workflow.findings import validated
+        from test_workflow import finding
+        from types import SimpleNamespace
+        repository=SimpleNamespace(source=lambda path:'def divide(value):\n    return 10 / value\n')
+        result=validated(dict(findings=[finding() | dict(line=1)]),repository)
+        self.assertEqual(result[0]['line'],2)
+        self.assertEqual(result[0]['excerpt'],'    return 10 / value')
+
+    def test_misnumbered_ambiguous_excerpt_is_rejected(self):
+        from iris_workflow.findings import validated
+        from test_workflow import finding
+        from types import SimpleNamespace
+        repository=SimpleNamespace(source=lambda path:'header\n    return 10 / value\n    return 10 / value\n')
+        with self.assertRaisesRegex(ValueError,'excerpt does not match'):
+            validated(dict(findings=[finding() | dict(line=1)]),repository)
+
     def test_issue_leads_with_user_visible_problem_and_labels_unexecuted_test(self):
         finding=dict(title='A message appears twice',severity='minor',kind='bug',path='page.js',line=1,
                      impact='One sent message appears twice after a delayed refresh.',

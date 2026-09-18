@@ -174,3 +174,11 @@ Implemented a Chroma LangChain store, directory sync, bounded recall and snapsho
 covers persistent retrieval, embedding reuse, namespace filtering and rollback under capacity
 failure, indexed search and migration from the original SQLite database. The default storage
 admission budget is 500 MB and can expand through configuration. Automatic prompt injection in the Rust daemon is outside this library integration.
+
+## Iris acceptance
+
+Iris must support direct review and issue requests, hourly configured repository checks,
+new commit reviews, bounded investigations, prior issue history and confirmed issue links.
+Acceptance includes restart recovery, no overlapping scans, duplicate suppression and explicit
+failure or no finding reports. The live validation uses isolated harmless source changes
+and requires at least ten actual test issues before repairing those changes.

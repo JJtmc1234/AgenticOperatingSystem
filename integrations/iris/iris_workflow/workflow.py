@@ -8,7 +8,7 @@ from .ledger import Ledger
 from .model import Model
 from .repository import Repository
 from .investigate import investigate
-from .publication import publish
+from .publication import publish, reconcile
 from .selection import select_batches, scope_key
 from .scheduling import batch_key, ordered_batches
 
@@ -70,6 +70,7 @@ def process(home,config,entry,request,trigger,force,ledger,model,github,snapshot
     branch=(entry.get('defaultBranchRef') or {}).get('name')
     if entry.get('isArchived') or not branch:
         return row | dict(status='Skipped: archived or empty repository')
+    reconcile(repo,ledger,github)
     repository=Repository(snapshot(home,repo,branch))
     info=repository.inspect()
     head=info['head']
@@ -79,13 +80,13 @@ def process(home,config,entry,request,trigger,force,ledger,model,github,snapshot
         row['issues']=complete.get('issues',[])
         return row | dict(status='Unchanged committed revision, already inspected')
     if trigger=='poll' and not force:
-        seen=ledger.latest('repo_checked',repo=repo)
+        seen=ledger.latest('repo_checked',repo=repo,scope=scope,publish=config['publish'])
         if seen:
             elapsed=(datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(seen['at'])).total_seconds()
             changed=head!=seen['head']
             if elapsed<config['scan_interval'] and not changed:
                 return row | dict(status='Waiting for hourly check or feature commit')
-    ledger.append('repo_checked',repo=repo,head=head,trigger=trigger)
+    ledger.append('repo_checked',repo=repo,head=head,trigger=trigger,scope=scope,publish=config['publish'])
     batches=select_batches(repository,paths)
     batches=ordered_batches(batches,ledger,repo,head,request,scope,paths,specific,config['publish'])
     eligible=sum(len(batch) for batch in batches)
