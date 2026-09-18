@@ -180,3 +180,21 @@ The existing 64 shared chunks migrated using saved vectors into roughly 1.05 MB 
 storage. Real model recall retrieved the verification lesson in its top three results and an
 unchanged refresh loaded no model. Tests cover persistent Chroma, namespace isolation, failed
 staging and publication, budget checks, async retrieval and read only SQLite migration.
+
+## Iris live validation, September 17, 2026
+
+Iris published fifteen real test issues for fifteen distinct local projects. Each harmless flaw
+was isolated on a validation branch or a selected local source fixture. All fifteen were repaired
+only after every issue existed. The same fifteen checks failed before repair and passed after.
+Fourteen execute relevant source or a date command. MimeCount checks its exact arithmetic because
+Swift is unavailable. Issues include repair commit links and remain open.
+
+The exercise exposed gaps in source quotation recovery, severity review, initial fix history,
+hourly cursor scope and crash recovery. Those are fixed with observed failing regressions.
+The Python suite passes 92 tests. AOS passes 323 and Carl passes 1404 with one ignored in a serial
+run. Existing approval rules and the saved $5 daily model allowance are preserved.
+See [the evidence](integrations/iris/verification-20260917.md) for live results and limits.
+
+Fresh draft reviews then checked all repaired cases across eight repositories and returned no new
+verified findings. The completed validation reserved $18 of its approved $20 allowance. Scheduled
+activity after the UTC reset uses the unchanged ordinary daily allowance.

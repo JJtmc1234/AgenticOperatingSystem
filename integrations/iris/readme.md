@@ -59,19 +59,26 @@ a fixed initial slice. Full coverage can require multiple runs and is reported e
 ## Investigation and publishing
 
 Two independent investigators examine correctness and efficiency. Every finding must quote
-actual committed source at a valid line and identify a mechanism, impact and proposed test.
-A third investigator rejects unsupported findings and duplicates after reading relevant existing
-issues and comments. Findings outside the assigned batch are rejected. No test result is invented.
+actual committed source and identify a mechanism, impact and proposed test. If its line number
+is wrong, an exact unique quotation can be located in the committed file. Invented quotations
+and ambiguous locations are rejected.
+Both investigators receive relevant open and closed issue bodies and fix comments before
+reviewing source. A third investigator rejects unsupported findings and duplicates after reading
+additional relevant history when needed. Findings outside the assigned batch are rejected. No test result is invented.
 Published reports explicitly label source analysis and state that runtime reproduction was not
 performed. Performance claims need a source-supported mechanism, not invented timing figures.
 
+The independent reviewer can lower overstated severity without discarding a real defect.
+Unsupported mechanisms, consequences and reproductions are still rejected.
 Major findings get individual issues. Related minor findings are grouped by source file and type so unrelated components stay separate.
 Stable issue and finding markers cover both open and closed issues. Publication refreshes issue
 history even for stored drafts and capped runs. Existing matches return their URLs. A partial
 individual-marker match conservatively suppresses the overlapping grouped plan. Differently worded
-duplicates still depend on the bounded independent review, which reads five related issue bodies
-and their latest ten comments. This is duplicate resistance, not a guarantee of semantic identity. A timed out publication is
-reconciled before another run can create anything. Successful creation is read back and checked.
+duplicates still depend on the bounded independent review, which reads up to five related issue bodies
+and their latest ten comments. This is duplicate resistance, not a guarantee of semantic identity. An uncertain publication leaves a durable intent. Later runs first reconcile its exact marker
+against GitHub. If it is still absent, the repository reports a failure and creates nothing,
+including with `--force`. Absence from a list is not proof that a timed out write failed.
+Successful creation is read back and checked.
 Iris never closes issues, edits existing issues, adds labels or sends email through this workflow.
 
 ## Limits and continuity
@@ -85,7 +92,10 @@ batches and partially published reviewed plans stay queued. Set larger limits ex
 configuration when faster coverage is worth the additional usage.
 
 `events.jsonl` is the durable record. Budgets, completed batches and publication state are folded
-from it. A lock prevents overlapping manual and scheduled runs. Corrupt journals fail closed.
+from it. A kernel lock prevents overlapping manual and scheduled runs and releases automatically
+when a process exits. A torn final append after a valid journal prefix is preserved separately
+and repaired under that lock. Complete corrupt records fail closed. Hourly cursors are scoped
+by request and publication mode, so a focused draft cannot delay a general scheduled review.
 Derived `latest-report.md` and `latest-report.json` distinguish publication, drafts, queued work
 and failures. Repo and model failures never manufacture issues. Cached Git source is outside the
 500 MB Chroma budget. This workflow does not change Chroma configuration.
@@ -220,3 +230,6 @@ The latest publication list shows at most ten links and states the total recorde
 An older issue missing from that list is not evidence that it was closed or never published.
 
 Current live review and Carl handoff evidence is in [final verification](final-verification.md).
+
+The fifteen project live detection and repair exercise is recorded in
+[September 17 verification](verification-20260917.md), including real issue links and limitations.

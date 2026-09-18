@@ -407,3 +407,16 @@ Chroma vector database with a 500 MB admission budget. Directory sync feeds loca
 embeddings into namespace snapshots, published through an atomic catalog. Chroma performs
 HNSW search and retrieval bounds context bytes. Markdown and the event log
 retain their existing authority. See the package readme for limits and trusted host integration.
+
+## Iris repository reviews
+
+`carl iris` launches the controlled Python workflow in `integrations/iris`. The user
+timer polls every five minutes. New default branch commits are eligible immediately,
+including feature commits. Unfinished unchanged revisions resume on the hourly cadence.
+Completed revisions reuse their durable results. Request scope and publication mode
+have separate cursors.
+
+Two bounded investigators receive committed source and relevant issue history without
+tools. An independent reviewer checks their evidence. Only the runtime can publish.
+The journal records publication intent before GitHub writes. An uncertain intent blocks
+new writes until its exact marker is found on GitHub. A kernel lock serializes scans.

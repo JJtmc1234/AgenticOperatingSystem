@@ -1365,3 +1365,57 @@ concurrency diagnostic and reacquisition after the holder exits. It failed again
 the earlier diagnostic. A real Carl retry succeeded without deleting `run.lock`,
 but Carl incorrectly inferred a stale lock from a later process listing. The error
 now says a kernel lock is held and that a process can finish before a listing runs.
+
+## Iris recovery and scheduling on 17 September 2026
+
+An uncertain issue create could be attempted again after restarting, including with
+`--force`. `test_uncertain_write_is_not_repeated_after_restart_or_force` failed
+against the old implementation. Pending publication intents now block all new writes
+for that repository until a matching GitHub marker is visible. Reconciliation records
+the confirmed URL. `test_delayed_issue_visibility_reconciles_saved_publication`
+also failed before the fix and now guards recovery of that URL.
+
+A torn final journal append prevented every future scan. The regression
+`test_torn_final_append_recovers_without_losing_completed_review` failed before
+recovery was added. Iris preserves the interrupted bytes and truncates only an
+incomplete final record after a valid prefix. Complete malformed records still
+fail closed. `test_complete_last_record_without_newline_preserves_publication_intent`
+ensures a complete publication intent without its newline cannot be lost.
+
+A focused request updated the general scan's hourly cursor and postponed that scan.
+`test_focused_manual_review_does_not_delay_general_poll` failed before cursors were
+scoped by request and publication mode. Real temporary repositories also exercise
+hourly resumption, immediate commit checks, and completed revision suppression.
+`test_terminated_process_releases_lock_and_preserves_committed_events` kills a
+fixture lock holder and verifies recovery without deleting the lock file.
+
+Investigators initially received issue titles alone. No findings meant issue bodies
+and fix comments were never read. `test_no_findings_still_reads_related_closed_issue_context`
+failed before the relevant history was added to both initial investigation prompts.
+The independent reviewer reuses those fetched comments and reads additional relevant
+history when needed. The existing context bounds remain in place.
+
+## Iris exact quotation location
+
+A correct source quotation with an incorrect model supplied line number was rejected
+without trying to locate it. `test_unique_exact_source_excerpt_repairs_only_its_line_number`
+failed before the change. Iris now locates an exact quotation only when it occurs once
+in the committed file, then uses that real line and source text. It never rewrites code
+to match a finding. Invented quotations still fail, and
+`test_misnumbered_ambiguous_excerpt_is_rejected` guards ambiguous matches.
+
+The history selector always filled five slots even when no issue matched the source
+or request. `test_unrelated_issue_history_does_not_fill_the_review_context` failed
+against that behavior. Unrelated homework and other issues no longer consume review
+context just to fill the list. Source path matches and relevant title matches remain.
+All issue bodies are still fetched for duplicate checks.
+
+## Iris reviewer severity correction
+
+The live Holoprojector and website investigations found the planted defects, but both
+investigators called them major. The independent reviewer rejected them instead of retaining
+the valid minor findings. `test_reviewer_can_downgrade_a_real_finding_without_discarding_it`
+failed before the fix. The reviewer can now lower an accepted finding to minor, while invalid
+or unaccepted correction indexes fail closed. It still rejects unsupported claims.
+Replaying the actual recorded investigators through a fresh independent review produced the
+correct minor issues without repeating the investigations.

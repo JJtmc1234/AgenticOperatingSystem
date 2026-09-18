@@ -25,9 +25,32 @@ class Ledger:
                                'Retry later without deleting run.lock. This is not evidence of a stale lock file.') from None
         try:
             if self.path.exists():
-                with self.path.open() as source:
-                    for line in source:
-                        self.events.append(json.loads(line))
+                with self.path.open('rb+') as source:
+                    while line := source.readline():
+                        start=source.tell()-len(line)
+                        try:
+                            event=json.loads(line)
+                        except (ValueError, UnicodeDecodeError):
+                            if line.endswith(b'\n') or not self.events:
+                                raise ValueError('Iris journal is corrupt') from None
+                            # Preserve the interrupted bytes before repairing the append boundary.
+                            backup=self.home/'interrupted-append.bin'
+                            with backup.open('wb') as out:
+                                out.write(line)
+                                out.flush()
+                                os.fsync(out.fileno())
+                            source.seek(start)
+                            source.truncate()
+                            source.flush()
+                            os.fsync(source.fileno())
+                            break
+                        if not isinstance(event,dict) or event.get('seq')!=len(self.events)+1 or not isinstance(event.get('kind'),str):
+                            raise ValueError('Iris journal is corrupt')
+                        self.events.append(event)
+                        if not line.endswith(b'\n'):
+                            source.write(b'\n')
+                            source.flush()
+                            os.fsync(source.fileno())
         except Exception:
             self.lock.close()
             raise
