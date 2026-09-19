@@ -1419,3 +1419,16 @@ failed before the fix. The reviewer can now lower an accepted finding to minor, 
 or unaccepted correction indexes fail closed. It still rejects unsupported claims.
 Replaying the actual recorded investigators through a fresh independent review produced the
 correct minor issues without repeating the investigations.
+
+## Evan tests changing their own inputs
+
+A test command could rewrite or delete a supplied source file and exit successfully.
+The runner accepted that result even though the prepared commit used the original input.
+`test_source_mutation_cannot_be_reported_as_a_passing_test` and
+`test_deleted_or_symlinked_inputs_are_rejected` failed against the old runner in the
+real Bubblewrap environment. The runner now compares all input files after each command
+and rejects changed content, missing files and symbolic links before accepting results.
+`test_mutation_is_rejected_before_a_later_command_can_restore_it` covers command ordering.
+`test_generated_artifacts_do_not_invalidate_unchanged_inputs` preserves normal test output.
+This checks the files left by each command. It does not prove that a test is honest or
+observe temporary edits restored before that command exits. Independent review still applies.

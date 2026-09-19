@@ -35,3 +35,31 @@ else:
     def test_timeout_stops_the_test_process(self):
         with self.assertRaisesRegex(RuntimeError,'timed out'):
             sandbox.run({'slow.py':'import time\ntime.sleep(60)'},[['python3','slow.py']],1)
+
+    def test_source_mutation_cannot_be_reported_as_a_passing_test(self):
+        script="from pathlib import Path\nPath('sample.py').write_text('replaced source')\n"
+        with self.assertRaisesRegex(RuntimeError, 'modified input file'):
+            sandbox.run({'sample.py':'original source', 'check.py':script},
+                        [['python3','check.py']],10)
+
+    def test_deleted_or_symlinked_inputs_are_rejected(self):
+        for change in ("p.unlink()", "p.unlink(); p.symlink_to('/etc/passwd')"):
+            with self.subTest(change=change):
+                script="from pathlib import Path\np=Path('sample.py')\n"+change+'\n'
+                with self.assertRaisesRegex(RuntimeError, 'modified input file'):
+                    sandbox.run({'sample.py':'original source', 'check.py':script},
+                                [['python3','check.py']],10)
+
+    def test_generated_artifacts_do_not_invalidate_unchanged_inputs(self):
+        script="from pathlib import Path\nPath('result.txt').write_text('test output')\n"
+        self.assertTrue(sandbox.passed(sandbox.run({'check.py':script},
+                                                  [['python3','check.py']],10)))
+
+    def test_mutation_is_rejected_before_a_later_command_can_restore_it(self):
+        scripts={
+            'sample.py':'original source',
+            'change.py':"from pathlib import Path\nPath('sample.py').write_text('changed')\n",
+            'restore.py':"from pathlib import Path\nPath('sample.py').write_text('original source')\n",
+        }
+        with self.assertRaisesRegex(RuntimeError, 'modified input file'):
+            sandbox.run(scripts,[['python3','change.py'],['python3','restore.py']],10)

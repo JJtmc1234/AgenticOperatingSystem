@@ -71,7 +71,10 @@ review must accept the mechanism and test before a local commit is prepared.
 
 Tests run through Bubblewrap with no network, host home, Git directory or credentials. Only
 exported regular source files enter the disposable workspace. The host's `/usr` is read only.
-The test process has a time limit, file size limit and memory limit. A missing sandbox blocks
+The test process has a time limit, file size limit and memory limit.
+After each command, supplied input files must still have their original contents and
+regular file paths. Changed, missing or linked inputs invalidate the run. Newly generated
+test artifacts are allowed. This check covers files left when each command exits. A missing sandbox blocks
 work. There is no fallback to executing repository code on the host.
 
 GitHub issues and default branch HEAD are checked again before preparation completes. A change

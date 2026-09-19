@@ -25,6 +25,19 @@ def limits():
     resource.setrlimit(resource.RLIMIT_NOFILE,(128,128))
 
 
+
+def unchanged(root, sources):
+    # Results must describe the inputs that will be committed, even if a test writes files.
+    for path, content in sources.items():
+        dest=root/path
+        try:
+            linked=dest.is_symlink() or any((root/p).is_symlink() for p in Path(path).parents)
+            if linked or not dest.is_file() or dest.read_bytes()!=content.encode():
+                raise RuntimeError('Test modified input file: '+path+'. No fix is verified.')
+        except OSError:
+            raise RuntimeError('Test modified input file: '+path+'. No fix is verified.') from None
+
+
 def run(sources, commands, timeout):
     records=[]
     with tempfile.TemporaryDirectory(prefix='evan-tests-') as folder:
@@ -42,6 +55,7 @@ def run(sources, commands, timeout):
                     os.killpg(process.pid,signal.SIGKILL)
                     process.wait()
                     raise RuntimeError('Test timed out. No fix is verified.') from None
+                unchanged(root,sources)
                 log.seek(0)
                 output=log.read(16000).decode(errors='replace')
                 from iris_workflow.repository import contains_credential
