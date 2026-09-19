@@ -1,0 +1,20 @@
+{
+  "paths": [
+    "src/holo/app/input_map.py"
+  ],
+  "test_paths": [
+    "tests/test_input_map_evan.py"
+  ],
+  "commands": [
+    [
+      "python3",
+      "-c",
+      "import sys; sys.path.insert(0, 'src'); from holo.app.input_map import command_for_key, commands_for_keys, is_pointer_key; from holo.commands.types import CommandType, Source; assert command_for_key('space').type == CommandType.TOGGLE_PLAYBACK; assert command_for_key('o').type == CommandType.RESUME; assert command_for_key('r').source == Source.KEYBOARD; assert is_pointer_key('p'); assert command_for_key('left') is None; assert commands_for_keys(['j', 'space'])[0].type == CommandType.TOGGLE_PLAYBACK; print('Six keyboard baseline checks passed')"
+    ],
+    [
+      "python3",
+      "-c",
+      "import sys, unittest; sys.path.insert(0, 'src'); suite = unittest.defaultTestLoader.discover('tests', pattern='test_input_map_evan.py'); result = unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(not result.wasSuccessful())"
+    ]
+  ]
+}
