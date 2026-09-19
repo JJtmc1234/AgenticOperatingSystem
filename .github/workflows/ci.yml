@@ -23,6 +23,15 @@ jobs:
           python-version: "3.12"
       - run: PYTHONPATH=integrations/iris python3 -m unittest discover -s integrations/iris/tests -v
 
+  evan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: PYTHONPATH=integrations/iris:integrations/evan python3 -m unittest discover -s integrations/evan/tests -v
+
   memory:
     runs-on: ubuntu-latest
     defaults:

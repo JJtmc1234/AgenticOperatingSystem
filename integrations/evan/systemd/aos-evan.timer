@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for new Iris issues and Evan's two hour retry queue
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Unit=aos-evan.service
+
+[Install]
+WantedBy=timers.target

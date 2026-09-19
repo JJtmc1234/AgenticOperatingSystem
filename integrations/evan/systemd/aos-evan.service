@@ -1,0 +1,14 @@
+[Unit]
+Description=Evan governed issue repair
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/aos-evan --home %h/.carl/evan run --trigger poll
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h
+TimeoutStartSec=20min
+KillMode=control-group
+UMask=0077
+Nice=10

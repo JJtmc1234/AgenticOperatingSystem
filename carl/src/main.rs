@@ -36,6 +36,12 @@ enum Command {
         args: Vec<std::ffi::OsString>,
     },
 
+    /// Run the governed Evan issue repair workflow.
+    Evan {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<std::ffi::OsString>,
+    },
+
     /// Say something to Carl and get an answer.
     Ask {
         message: Vec<String>,
@@ -460,6 +466,14 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Iris { args } => {
             let status = carl::iris::run(&home, &args)?;
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
+            }
+            Ok(())
+        }
+
+        Command::Evan { args } => {
+            let status = carl::evan::run(&home, &args)?;
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
             }
@@ -1535,3 +1549,7 @@ fn ask_one_agent(home: &std::path::Path, agent: &str, question: &str) -> Result<
 #[cfg(test)]
 #[path = "iris_cli_tests.rs"]
 mod iris_cli_tests;
+
+#[cfg(test)]
+#[path = "evan_cli_tests.rs"]
+mod evan_cli_tests;

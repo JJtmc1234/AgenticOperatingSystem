@@ -25,6 +25,7 @@ pub mod audio;
 pub mod brief;
 pub mod capture;
 pub mod claude;
+pub mod evan;
 pub mod game;
 pub mod heard;
 pub mod hypr;

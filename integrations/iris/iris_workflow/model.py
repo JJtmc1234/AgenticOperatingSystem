@@ -41,9 +41,10 @@ Validation is a proposed safe test, not a claim that you executed it.'''
 
 
 class Model:
-    def __init__(self, config, ledger, executable='claude'):
+    def __init__(self, config, ledger, executable='claude', *, system_prompt=SYSTEM, parent='iris'):
         self.config, self.ledger, self.executable = config, ledger, executable
         self.reserved = 0.0
+        self.system_prompt, self.parent = system_prompt, parent
 
     def blocked_reason(self):
         day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
@@ -65,11 +66,11 @@ class Model:
             raise RuntimeError('Iris run model budget exhausted. Work remains queued.')
         self.ledger.reserve(amount, self.config['max_daily_usd'])
         self.reserved += amount
-        self.ledger.append('investigator_started', identity=identity, parent='iris', tools=[])
+        self.ledger.append('investigator_started', identity=identity, parent=self.parent, tools=[])
         argv = [self.executable, '-p', '--output-format','json','--json-schema',json.dumps(schema),
                 '--model',self.config['model'],'--effort','medium','--max-budget-usd',str(amount),
                 '--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}',
-                '--setting-sources','user','--no-session-persistence','--system-prompt',SYSTEM]
+                '--setting-sources','user','--no-session-persistence','--system-prompt',self.system_prompt]
         env=dict(os.environ)
         env.pop('CLAUDECODE',None)
         try:
