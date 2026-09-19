@@ -310,6 +310,7 @@ fn stream_from(
     // Everything already waiting, because a panel opened after the question was asked is exactly
     // the panel that needs to see it. Outcomes start from now: a question this panel never saw,
     // already settled, is not news.
+    let mut workflow = super::workflows::Poll::default();
     let mut outcomes_upto = waiting.settled_now();
     let mut shown: HashSet<String> = HashSet::new();
     for request in waiting.outstanding() {
@@ -341,6 +342,12 @@ fn stream_from(
         }
 
         if let Some(frame) = fresh_telemetry(machine, &mut told_of)
+            && send(out, &frame).is_err()
+        {
+            return Ok(());
+        }
+
+        if let Some(frame) = workflow.next(home)
             && send(out, &frame).is_err()
         {
             return Ok(());

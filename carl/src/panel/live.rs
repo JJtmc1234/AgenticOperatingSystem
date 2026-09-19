@@ -55,10 +55,10 @@ pub enum Update {
     /// Throw away what you were holding and rebuild from this. It carries its own sequence, and
     /// the stream continues from exactly there.
     Resynced(Box<PanelSnapshot>),
-    /// Fresh machine readings, replacing the ones in the last snapshot.
+    /// Fresh diagnostics, replacing the matching readings in the last snapshot.
     ///
-    /// Sampled telemetry only. Nothing about the army arrives this way, and this carries no
-    /// sequence: replace the diagnostics you are holding and leave everything else alone.
+    /// Machine samples and observations of separately journaled workflows carry no army
+    /// sequence. Each diagnostic retains its own sampled or event driven meaning.
     Telemetry {
         at: u64,
         diagnostics: Vec<crate::providers::health::Diagnostic>,

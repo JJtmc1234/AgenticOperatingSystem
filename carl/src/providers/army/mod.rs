@@ -19,6 +19,7 @@
 
 pub mod journal;
 pub mod services;
+pub mod workflow;
 
 use std::path::{Path, PathBuf};
 
@@ -77,6 +78,7 @@ impl Army {
         out.push(journal_health(&folded, &self.journal_path()));
         out.push(tasks(&folded));
         out.push(latency(&folded));
+        out.push(workflow::read(&self.home));
         out
     }
 
@@ -363,3 +365,6 @@ pub fn journal_is_quiet(folded: &journal::Folded, now: u64) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod workflow_tests;

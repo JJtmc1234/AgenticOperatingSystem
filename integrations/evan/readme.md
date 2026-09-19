@@ -98,7 +98,10 @@ These are a separate Evan ledger and allowance from Iris. No recurring model wor
 an operator configures repositories and starts the workflow. Existing user Claude settings and
 approval hooks are preserved. Failed calls keep their conservative allowance reservations.
 
-`~/.carl/evan/events.jsonl` is durable state. `latest-report.json` is the derived status report.
+`~/.carl/evan/events.jsonl` is durable state. `latest-report.json` is a cached report.
+The status command reads the journal and kernel lock, so it distinguishes an active run
+from an interrupted one instead of repeating an old success. The command panel receives
+these workflow observations separately from conversational task assignments.
 Successful attempts retain the regression failure, passing results and review in `evidence.json`,
 plus a local branch and commit. Failed work is reported as blocked, never fixed.
 

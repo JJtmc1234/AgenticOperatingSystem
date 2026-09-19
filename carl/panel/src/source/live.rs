@@ -384,11 +384,17 @@ impl LivePanelDataSource {
                 self.link = link_of(health);
                 out.push(PanelEvent::LinkChanged(self.link.clone()));
             }
-            // Machine readings replace the machine readings and touch nothing else. No
-            // sequence is invented for it, because it has none and the stream's position is
-            // the journal's business.
+            // Workflow observations can update an agent overlay, but never the army task
+            // journal. Neither workflow observations nor machine samples advance its sequence.
             Update::Telemetry { at, diagnostics } => {
                 translate::replace_telemetry(&mut self.latest, &diagnostics);
+                if diagnostics
+                    .iter()
+                    .any(|d| d.component == carl::providers::army::workflow::COMPONENT)
+                    && let Some(agent) = super::workflow::apply(&mut self.latest)
+                {
+                    out.push(PanelEvent::AgentChanged(Box::new(agent)));
+                }
                 out.push(PanelEvent::TelemetryChanged { at, diagnostics });
             }
             // Neither moves the sequence, for the same reason telemetry does not. A question is

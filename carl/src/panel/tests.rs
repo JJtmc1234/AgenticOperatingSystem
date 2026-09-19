@@ -496,8 +496,10 @@ fn an_event_written_by_the_army_reaches_a_subscribed_panel_live() {
                 assert!(
                     diagnostics
                         .iter()
-                        .all(|d| d.kind == crate::providers::Kind::Sampled),
-                    "only sampled telemetry is pushed; army state travels as events"
+                        .all(|d| d.kind == crate::providers::Kind::Sampled
+                            || (d.component == crate::providers::army::workflow::COMPONENT
+                                && d.kind == crate::providers::Kind::EventDriven)),
+                    "only machine samples and separate workflow observations belong here"
                 );
             }
             other => panic!("wrong reply: {other:?}"),

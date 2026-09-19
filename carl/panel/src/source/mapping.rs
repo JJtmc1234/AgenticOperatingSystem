@@ -33,7 +33,7 @@ pub fn snapshot(wire: PanelSnapshot) -> Snapshot {
         .map(|a| one_agent(a, &tasks))
         .collect::<Vec<_>>();
 
-    Snapshot {
+    let mut result = Snapshot {
         // Never from a snapshot. A question lives only as long as the process waiting on it,
         // and rebuilding one from a snapshot would put a settled question back on screen.
         permissions: Vec::new(),
@@ -76,7 +76,9 @@ pub fn snapshot(wire: PanelSnapshot) -> Snapshot {
         events: Vec::new(),
         at: wire.at,
         seq_at: wire.seq,
-    }
+    };
+    super::workflow::apply(&mut result);
+    result
 }
 
 /// One agent, with the live overlay the screen needs derived from what the backend knows.

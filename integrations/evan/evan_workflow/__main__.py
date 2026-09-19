@@ -29,11 +29,11 @@ def main():
             from .review import show
             print(show(args.home,args.repo,args.issue))
             return 0
-        settings=config.load(args.home)
         if args.command=='status':
-            path=args.home/'latest-report.json'
-            print(path.read_text() if path.exists() else 'Evan has not run yet.')
+            from .status import read
+            print(json.dumps(read(args.home),indent=2))
             return 0
+        settings=config.load(args.home)
         if args.command=='doctor':
             missing=[p for p in ('git','gh','claude','bwrap') if not shutil.which(p)]
             if missing:

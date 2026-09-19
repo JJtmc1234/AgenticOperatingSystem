@@ -1432,3 +1432,26 @@ and rejects changed content, missing files and symbolic links before accepting r
 `test_generated_artifacts_do_not_invalidate_unchanged_inputs` preserves normal test output.
 This checks the files left by each command. It does not prove that a test is honest or
 observe temporary edits restored before that command exits. Independent review still applies.
+
+## Evan work missing from the command panel
+
+The panel only read the conversational army journal, so Evan appeared idle after
+preparing a real repair in his separate workflow journal. The regression
+`prepared_evan_repairs_reach_the_panel_as_review_work` failed before the fix.
+The panel now reads that journal and checks the workflow lock. Prepared repairs show
+as awaiting review. Unfinished runs without a held lock show as interrupted, while
+unreadable records remain unknown. Workflow observations reach connected panels
+without changing the army sequence or inventing a delegated task.
+`workflow_completion_reaches_a_live_panel_without_changing_army_sequence` exercises
+the real backend socket. `workflow_updates_change_evan_without_inventing_tasks_or_journal_events`
+checks the UI source. The panel still opens only on request.
+
+## Evan status repeating an old success
+
+The status command printed the cached last report even during a new run or after an
+interruption. `test_status_does_not_show_old_success_while_a_new_run_holds_the_lock`,
+`test_status_reports_an_interrupted_run_after_the_lock_is_released` and
+`test_status_recovers_completed_report_from_journal_if_cache_is_stale` failed against
+that behavior. Status now reads the durable journal and the kernel lock. It reports
+running or interrupted work, and recovers completed reports from the journal without
+writing state or starting another run.

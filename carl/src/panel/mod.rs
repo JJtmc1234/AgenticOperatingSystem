@@ -67,3 +67,5 @@ pub use view::{
 pub use wire::{Ask, Frame, PanelEvent, Reply, Request, VERSION};
 
 mod safe_grep;
+
+mod workflows;

@@ -714,3 +714,51 @@ fn a_delegation_replayed_after_a_reconnect_is_still_one_task() {
 
     assert_eq!(held.tasks.len(), 1, "{:?}", held.tasks);
 }
+
+#[test]
+fn workflow_updates_change_evan_without_inventing_tasks_or_journal_events() {
+    use carl::providers::army::workflow::COMPONENT;
+    use carl::providers::health::{Diagnostic, Health, Kind, Metric, Reading};
+    let held = Snapshot {
+        agents: vec![AgentView::unknown("evan")],
+        ..Default::default()
+    };
+    let (mut source, tx, _orders) = LivePanelDataSource::detached(held);
+    let diagnostic = Diagnostic::new(
+        COMPONENT,
+        Health::Healthy,
+        "Holoprojector #2 ready",
+        Kind::EventDriven,
+    )
+    .with(Metric::new("phase", Reading::Text("review".into()), ""));
+    tx.send(FromBackend::Update(Box::new(Update::Telemetry {
+        at: 500,
+        diagnostics: vec![diagnostic],
+    })))
+    .unwrap();
+    let updates = source.poll();
+    assert!(updates.iter().any(|e| matches!(e, PanelEvent::AgentChanged(a) if a.status == crate::model::AgentStatus::AwaitingReview)));
+    assert!(
+        !updates
+            .iter()
+            .any(|e| matches!(e, PanelEvent::Recorded(_) | PanelEvent::TaskChanged(_)))
+    );
+    assert!(source.snapshot().tasks.is_empty());
+    assert_eq!(source.last_seq(), 0);
+    tx.send(FromBackend::Update(Box::new(Update::Telemetry {
+        at: 501,
+        diagnostics: vec![Diagnostic::new(
+            "system.cpu",
+            Health::Healthy,
+            "idle",
+            Kind::Sampled,
+        )],
+    })))
+    .unwrap();
+    assert!(
+        !source
+            .poll()
+            .iter()
+            .any(|e| matches!(e, PanelEvent::AgentChanged(_)))
+    );
+}
