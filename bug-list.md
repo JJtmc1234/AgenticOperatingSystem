@@ -1455,3 +1455,11 @@ interruption. `test_status_does_not_show_old_success_while_a_new_run_holds_the_l
 that behavior. Status now reads the durable journal and the kernel lock. It reports
 running or interrupted work, and recovers completed reports from the journal without
 writing state or starting another run.
+
+## Prepared Evan repairs losing their verified checkout
+
+A later poll reused the prepared journal entry without checking its checkout when
+publication was disabled. An edited checkout therefore still appeared ready for review.
+`test_changed_prepared_checkout_is_not_reported_as_ready_on_later_polls` failed against
+that behavior. Polling, review and publication now share the same clean checkout and
+commit identity check. Changed work is blocked without another model call or remote write.

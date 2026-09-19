@@ -111,3 +111,15 @@ class WorkflowTests(Fixture,unittest.TestCase):
             rows=self.execute()['rows']
         self.assertEqual(rows[0]['repo'],other)
         self.assertIn('Run issue limit',rows[1]['status'])
+
+    def test_changed_prepared_checkout_is_not_reported_as_ready_on_later_polls(self):
+        from pathlib import Path
+        with patch('evan_workflow.sandbox.run',side_effect=[GREEN,RED,GREEN]):
+            self.execute()
+        plan=next(e['plan'] for e in self.events() if e['kind']=='prepared')
+        (Path(plan['checkout'])/'sample.py').write_text('unverified edit\n')
+        result=self.execute(trigger='poll')
+        self.assertIn('Blocked.',result['rows'][0]['status'])
+        self.assertIn('checkout changed',result['rows'][0]['status'])
+        self.assertEqual(self.models[1].calls,[])
+        self.assertEqual(self.github.creates,0)

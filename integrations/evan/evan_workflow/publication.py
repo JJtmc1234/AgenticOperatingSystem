@@ -1,5 +1,5 @@
 """Recover publication intent without duplicate PRs or automatic merges."""
-from .source import git
+from .source import git, verify_prepared
 
 
 def existing(github, plan):
@@ -22,9 +22,7 @@ def publish(plan, ledger, github):
         return match['url']
     if ledger.latest('pr_requested',key=plan['key']):
         raise RuntimeError('PR publication is uncertain. No create retry is permitted.')
-    root=plan['checkout']
-    if git(root,'status','--porcelain') or git(root,'rev-parse','HEAD')!=plan['commit']:
-        raise ValueError('Prepared checkout changed. Publication refused.')
+    root=verify_prepared(plan)
     url='https://github.com/'+plan['repo']+'.git'
     ledger.append('push_requested',key=plan['key'],commit=plan['commit'])
     git(root,'push',url,plan['commit']+':refs/heads/'+plan['branch'])

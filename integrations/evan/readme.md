@@ -40,7 +40,9 @@ systemctl --user enable --now aos-evan.timer
 ```
 
 Set `publish` to true only when draft PR publication is authorized for these repositories.
-A later run resumes an unchanged prepared fix without repeating model work. `--draft` always
+A later run resumes an unchanged prepared fix without repeating model work. Each poll
+checks that the prepared checkout is still clean and on its verified commit. A local
+edit blocks the repair instead of leaving a stale ready state. `--draft` always
 disables writes. `--retry` permits a new attempt after a blocked or interrupted local repair,
 but cannot bypass uncertain publication. Never delete the journal or a live lock file.
 

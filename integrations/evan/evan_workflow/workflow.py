@@ -7,7 +7,7 @@ from iris_workflow.cache import snapshot
 from iris_workflow.github import GitHub
 from iris_workflow.ledger import Ledger
 from iris_workflow.repository import Repository, contains_credential
-from . import issues, publication, repair
+from . import issues, publication, repair, source
 from .model import Model
 
 
@@ -40,6 +40,7 @@ def process(home, settings, repo, policy, ledger, model, github, fetch, candidat
             key=hashlib.sha256((repo+signature+head+json.dumps(policy,sort_keys=True)).encode()).hexdigest()[:24]
             prepared=ledger.latest('prepared',key=key)
             if prepared:
+                source.verify_prepared(prepared['plan'])
                 if settings['publish']:
                     row.update(status='Submitted for review.',pr=publication.publish(prepared['plan'],ledger,github))
                 else:

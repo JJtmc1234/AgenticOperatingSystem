@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 from iris_workflow.repository import contains_credential
-from .source import git
+from .source import git, verify_prepared
 
 
 def show(home, repo, number):
@@ -17,8 +17,7 @@ def show(home, repo, number):
     root=Path(plan['checkout']).resolve()
     if not root.is_relative_to((home/'attempts').resolve()):
         raise ValueError('Prepared checkout is outside the Evan attempts directory')
-    if git(root,'status','--porcelain') or git(root,'rev-parse','HEAD')!=plan['commit']:
-        raise ValueError('Prepared checkout changed. Saved verification no longer describes it.')
+    verify_prepared(plan)
     published=next((event for event in reversed(events) if event['kind']=='pr_published'
                     and event['key']==prepared['key']),None)
     lines=['# '+repo+' issue '+str(number), '', plan['title'], '',

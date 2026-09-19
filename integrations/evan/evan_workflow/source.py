@@ -64,3 +64,10 @@ def commit(folder, cache, branch, head, before, after):
     git(folder,'add','--',*changed)
     git(folder,'commit','-m','Fix Iris issue with verified regression')
     return git(folder,'rev-parse','HEAD')
+
+
+def verify_prepared(plan):
+    root=plan['checkout']
+    if git(root,'status','--porcelain') or git(root,'rev-parse','HEAD')!=plan['commit']:
+        raise ValueError('Prepared checkout changed. Saved verification no longer describes it.')
+    return root
