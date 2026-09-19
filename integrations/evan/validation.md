@@ -1,6 +1,6 @@
 # Omarchy validation
 
-On 2026 09 19, all 32 Evan tests passed on Nexus with `EVAN_SANDBOX_TESTS=1`.
+On 2026 09 19, all 36 Evan tests passed on Nexus with `EVAN_SANDBOX_TESTS=1`.
 This exercised repair preparation, local commits, test isolation and timeout cleanup.
 Input integrity regressions failed before the fix and passed afterward. Edited, deleted
 and linked inputs are rejected after every command. Generated test output is allowed.
@@ -33,3 +33,11 @@ The five minute timer is enabled with the exact policy in
 Prepared commits stay local. Deliberate Iris validation reports remain excluded.
 The existing limits remain $0.50 per call, $1.50 per run and $5 per UTC day.
 [Model policy](../../carl/etc/model-policy.md) records the separate persistent agent tiers.
+
+## Review command
+
+The installed `carl evan review --repo JJtmc1234/Holoprojector --issue 2` command
+produced a report from the real prepared commit, including the actual failing and
+passing test output and patch. Four additional tests cover report content, unchanged
+journal state, missing repairs, modified checkouts and the CLI entry point.
+Review does not start model work or publish anything.

@@ -17,11 +17,18 @@ def main():
     run.add_argument('--trigger',choices=['manual','poll'],default='manual')
     run.add_argument('--draft',action='store_true')
     run.add_argument('--retry',action='store_true',help='Retry an interrupted or blocked local attempt')
+    review=commands.add_parser('review',help='Inspect a prepared local repair without publishing')
+    review.add_argument('--repo',required=True)
+    review.add_argument('--issue',type=int,required=True)
     commands.add_parser('status')
     commands.add_parser('doctor')
     args=parser.parse_args()
     os.umask(0o077)
     try:
+        if args.command=='review':
+            from .review import show
+            print(show(args.home,args.repo,args.issue))
+            return 0
         settings=config.load(args.home)
         if args.command=='status':
             path=args.home/'latest-report.json'

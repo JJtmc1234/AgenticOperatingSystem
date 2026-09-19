@@ -35,6 +35,7 @@ paths if the issue needs more context. Missing dependencies or insufficient scop
 carl evan doctor
 carl evan run --repo JJtmc1234/example --draft
 carl evan status
+carl evan review --repo JJtmc1234/Holoprojector --issue 2
 systemctl --user enable --now aos-evan.timer
 ```
 
@@ -46,6 +47,14 @@ but cannot bypass uncertain publication. Never delete the journal or a live lock
 In Carl's conversation, ask Adrian to have Evan fix Iris issues in the configured repository.
 Carl delegates through Adrian. Evan returns actual evidence paths, PR links or blockers.
 The terminal commands remain available even when a conversational handoff is unavailable.
+
+## Reviewing a prepared fix
+
+`carl evan review --repo OWNER/REPO --issue NUMBER` prints the local commit, patch,
+baseline and regression output, and independent review in one Markdown report.
+It does not start workers, fetch remote source, change the journal or publish a PR.
+It refuses a checkout changed since preparation so old test evidence is not presented
+as verification of new edits. Missing prepared work is reported without creating state.
 
 ## Selection and scheduling
 
