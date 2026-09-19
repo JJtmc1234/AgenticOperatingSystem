@@ -124,7 +124,7 @@ impl Ear {
         // fan and a quiet study at the same time, and getting it wrong in the loud
         // direction means Carl records until his cap every single time.
         eprint!("measuring the room... ");
-        let hush = mic.calibrate(1.5);
+        let hush = mic.calibrate(1.5)?;
         eprintln!("quiet is below {hush:.3}");
 
         // The voice is one conversation and it is the one where waiting is most obvious, so
@@ -149,7 +149,7 @@ impl Ear {
 
         loop {
             if !awake {
-                mic.wait(STEP_SECS);
+                mic.wait(STEP_SECS)?;
 
                 // Silence is most of a room's day. Running whisper over it costs real time
                 // for a guaranteed empty answer, so the level check comes first.

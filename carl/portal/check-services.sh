@@ -7,7 +7,7 @@
 # 36. flock refusing because the other watcher holds the lock is the design
 #     working, not a failure, and exec made it the service's exit status.
 set -uo pipefail
-UNITS="$HOME/.config/systemd/user"
+UNITS="${1:-$HOME/.config/systemd/user}"
 PORTAL="$HOME/Projects/AOS/AgenticOperatingSystem/carl/portal"
 fail=0
 say() { printf '  %s  %s\n' "$1" "$2"; }
@@ -21,6 +21,20 @@ for unit in carl-room.service carl-room-daily.service; do
     elif [ "$t" -le "$hook" ]; then
         say FAIL "$unit waits ${t}s on a hook that waits ${hook}s"; fail=1
     else say ok "$unit outlives the ${hook}s hook at ${t}s"; fi
+done
+
+for pair in carl-room.service:room-watch.sh carl-room-daily.service:room-proactive.sh; do
+    unit="${pair%%:*}"
+    script="${pair#*:}"
+    actual=$(sed -n 's/^ExecStart=//p' "$UNITS/$unit")
+    expected="%h/Projects/AOS/AgenticOperatingSystem/carl/portal/$script"
+    if [ "$actual" != "$expected" ]; then
+        say FAIL "$unit must use the active AOS checkout"
+        fail=1
+    elif [ ! -x "$PORTAL/$script" ]; then
+        say FAIL "$script is missing or is not executable"
+        fail=1
+    else say ok "$unit reaches the active AOS checkout"; fi
 done
 
 for s in room-watch.sh room-proactive.sh; do

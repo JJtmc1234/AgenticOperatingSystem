@@ -87,8 +87,8 @@ impl Voice {
 
     pub fn player_args(&self) -> Vec<String> {
         let mut args: Vec<String> = Vec::new();
-        if self.sink.is_some() {
-            args.extend(["-D".to_string(), "pulse".to_string()]);
+        if let Some(sink) = &self.sink {
+            args.extend(["-D".to_string(), format!("pipewire:NODE={sink}")]);
         }
         args.extend(
             [
@@ -135,9 +135,6 @@ impl Voice {
         // input. Two processes each waiting for the other, on any answer past a paragraph.
         let mut player = Command::new(&self.player);
         player.args(self.player_args());
-        if let Some(sink) = &self.sink {
-            player.env("PULSE_SINK", sink);
-        }
         let player = player
             .stdin(Stdio::from(audio))
             .stdout(Stdio::null())
@@ -184,9 +181,6 @@ impl Voice {
         // input. Two processes each waiting for the other, on any answer past a paragraph.
         let mut player = Command::new(&self.player);
         player.args(self.player_args());
-        if let Some(sink) = &self.sink {
-            player.env("PULSE_SINK", sink);
-        }
         let player = player
             .stdin(Stdio::from(audio))
             .stdout(Stdio::null())
@@ -372,16 +366,15 @@ mod tests {
         assert_eq!(args[at + 1], "22050");
     }
 
-    /// Only the named sink route asks for the pulse device. Adding it unconditionally would
-    /// break a machine with no PulseAudio at all.
+    /// Named output must use the actual cancelled node without requiring the Pulse plugin.
     #[test]
-    fn the_pulse_device_appears_only_when_a_sink_is_named() {
-        assert!(!v().player_args().contains(&"pulse".to_string()));
+    fn the_named_sink_uses_pipewire_without_requiring_the_pulse_plugin() {
+        assert!(!v().player_args().contains(&"-D".to_string()));
 
         let routed = v().to_sink(Some("carl-speaker"));
         let args = routed.player_args();
         let at = args.iter().position(|a| a == "-D").expect("no -D");
-        assert_eq!(args[at + 1], "pulse");
+        assert_eq!(args[at + 1], "pipewire:NODE=carl-speaker");
         // The rate still has to survive the extra arguments.
         let at = args.iter().position(|a| a == "--rate").unwrap();
         assert_eq!(args[at + 1], "22050");

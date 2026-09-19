@@ -16,7 +16,7 @@
 use std::collections::VecDeque;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -26,6 +26,8 @@ use crate::{Error, Result};
 
 mod level;
 mod listen;
+mod recorder;
+mod wait;
 mod wav;
 
 pub use level::SPEECH_FLOOR;
@@ -47,6 +49,7 @@ pub(super) struct Shared {
     /// Every byte the microphone has ever produced. Lets a reader tell "nothing new yet"
     /// apart from "I fell behind and lost some".
     pub(super) total: u64,
+    pub(super) ended: bool,
 }
 
 pub struct Mic {
@@ -61,34 +64,16 @@ pub struct Mic {
 impl Mic {
     /// Opens the microphone. `source` names a specific one, or `None` takes the default.
     ///
-    /// The name is passed through the environment rather than as a device argument, because
-    /// ALSA's device string for a named PulseAudio source is fragile and quoting it wrong
-    /// silently opens the default one instead. Failing over to the wrong microphone without
-    /// saying so is the worst outcome here, since it is the echo cancelled source that stops
-    /// Carl hearing himself.
+    /// Named sources use the PipeWire ALSA device directly.
     pub fn open(window_secs: f32, scratch_dir: &Path, source: Option<&str>) -> Result<Self> {
         std::fs::create_dir_all(scratch_dir)?;
         let cap = (RATE as f32 * window_secs) as usize * BYTES_PER_SAMPLE;
 
-        let mut cmd = Command::new("arecord");
-        cmd.args([
-            "--quiet",
-            "--format",
-            "S16_LE",
-            "--rate",
-            &RATE.to_string(),
-            "--channels",
-            "1",
-            "--file-type",
-            "raw",
-        ]);
-        if let Some(name) = source {
-            cmd.args(["-D", "pulse"]).env("PULSE_SOURCE", name);
-        }
+        let mut cmd = recorder::command(source);
 
         let mut child = cmd
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::inherit())
             .spawn()
             .map_err(|e| Error::Refused(format!("cannot open the microphone via arecord: {e}")))?;
 
@@ -128,6 +113,7 @@ impl Mic {
                         }
                     }
                 }
+                shared.lock().unwrap_or_else(|e| e.into_inner()).ended = true;
             })
         };
 

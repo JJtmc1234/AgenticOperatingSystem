@@ -25,16 +25,13 @@ impl Mic {
     ///
     /// Sleeps rather than reading, because the reader thread owns the pipe now. Nothing here
     /// can fall behind: the window is always the most recent few seconds by construction.
-    pub fn wait(&self, secs: f32) {
+    pub fn wait(&self, secs: f32) -> Result<()> {
         let want = (RATE as f32 * secs) as u64 * BYTES_PER_SAMPLE as u64;
         let start = self.shared.lock().unwrap_or_else(|e| e.into_inner()).total;
-        loop {
-            std::thread::sleep(Duration::from_millis(50));
-            let now = self.shared.lock().unwrap_or_else(|e| e.into_inner()).total;
-            if now.saturating_sub(start) >= want {
-                return;
-            }
-        }
+        super::wait::for_audio(want, Duration::from_secs_f32(secs.max(0.0) + 3.0), || {
+            let shared = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+            (shared.total.saturating_sub(start), shared.ended)
+        })
     }
 
     /// Loudness as RMS, not peak.
@@ -66,12 +63,12 @@ impl Mic {
     /// Returns the level below which this room counts as quiet. Rooms differ by more than
     /// any constant can cover: a laptop fan, an air conditioner and a quiet study are not
     /// the same number, and picking one wrong either records forever or cuts you off.
-    pub fn calibrate(&self, secs: f32) -> f32 {
-        self.wait(secs);
+    pub fn calibrate(&self, secs: f32) -> Result<f32> {
+        self.wait(secs)?;
         let room = rms_of(&self.window().0);
         // Comfortably above the room but far below speech. Speech typically sits ten times
         // over its own background, so tripling leaves room for both.
-        (room * 3.0).max(SPEECH_FLOOR)
+        Ok((room * 3.0).max(SPEECH_FLOOR))
     }
 
     /// Writes the current window out for whisper to read.
@@ -137,6 +134,11 @@ impl Mic {
             std::thread::sleep(Duration::from_millis(80));
 
             let s = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+            if s.ended {
+                return Err(crate::Error::Refused(
+                    "microphone recorder stopped during speech".into(),
+                ));
+            }
             let fresh = s.total.saturating_sub(seen) as usize;
             if fresh > 0 {
                 let take = fresh.min(s.buf.len());

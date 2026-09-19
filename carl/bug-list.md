@@ -383,3 +383,22 @@ checks the bounded child exit grace. The real retry returned through Iris, Adria
 `test_published_draft_is_not_reported_as_unpublished_with_legacy_marker` fails against the prior
 status renderer. Publication now removes a matching draft from the unpublished list. Carl's
 instructions explicitly forbid diagnosing killed handoffs from the review allowance.
+
+## Omarchy audio routing and recorder failure
+
+The cancelled microphone and speaker requested ALSA's Pulse plugin, which is not
+installed on Nexus. The recorder exited and calibration waited forever while
+systemd reported the listener as running. Named devices now use PipeWire's ALSA
+node directly. Both Ubuntu and Omarchy expose that backend.
+
+`named_microphone_uses_pipewire_without_the_pulse_plugin` and
+`the_named_sink_uses_pipewire_without_requiring_the_pulse_plugin` fail with the
+original Pulse route restored. `exited_recorder_is_reported_instead_of_hanging_calibration`
+and `stalled_recorder_is_reported_before_the_service_hangs` fail when the exit and
+deadline checks are removed. Both reversions were exercised before restoring the
+fix. Recording errors now reach the service log and stop the listener.
+
+The room service units also pointed at the historical AOS/carl checkout and allowed
+only 600 seconds for a permission hook that can wait 660 seconds. The executable
+path checks and existing timeout checks in `portal/check-services.sh` failed against
+those units. Both units now use the active checkout and allow 960 seconds.

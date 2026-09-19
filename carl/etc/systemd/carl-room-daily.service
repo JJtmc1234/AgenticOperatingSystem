@@ -6,5 +6,5 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=%h/Projects/AOS/carl/portal/room-proactive.sh
-TimeoutStartSec=600
+ExecStart=%h/Projects/AOS/AgenticOperatingSystem/carl/portal/room-proactive.sh
+TimeoutStartSec=960
