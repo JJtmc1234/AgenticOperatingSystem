@@ -76,3 +76,16 @@ fn the_cap_keeps_the_block_a_summary_and_says_what_it_left_out() {
         "and the count in the link is the number actually left out"
     );
 }
+
+#[test]
+fn current_work_does_not_pad_the_overview_with_idle_agents() {
+    let agents = vec![
+        agent("idle", AgentStatus::Idle),
+        agent("unknown", AgentStatus::Unknown),
+        agent("evan", AgentStatus::Working),
+        agent("iris", AgentStatus::AwaitingReview),
+        agent("adrian", AgentStatus::Blocked),
+    ];
+    let names: Vec<_> = active(&agents).iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["adrian", "iris", "evan"]);
+}

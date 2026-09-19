@@ -226,7 +226,7 @@ fn refusal_notice_has_its_own_row_below_the_carl_title() {
         let frame = crate::ui::probe::render(&mut a, eframe::egui::vec2(width, 900.0));
         let notice = frame.find("refused")[0];
         let caption = frame
-            .find("command")
+            .find("CARL")
             .into_iter()
             .find(|p| p.rect.top() < 80.0)
             .unwrap();

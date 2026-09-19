@@ -5,10 +5,10 @@ use eframe::egui::{Align, Layout, Rect, RichText, SidePanel, Ui, pos2, vec2};
 use crate::app::{App, Tab};
 use crate::theme;
 use crate::ui::vitals::{self, Vitals};
-use crate::ui::widgets::{self, Mark};
+use crate::ui::widgets;
 
-/// Wide enough for the source description to sit on two lines rather than five.
-pub const WIDTH: f32 = 244.0;
+/// Navigation only. Detailed inventories belong in their own tabs.
+pub const WIDTH: f32 = 184.0;
 
 pub fn draw(app: &mut App, ctx: &eframe::egui::Context) {
     let v = vitals::read(&app.snapshot);
@@ -54,8 +54,6 @@ pub fn draw(app: &mut App, ctx: &eframe::egui::Context) {
                             attachment(app, ui);
                             ui.add_space(16.0);
                             navigation(app, ui, &v);
-                            ui.add_space(16.0);
-                            army(ui, &v);
                         });
                 },
             );
@@ -67,7 +65,7 @@ pub fn draw(app: &mut App, ctx: &eframe::egui::Context) {
                     .layout(Layout::top_down(Align::Min)),
                 |ui| {
                     ui.label(
-                        RichText::new("F9  hide or show")
+                        RichText::new("Super+F9  show / hide")
                             .font(theme::label())
                             .color(theme::FAINT),
                     );
@@ -95,17 +93,9 @@ fn wordmark(ui: &mut Ui) {
 /// a panel that quietly shows the mock is the same lie with better manners.
 fn attachment(app: &App, ui: &mut Ui) {
     widgets::link_badge(ui, &app.link);
-    ui.add_space(4.0);
-    let name = app.source_name();
-    let mock = name.contains("mock");
-    ui.label(RichText::new(name).font(theme::label()).color(if mock {
-        theme::WARN
-    } else {
-        theme::DIM
-    }));
-    if mock {
+    if app.source_name().contains("mock") {
         ui.label(
-            RichText::new("nothing here is the real army")
+            RichText::new("mock data")
                 .font(theme::label())
                 .color(theme::WARN),
         );
@@ -116,7 +106,7 @@ fn navigation(app: &mut App, ui: &mut Ui, v: &Vitals) {
     for tab in Tab::ALL {
         let selected = app.tab == tab;
         let count = wants_attention(app, tab, v);
-        let response = widgets::row(ui, 50.0, selected, false, |ui| {
+        let response = widgets::row(ui, 36.0, selected, false, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     theme::spaced(tab.label())
@@ -129,11 +119,6 @@ fn navigation(app: &mut App, ui: &mut Ui, v: &Vitals) {
                     });
                 }
             });
-            ui.label(
-                RichText::new(tab.caption())
-                    .font(theme::label())
-                    .color(theme::FAINT),
-            );
         });
         if response.clicked() {
             app.select_tab(tab);
@@ -161,73 +146,6 @@ fn badge(ui: &mut Ui, count: usize) {
         galley,
         theme::VOID,
     );
-}
-
-/// The army in six numbers and one headline, so the rail answers "is it healthy" on its own.
-fn army(ui: &mut Ui, v: &Vitals) {
-    widgets::section(ui, "ARMY");
-    let (word, colour, shape) = v.headline();
-    widgets::state_chip(ui, shape, word, colour);
-    ui.add_space(8.0);
-
-    let rows = [
-        ("working", v.working, theme::ACCENT, Mark::Filled),
-        ("in review", v.review, theme::COLD, Mark::Half),
-        ("blocked", v.blocked, theme::BAD, Mark::Barred),
-        ("idle", v.idle, theme::FAINT, Mark::Hollow),
-        ("unknown", v.unknown, theme::UNKNOWN, Mark::Dash),
-    ];
-    for (name, count, colour, shape) in rows {
-        // A zero is a measured zero here, since every agent has a status. Nothing on this
-        // block is ever a stand in for a figure nobody has.
-        let dim = count == 0;
-        ui.horizontal(|ui| {
-            let (mark_rect, _) =
-                ui.allocate_exact_size(vec2(10.0, 10.0), eframe::egui::Sense::hover());
-            widgets::mark(
-                ui.painter(),
-                mark_rect,
-                shape,
-                if dim { theme::FAINT } else { colour },
-            );
-            ui.add_space(2.0);
-            ui.label(RichText::new(name).font(theme::label()).color(if dim {
-                theme::FAINT
-            } else {
-                theme::DIM
-            }));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(
-                    RichText::new(count.to_string())
-                        .font(theme::body())
-                        .color(if dim { theme::FAINT } else { theme::TEXT }),
-                );
-            });
-        });
-    }
-
-    ui.add_space(10.0);
-    widgets::section(ui, "COMPONENTS");
-    ui.horizontal_wrapped(|ui| {
-        for (word, count, colour, shape) in [
-            ("failed", v.failed, theme::BAD, Mark::Cross),
-            ("degraded", v.degraded, theme::WARN, Mark::Half),
-            ("held", v.held, theme::WARN, Mark::Barred),
-            ("unmeasured", v.unmeasured, theme::UNKNOWN, Mark::Dash),
-            ("healthy", v.healthy, theme::GOOD, Mark::Filled),
-        ] {
-            if count > 0 {
-                widgets::state_chip(ui, shape, &format!("{count} {word}"), colour);
-            }
-        }
-        if v.components() == 0 {
-            ui.label(
-                RichText::new("nothing has reported")
-                    .font(theme::label())
-                    .color(theme::UNKNOWN),
-            );
-        }
-    });
 }
 
 /// How many things on a tab want somebody's attention, which is what the rail counts.

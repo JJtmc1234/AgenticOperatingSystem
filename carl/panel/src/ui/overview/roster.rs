@@ -40,18 +40,24 @@ fn rank_of(status: AgentStatus) -> u8 {
     }
 }
 
-pub fn draw(app: &mut App, ui: &mut Ui) {
-    let agents: Vec<AgentView> = on_deck(&app.snapshot.agents).into_iter().cloned().collect();
-    widgets::section_count(ui, "THE ARMY", agents.len(), theme::DIM);
+pub fn active(agents: &[AgentView]) -> Vec<&AgentView> {
+    on_deck(agents)
+        .into_iter()
+        .filter(|agent| {
+            matches!(
+                agent.status,
+                AgentStatus::Working | AgentStatus::AwaitingReview | AgentStatus::Blocked
+            )
+        })
+        .collect()
+}
 
+pub fn draw(app: &mut App, ui: &mut Ui) {
+    let agents: Vec<AgentView> = active(&app.snapshot.agents).into_iter().cloned().collect();
     if agents.is_empty() {
-        ui.label(
-            RichText::new("the backend has sent no agents")
-                .font(theme::prose())
-                .color(theme::UNKNOWN),
-        );
         return;
     }
+    widgets::section_count(ui, "CURRENT WORK", agents.len(), theme::DIM);
 
     let now = app.snapshot.at;
     let mut pick: Option<String> = None;

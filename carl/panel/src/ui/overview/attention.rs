@@ -13,7 +13,10 @@ use crate::ui::vitals::{self, Need, Vitals};
 use crate::ui::widgets::{self, Mark};
 
 pub fn draw(app: &mut App, ui: &mut Ui, v: &Vitals) {
-    let needs = vitals::needs(&app.snapshot);
+    let needs: Vec<_> = vitals::needs(&app.snapshot)
+        .into_iter()
+        .filter(|n| n.goes_to != crate::app::Tab::Diagnostics)
+        .collect();
     widgets::section_count(
         ui,
         "WHAT NEEDS YOU",

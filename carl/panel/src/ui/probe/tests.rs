@@ -125,7 +125,9 @@ fn the_type_scale_actually_reaches_the_screen() {
 /// a beauty score, just a floor, and it is checked on the screen size that used to be worst.
 #[test]
 fn the_big_screen_is_used_rather_than_left_empty() {
-    for which in Tab::ALL {
+    // The overview deliberately leaves space when nothing needs attention.
+    // Detailed screens still need enough room to inspect their inventories.
+    for which in Tab::ALL.into_iter().filter(|tab| *tab != Tab::Overview) {
         let mut a = app();
         let frame = tab(&mut a, which, BIG);
         let content = Rect::from_min_max(
@@ -313,8 +315,11 @@ fn every_empty_state_says_something_rather_than_nothing() {
     );
     assert!(console.words().contains("Try one of these"));
 
+    a.snapshot.agents.clear();
+    a.snapshot.diagnostics.clear();
     let front = tab(&mut a, Tab::Overview, BIG);
-    assert!(front.words().contains("NO PROJECTS ON THE BACKEND"));
+    assert!(front.words().contains("No active assignments"));
+    assert!(front.words().contains("Give Carl a task"));
 }
 
 /// Selecting something has to fill the inspector rather than leaving it as a placeholder.
@@ -518,4 +523,22 @@ fn text_the_clip_threw_away_is_not_reported_as_an_overlap() {
         "reported an overlap with a row the clip removed:\n{}",
         describe_pairs(&frame.collisions())
     );
+}
+
+#[test]
+fn an_idle_overview_does_not_repeat_the_agent_inventory() {
+    let mut a = app();
+    a.snapshot.diagnostics.clear();
+    for agent in &mut a.snapshot.agents {
+        agent.status = AgentStatus::Idle;
+        agent.blocker = None;
+    }
+    for size in [BIG, SMALL] {
+        let frame = tab(&mut a, Tab::Overview, size);
+        let words = frame.words();
+        assert!(words.contains("No active assignments"));
+        assert!(words.contains("Give Carl a task"));
+        assert!(!words.contains("CURRENT WORK"));
+        assert!(!words.contains("no activity recorded"));
+    }
 }
