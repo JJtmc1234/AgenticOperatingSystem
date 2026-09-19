@@ -1463,3 +1463,12 @@ publication was disabled. An edited checkout therefore still appeared ready for 
 `test_changed_prepared_checkout_is_not_reported_as_ready_on_later_polls` failed against
 that behavior. Polling, review and publication now share the same clean checkout and
 commit identity check. Changed work is blocked without another model call or remote write.
+
+## Evan errors naming the wrong workflow
+
+The shared Iris ledger and model transport named Iris in Evan's failures, timeouts and
+lock conflicts. `test_evan_model_failure_names_evan_and_keeps_sensitive_details_private`,
+`test_evan_timeout_names_evan_without_echoing_the_prompt` and
+`test_overlapping_evan_run_does_not_claim_iris_is_running` failed before the change.
+The ledger now accepts an owner label, and the transport uses its existing parent
+identity. Evan supplies his own label. Secret filtering and timeout redaction remain.

@@ -45,6 +45,7 @@ class Model:
         self.config, self.ledger, self.executable = config, ledger, executable
         self.reserved = 0.0
         self.system_prompt, self.parent = system_prompt, parent
+        self.label = parent.capitalize()
 
     def blocked_reason(self):
         day=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
@@ -54,7 +55,7 @@ class Model:
             return (f"Daily model budget: ${spent:.2f} reserved of ${self.config['max_daily_usd']:.2f}. "
                     f"Next review needs ${worst:.2f}. Resets at 00:00 UTC.")
         if self.reserved+worst>self.config['max_run_usd']+1e-9:
-            return 'Run model budget cannot cover another pair of investigators and reviewer.'
+            return 'Run model budget cannot cover another three worker stages.'
         return ''
 
     def can_investigate(self):
@@ -63,7 +64,7 @@ class Model:
     def ask(self, identity, prompt, schema):
         amount = self.config['max_call_usd']
         if self.reserved+amount > self.config['max_run_usd']+1e-9:
-            raise RuntimeError('Iris run model budget exhausted. Work remains queued.')
+            raise RuntimeError(self.label+' run model budget exhausted. Work remains queued.')
         self.ledger.reserve(amount, self.config['max_daily_usd'])
         self.reserved += amount
         self.ledger.append('investigator_started', identity=identity, parent=self.parent, tools=[])
@@ -74,11 +75,11 @@ class Model:
         env=dict(os.environ)
         env.pop('CLAUDECODE',None)
         try:
-            with tempfile.TemporaryDirectory(prefix='iris-investigator-') as cwd:
+            with tempfile.TemporaryDirectory(prefix=self.parent+'-worker-') as cwd:
                 result=subprocess.run(argv,input=prompt,text=True,capture_output=True,cwd=cwd,
                                       env=env,timeout=self.config['timeout'])
         except subprocess.TimeoutExpired:
-            raise RuntimeError('Iris investigator timed out after '+str(self.config['timeout'])+' seconds. No findings published.') from None
+            raise RuntimeError(self.label+' worker timed out after '+str(self.config['timeout'])+' seconds. No result was accepted.') from None
         try:
             value=json.loads(result.stdout)
         except ValueError:
@@ -89,9 +90,9 @@ class Model:
             detail=str(value.get('subtype') or result.stderr.strip() or 'No diagnostic returned')
             if contains_credential(detail):
                 detail='Sensitive diagnostic excluded'
-            raise RuntimeError('Iris investigator failed with exit '+str(result.returncode)+': '+detail[:600])
+            raise RuntimeError(self.label+' worker failed with exit '+str(result.returncode)+': '+detail[:600])
         answer=value.get('structured_output')
         if not isinstance(answer,dict):
-            raise ValueError('Iris investigator returned no structured output')
+            raise ValueError(self.label+' worker returned no structured output')
         self.ledger.append('investigator_finished',identity=identity)
         return answer

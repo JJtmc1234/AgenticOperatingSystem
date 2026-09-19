@@ -91,7 +91,7 @@ def run(home, settings, selected=None, trigger='manual', retry=False, *, github=
     configured=settings['repositories']
     if selected and selected not in configured:
         raise ValueError('Repository has no operator approved Evan policy')
-    with Ledger(home) as ledger:
+    with Ledger(home,label='Evan') as ledger:
         ledger.append('run_started',trigger=trigger,publish=settings['publish'])
         known=issues.known_publications((iris_home or home.parent/'iris')/'events.jsonl')
         model=model_factory(settings,ledger)

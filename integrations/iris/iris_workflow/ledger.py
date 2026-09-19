@@ -7,7 +7,8 @@ from pathlib import Path
 
 
 class Ledger:
-    def __init__(self, home):
+    def __init__(self, home, *, label="Iris"):
+        self.label = label
         self.home = Path(home)
         self.home.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = self.home / 'events.jsonl'
@@ -20,7 +21,7 @@ class Ledger:
             fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             self.lock.close()
-            raise RuntimeError('Iris already has a running investigation. The kernel lock is held by '
+            raise RuntimeError(self.label+' already has a running workflow. The kernel lock is held by '
                                'another process, which may finish before a process listing runs. '
                                'Retry later without deleting run.lock. This is not evidence of a stale lock file.') from None
         try:
@@ -32,7 +33,7 @@ class Ledger:
                             event=json.loads(line)
                         except (ValueError, UnicodeDecodeError):
                             if line.endswith(b'\n') or not self.events:
-                                raise ValueError('Iris journal is corrupt') from None
+                                raise ValueError(self.label+' journal is corrupt') from None
                             # Preserve the interrupted bytes before repairing the append boundary.
                             backup=self.home/'interrupted-append.bin'
                             with backup.open('wb') as out:
@@ -45,7 +46,7 @@ class Ledger:
                             os.fsync(source.fileno())
                             break
                         if not isinstance(event,dict) or event.get('seq')!=len(self.events)+1 or not isinstance(event.get('kind'),str):
-                            raise ValueError('Iris journal is corrupt')
+                            raise ValueError(self.label+' journal is corrupt')
                         self.events.append(event)
                         if not line.endswith(b'\n'):
                             source.write(b'\n')
@@ -73,7 +74,7 @@ class Ledger:
         day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
         spent = sum(e['amount'] for e in self.events if e['kind']=='budget_reserved' and e['day']==day)
         if spent + amount > daily_limit + 1e-9:
-            raise RuntimeError('Iris daily model budget exhausted. Work remains queued.')
+            raise RuntimeError(self.label+' daily model budget exhausted. Work remains queued.')
         self.append('budget_reserved', day=day, amount=amount)
 
     def latest(self, kind, **match):
