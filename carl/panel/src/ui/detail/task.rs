@@ -13,7 +13,13 @@ pub fn draw(app: &mut App, ui: &mut Ui, view: &AgentView) {
         .task
         .as_ref()
         .and_then(|id| app.snapshot.task(id))
-        .or_else(|| app.snapshot.tasks.iter().find(|t| t.owner == view.name))
+        .filter(|task| task.owner == view.name && !crate::ui::tasks::finished(task))
+        .or_else(|| {
+            app.snapshot
+                .tasks
+                .iter()
+                .find(|task| task.owner == view.name && !crate::ui::tasks::finished(task))
+        })
         .cloned();
 
     let Some(task) = task else {

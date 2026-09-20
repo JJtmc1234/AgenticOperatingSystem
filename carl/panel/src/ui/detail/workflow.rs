@@ -72,7 +72,10 @@ mod tests {
     fn a_prepared_repair_has_an_action_instead_of_the_empty_task_card() {
         for size in [probe::BIG, probe::SMALL] {
             let mut app = App::new(Box::new(MockPanelDataSource::new()));
-            app.snapshot.tasks.clear();
+            let mut completed = app.snapshot.tasks[0].clone();
+            completed.owner = "evan".into();
+            completed.status = "accepted".into();
+            app.snapshot.tasks = vec![completed];
             let evan = app
                 .snapshot
                 .agents

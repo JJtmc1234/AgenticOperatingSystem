@@ -411,3 +411,13 @@ which are measurement gaps rather than reported faults. Missing readings remain 
 in an expandable group, while the attention count covers faults and stale healthy samples.
 `unmeasured_components_do_not_pose_as_faults_requiring_action` failed before the change.
 The existing missing reading visibility test still passes without removing its assertion.
+
+## Completed assignments obscured current work and Evan reviews
+
+The agent inspector fell back to the first owned task even when it was accepted or abandoned.
+That made an idle agent display finished work, hid newer assignments, and prevented Evan's
+prepared repair card from appearing after any prior task. The selection now requires an
+unfinished task owned by the selected agent, including when an old task ID is still present.
+`finished_assignments_do_not_show_as_an_agents_current_task` and
+`an_agents_current_task_skips_finished_history` failed before the selection was corrected.
+The existing prepared repair action test also includes a completed assignment now.

@@ -700,3 +700,56 @@ fn unmeasured_components_do_not_pose_as_faults_requiring_action() {
         "measurement gaps should expand before showing actions"
     );
 }
+
+#[test]
+fn finished_assignments_do_not_show_as_an_agents_current_task() {
+    for (status, stale_reference) in [
+        ("accepted", false),
+        ("abandoned", false),
+        ("accepted", true),
+    ] {
+        let mut a = app();
+        let mut old = a.snapshot.tasks[0].clone();
+        old.owner = "nora".into();
+        old.status = status.into();
+        old.goal = "obsolete completed assignment".into();
+        let old_id = old.id.clone();
+        a.snapshot.tasks = vec![old];
+        let nora = a
+            .snapshot
+            .agents
+            .iter_mut()
+            .find(|agent| agent.name == "nora")
+            .unwrap();
+        nora.task = stale_reference.then_some(old_id);
+        nora.status = AgentStatus::Idle;
+        a.select_agent("nora");
+        let frame = tab(&mut a, Tab::Agents, SMALL);
+        assert!(frame.says("NO TASK IN HAND"));
+        assert!(!frame.says("obsolete completed assignment"));
+    }
+}
+
+#[test]
+fn an_agents_current_task_skips_finished_history() {
+    let mut a = app();
+    let mut old = a.snapshot.tasks[0].clone();
+    old.owner = "nora".into();
+    old.status = "accepted".into();
+    old.goal = "obsolete completed assignment".into();
+    let mut current = old.clone();
+    current.id = "current-assignment".into();
+    current.status = "in hand".into();
+    current.goal = "current assignment to inspect".into();
+    a.snapshot.tasks = vec![old, current];
+    a.snapshot
+        .agents
+        .iter_mut()
+        .find(|agent| agent.name == "nora")
+        .unwrap()
+        .task = None;
+    a.select_agent("nora");
+    let frame = tab(&mut a, Tab::Agents, SMALL);
+    assert!(frame.says("current assignment to inspect"));
+    assert!(!frame.says("obsolete completed assignment"));
+}
