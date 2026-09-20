@@ -94,3 +94,18 @@ the full Rust workspace suite with 1433 tests and one ignored. A live Claude CLI
 probe confirmed that an idle process writes no transcript and that resuming its
 unused ID fails without a model call. Runtime tests cover idle restart, used
 conversation continuity, interrupted delivery and recovery from a stale state file.
+
+
+An additional offscreen EGL run enabled Pyglet's renderer inside the same isolated
+export. The full suite then passed all 224 tests and 26 subtests with no skips.
+The application rendered 120 frames and saved `omarchy-evan-holoprojector.png` in
+migration logs. The image was inspected and shows all three scene objects with
+the pyramid paused. A renderer query identified Mesa llvmpipe, OpenGL 4.6.
+This is offscreen software rendering, not a desktop input or hardware test.
+Raw output is in `omarchy-evan-offscreen-validation.json` and
+`omarchy-evan-renderer.json` alongside the image.
+
+After installing the supervisor fix, a controlled restart of the idle real army
+started ten fresh processes with zero failed resumes. The normal shutdown records
+remain in the journal. The check sent no model prompts. Its local result is
+`omarchy-aos-session-restart.json` in migration logs.
