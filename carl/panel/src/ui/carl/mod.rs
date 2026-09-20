@@ -29,20 +29,17 @@ mod working;
 mod tests;
 
 pub fn draw(app: &mut App, ui: &mut Ui) {
+    if ui.available_width() < 850.0 {
+        console(app, ui);
+        return;
+    }
     let (left, right) = shell::columns_for(ui, 0.68);
 
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.allocate_ui(vec2(left, ui.available_height()), |ui| {
             ui.vertical(|ui| {
-                let asked = decisions::draw(app, ui);
-                let composer_height = composer::HEIGHT;
-                let remaining = (ui.available_height() - composer_height - theme::GAP).max(200.0);
-                ui.allocate_ui(vec2(ui.available_width(), remaining), |ui| {
-                    conversation::draw(app, ui, asked);
-                });
-                ui.add_space(theme::GAP);
-                composer::draw(app, ui);
+                console(app, ui);
             });
         });
         ui.add_space(theme::GAP + 4.0);
@@ -57,4 +54,27 @@ pub fn nothing_yet(ui: &mut Ui, headline: &str, why: &str) {
     widgets::state_chip(ui, widgets::Mark::Dash, headline, theme::UNKNOWN);
     ui.add_space(6.0);
     ui.label(RichText::new(why).font(theme::prose()).color(theme::DIM));
+}
+
+fn console(app: &mut App, ui: &mut Ui) {
+    if ui.available_height() < 500.0 {
+        // Keep the input reachable when a short window cannot hold the decision band and
+        // conversation above it. The rest scrolls beneath the composer.
+        composer::draw(app, ui);
+        eframe::egui::ScrollArea::vertical()
+            .id_salt("short-console")
+            .show(ui, |ui| {
+                let asked = decisions::draw(app, ui);
+                conversation::draw(app, ui, asked);
+            });
+        return;
+    }
+    let asked = decisions::draw(app, ui);
+    let composer_height = composer::HEIGHT;
+    let remaining = (ui.available_height() - composer_height - theme::GAP).max(200.0);
+    ui.allocate_ui(vec2(ui.available_width(), remaining), |ui| {
+        conversation::draw(app, ui, asked);
+    });
+    ui.add_space(theme::GAP);
+    composer::draw(app, ui);
 }

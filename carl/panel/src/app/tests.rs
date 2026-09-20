@@ -57,7 +57,7 @@ fn the_editor_and_terminal_are_not_tabs() {
     let labels: Vec<&str> = Tab::ALL.iter().map(|t| t.label()).collect();
     assert_eq!(
         labels,
-        vec!["OVERVIEW", "CARL", "AGENTS", "DIAGNOSTICS", "PROJECTS"]
+        vec!["OVERVIEW", "CARL", "AGENTS", "DIAGNOSTICS", "TO-DO"]
     );
 }
 

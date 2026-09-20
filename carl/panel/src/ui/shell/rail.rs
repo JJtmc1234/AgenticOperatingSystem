@@ -11,6 +11,10 @@ use crate::ui::widgets;
 pub const WIDTH: f32 = 184.0;
 
 pub fn draw(app: &mut App, ctx: &eframe::egui::Context) {
+    if ctx.screen_rect().width() < 1050.0 {
+        compact(app, ctx);
+        return;
+    }
     let v = vitals::read(&app.snapshot);
     SidePanel::left("rail")
         .exact_width(WIDTH)
@@ -160,6 +164,34 @@ pub fn wants_attention(app: &App, tab: Tab, v: &Vitals) -> usize {
             .iter()
             .filter(|d| widgets::wants_attention(d.health))
             .count(),
-        Tab::Projects => v.projects_blocked,
+        Tab::Tasks => app
+            .snapshot
+            .tasks
+            .iter()
+            .filter(|t| t.status == "blocked")
+            .count(),
     }
+}
+
+/// Narrow windows keep the whole content width and wrap navigation onto another line.
+fn compact(app: &mut App, ctx: &eframe::egui::Context) {
+    eframe::egui::TopBottomPanel::top("compact-navigation")
+        .frame(
+            eframe::egui::Frame::none()
+                .fill(theme::PANEL)
+                .inner_margin(12.0),
+        )
+        .show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("AOS").font(theme::heading()));
+                attachment(app, ui);
+            });
+            ui.horizontal_wrapped(|ui| {
+                for tab in Tab::ALL {
+                    if ui.selectable_label(app.tab == tab, tab.label()).clicked() {
+                        app.select_tab(tab);
+                    }
+                }
+            });
+        });
 }

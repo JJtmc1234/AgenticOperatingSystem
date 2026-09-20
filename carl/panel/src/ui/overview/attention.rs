@@ -89,10 +89,8 @@ fn row(ui: &mut Ui, need: &Need) -> bool {
 /// Where clicking one of these lands, which is always the screen that can do something about
 /// it rather than a dialog that repeats what the row already said.
 fn follow(app: &mut App, tab: crate::app::Tab, subject: &str) {
-    match tab {
-        crate::app::Tab::Agents => app.select_agent(subject),
-        crate::app::Tab::Projects => app.select_project(subject),
-        _ => {}
+    if tab == crate::app::Tab::Agents {
+        app.select_agent(subject);
     }
     app.select_tab(tab);
 }

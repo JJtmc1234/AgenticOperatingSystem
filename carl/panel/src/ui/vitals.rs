@@ -86,7 +86,7 @@ impl Vitals {
 
     /// How many things want JJ personally, which is what the rail badges.
     pub fn wants_jj(&self) -> usize {
-        self.decisions + self.blocked + self.failed + self.projects_blocked
+        self.decisions + self.blocked + self.failed
     }
 }
 
@@ -202,20 +202,6 @@ pub fn needs(snapshot: &Snapshot) -> Vec<Need> {
                 .unwrap_or_else(|| "blocked, and no reason was recorded".into()),
             goes_to: crate::app::Tab::Agents,
             color: theme::BAD,
-            mark: Mark::Barred,
-        });
-    }
-    for p in snapshot
-        .projects
-        .iter()
-        .filter(|p| !p.project.blockers.is_empty())
-    {
-        out.push(Need {
-            kind: "PROJECT HELD",
-            subject: p.project.name.clone(),
-            detail: p.project.blockers.join(". "),
-            goes_to: crate::app::Tab::Projects,
-            color: theme::WARN,
             mark: Mark::Barred,
         });
     }

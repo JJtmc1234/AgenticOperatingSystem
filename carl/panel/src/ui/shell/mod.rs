@@ -39,12 +39,15 @@ pub fn draw(app: &mut App, ctx: &Context) {
         .frame(eframe::egui::Frame::none().fill(theme::VOID).inner_margin(
             eframe::egui::Margin::symmetric(theme::GAP + 4.0, theme::GAP),
         ))
-        .show(ctx, |ui| match app.tab {
-            Tab::Overview => super::overview::draw(app, ui),
-            Tab::Carl => super::carl::draw(app, ui),
-            Tab::Agents => super::agents::draw(app, ui),
-            Tab::Diagnostics => super::diagnostics::draw(app, ui),
-            Tab::Projects => super::projects::draw(app, ui),
+        .show(ctx, |ui| {
+            ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Wrap);
+            match app.tab {
+                Tab::Overview => super::overview::draw(app, ui),
+                Tab::Carl => super::carl::draw(app, ui),
+                Tab::Agents => super::agents::draw(app, ui),
+                Tab::Diagnostics => super::diagnostics::draw(app, ui),
+                Tab::Tasks => super::tasks::draw(app, ui),
+            }
         });
 }
 
@@ -59,7 +62,7 @@ fn warning(app: &mut App, ctx: &Context) {
         return;
     };
     TopBottomPanel::top("not-live")
-        .exact_height(38.0)
+        .min_height(38.0)
         .frame(
             eframe::egui::Frame::none()
                 .fill(theme::BAD.linear_multiply(0.18))
@@ -70,7 +73,12 @@ fn warning(app: &mut App, ctx: &Context) {
             ui.horizontal(|ui| {
                 super::widgets::state_chip(ui, super::widgets::Mark::Cross, "NOT LIVE", theme::BAD);
                 ui.add_space(10.0);
-                ui.label(RichText::new(text).font(theme::prose()).color(theme::TEXT));
+                ui.add(
+                    eframe::egui::Label::new(
+                        RichText::new(text).font(theme::prose()).color(theme::TEXT),
+                    )
+                    .wrap(),
+                );
             });
         });
 }

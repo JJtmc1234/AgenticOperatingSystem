@@ -46,7 +46,7 @@ pub enum Tab {
     Carl,
     Agents,
     Diagnostics,
-    Projects,
+    Tasks,
 }
 
 impl Tab {
@@ -55,7 +55,7 @@ impl Tab {
         Tab::Carl,
         Tab::Agents,
         Tab::Diagnostics,
-        Tab::Projects,
+        Tab::Tasks,
     ];
 
     pub fn label(self) -> &'static str {
@@ -64,7 +64,7 @@ impl Tab {
             Tab::Carl => "CARL",
             Tab::Agents => "AGENTS",
             Tab::Diagnostics => "DIAGNOSTICS",
-            Tab::Projects => "PROJECTS",
+            Tab::Tasks => "TO-DO",
         }
     }
 
@@ -75,7 +75,7 @@ impl Tab {
             Tab::Carl => "command",
             Tab::Agents => "who is doing what",
             Tab::Diagnostics => "health",
-            Tab::Projects => "work",
+            Tab::Tasks => "tasks and owners",
         }
     }
 }
@@ -118,6 +118,8 @@ pub struct App {
 
     /// False while the panel is hidden. Nothing is thrown away when it is.
     pub visible: bool,
+    /// Explicit opt-in to detailed component measurements.
+    pub diagnostic_details: bool,
 
     /// The intervention being composed, if any.
     pub intervening: Option<Intervening>,
@@ -177,6 +179,7 @@ impl App {
             objective: String::new(),
             conversation_at_end: true,
             visible: true,
+            diagnostic_details: false,
             intervening: None,
             notice: None,
             lit: Vec::new(),

@@ -55,6 +55,10 @@ fn set_collapsed(ui: &mut Ui, folded: BTreeSet<String>) {
 }
 
 pub fn draw(app: &mut App, ui: &mut Ui) {
+    if ui.available_width() < 850.0 {
+        compact(app, ui);
+        return;
+    }
     let (left, right) = shell::columns_for(ui, 0.55);
 
     ui.horizontal_top(|ui| {
@@ -262,4 +266,34 @@ pub fn work_line(view: &AgentView) -> (String, eframe::egui::Color32) {
             _ => ("no activity recorded".into(), theme::UNKNOWN),
         },
     }
+}
+
+/// On a narrow window, opening an agent replaces the list with their inspector.
+fn compact(app: &mut App, ui: &mut Ui) {
+    if app.agent.is_some() {
+        if ui.button("Back to all agents").clicked() {
+            app.agent = None;
+        }
+        detail::draw(app, ui);
+        return;
+    }
+    ScrollArea::vertical()
+        .id_salt("compact-agents")
+        .show(ui, |ui| {
+            for agent in app.snapshot.agents.clone() {
+                if super::vitals::is_human(&agent.name) {
+                    continue;
+                }
+                widgets::fitted_card(ui, widgets::Card::default(), |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button(&agent.name).clicked() {
+                            app.select_agent(&agent.name);
+                        }
+                        ui.label(agent.status.label());
+                    });
+                    ui.label(role_of(&agent));
+                    ui.label(work_line(&agent).0);
+                });
+            }
+        });
 }

@@ -8,7 +8,7 @@ mod activity;
 mod attention;
 mod banner;
 mod feed;
-mod roster;
+pub(crate) mod roster;
 pub mod work;
 pub use work::ordered as project_order;
 
@@ -20,7 +20,7 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
     eframe::egui::ScrollArea::vertical()
         .id_salt("overview")
         .show(ui, |ui| {
-            ui.set_max_width(920.0);
+            ui.set_max_width(ui.available_width().min(920.0));
             banner::draw(app, ui, &v);
             ui.add_space(18.0);
             ui.horizontal(|ui| {
@@ -45,9 +45,7 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
             }
             roster::draw(app, ui);
             ui.add_space(22.0);
-            ui.collapsing("Projects and recent events", |ui| {
-                work::draw(app, ui);
-                ui.add_space(theme::GAP);
+            ui.collapsing("Recent events", |ui| {
                 feed::draw(app, ui);
             });
         });

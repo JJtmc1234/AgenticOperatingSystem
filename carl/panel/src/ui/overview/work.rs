@@ -108,7 +108,7 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
 
     if let Some(name) = pick {
         app.select_project(&name);
-        app.select_tab(Tab::Projects);
+        app.select_tab(Tab::Tasks);
     }
 }
 

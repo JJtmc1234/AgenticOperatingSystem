@@ -16,6 +16,7 @@ pub mod diagnostics;
 pub mod overview;
 pub mod projects;
 pub mod shell;
+pub mod tasks;
 pub mod vitals;
 pub mod widgets;
 pub mod workspace;

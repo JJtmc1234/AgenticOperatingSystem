@@ -1535,3 +1535,32 @@ failed before recovery was added. Recovery requires matching session identity an
 no later runtime event for that agent. Later failures, different sessions and
 unreadable history cannot restore stale authority, covered by
 `later_failures_other_sessions_and_unreadable_history_cannot_establish_a_session`.
+
+## Diagnostics hid problems among healthy measurements
+
+Issue 59. The default screen rendered every healthy component and every measurement.
+It now shows failures, degradation, missing readings and stale samples, with a summary
+and an Investigate action. All measurements remain available through an explicit toggle.
+`diagnostics_default_focuses_on_problems_without_metric_noise` reproduced the old clutter
+before the change. Existing unknown reading and geometry checks also remain in the suite.
+
+## Projects obscured the agents' actual assignments
+
+Issues 60 and 61. The panel now navigates to To-do, showing goals, owners, recorded status,
+and expandable requirements and review results. Completed work stays collapsed. Historical
+project data stays readable by the backend so old journal records still reconstruct.
+`navigation_uses_tasks_instead_of_projects` failed before the navigation change.
+`task_list_includes_unaffiliated_tasks_and_names_the_owner` checks tasks without a project.
+`task_list_shows_scheduled_review_work_without_a_delegated_task` failed before scheduled
+work was added, then passed with Evan's pending repair visible.
+
+## Portrait and short windows clipped controls
+
+Issue 57. Compact navigation and single column agent and Carl views preserve usable width.
+Warnings wrap. A short Carl window keeps the composer above the scrollable conversation.
+`portrait_and_small_landscape_keep_navigation_and_content_readable` failed on clipped
+Overview text before the fix and now checks all screens at portrait and landscape sizes.
+`short_window_keeps_carl_send_button_visible` reproduced a hidden Send button at 800 by 400.
+`narrow_disconnected_panel_keeps_warning_and_content_readable` reproduced the clipped warning.
+The default launch is windowed, fullscreen requires `--fullscreen`, and showing a hidden
+window no longer forces it into fullscreen.

@@ -1,6 +1,6 @@
 //! The Command Panel, as a program.
 //!
-//! Fullscreen on start, and one key hides and shows it. What that key can reach is the one
+//! A resizable desktop app, and one key hides and shows it. What that key can reach is the one
 //! thing worth being precise about, so it is written down here rather than claimed:
 //!
 //! **F9 is bound inside the window.** It works whenever the panel has focus, which is what a
@@ -26,7 +26,7 @@ struct Args {
     /// Draw this many frames and exit. Turns a manual look into something that can be run in
     /// a check, and proves the whole draw path executes rather than only the state machine.
     frames: Option<u32>,
-    /// Walk every tab, open an agent, a project and the workspace, and let the scripted
+    /// Walk every tab, open an agent and the workspace, and let the scripted
     /// timeline run underneath it all.
     ///
     /// This is what makes "we opened it" mean something. Unit tests exercise the state and
@@ -56,9 +56,12 @@ struct Args {
 }
 
 fn parse_args() -> Args {
-    let all: Vec<String> = std::env::args().collect();
+    parse_args_from(&std::env::args().collect::<Vec<_>>())
+}
+
+fn parse_args_from(all: &[String]) -> Args {
     Args {
-        windowed: all.iter().any(|a| a == "--windowed"),
+        windowed: !all.iter().any(|a| a == "--fullscreen") || all.iter().any(|a| a == "--windowed"),
         tour: all.iter().any(|a| a == "--tour"),
         mock: all.iter().any(|a| a == "--mock"),
         home: all
@@ -103,6 +106,7 @@ fn main() -> eframe::Result<()> {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("AOS Command Panel")
             .with_inner_size([1600.0, 940.0])
+            .with_resizable(true)
             .with_fullscreen(!args.windowed),
         // Only when built for it. OpenGL was blamed for the missing text and was innocent.
         #[cfg(feature = "wgpu")]
@@ -140,7 +144,6 @@ fn main() -> eframe::Result<()> {
 
         if ctx.input(|i| i.key_pressed(Key::F9)) || launch::toggle_asked() {
             app.toggle_visible();
-            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(app.visible));
             ctx.send_viewport_cmd(ViewportCommand::Minimized(!app.visible));
         }
 
@@ -269,9 +272,7 @@ fn tour(app: &mut App, frame: u32) {
         45 => app.select_agent("nora"),
         70 => app.select_agent("carl"),
         90 => app.select_tab(Tab::Diagnostics),
-        120 => app.select_tab(Tab::Projects),
-        135 => app.select_project("jjtorio"),
-        160 => app.select_project("command panel"),
+        120 => app.select_tab(Tab::Tasks),
         180 => app.open_workspace(WorkspaceRequest::Terminal {
             cwd: "/home/jj_tmc/Projects/carl".into(),
         }),
@@ -283,5 +284,17 @@ fn tour(app: &mut App, frame: u32) {
         250 => app.close_workspace(),
         270 => app.select_tab(Tab::Carl),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    #[test]
+    fn normal_launch_is_resizable_and_fullscreen_is_explicit() {
+        assert!(parse_args_from(&["carl-panel".into()]).windowed);
+        assert!(!parse_args_from(&["carl-panel".into(), "--fullscreen".into()]).windowed);
+        assert!(parse_args_from(&["carl-panel".into(), "--windowed".into()]).windowed);
     }
 }

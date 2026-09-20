@@ -196,6 +196,7 @@ fn losing_the_link_marks_every_screen() {
 #[test]
 fn a_gap_is_drawn_as_a_gap_and_never_as_a_zero() {
     let mut a = app();
+    a.diagnostic_details = true;
     let frame = tab(&mut a, Tab::Diagnostics, BIG);
     let words = frame.words();
 
@@ -296,15 +297,19 @@ fn the_console_has_one_obvious_input() {
 fn every_empty_state_says_something_rather_than_nothing() {
     let mut a = app();
     a.snapshot.projects.clear();
+    a.snapshot.tasks.clear();
+    for agent in &mut a.snapshot.agents {
+        agent.status = AgentStatus::Idle;
+    }
     a.snapshot.conversation.clear();
     a.snapshot.delegations.clear();
     a.snapshot.events.clear();
 
-    let projects = tab(&mut a, Tab::Projects, BIG);
-    assert!(projects.words().contains("CARRYING NO PROJECTS"));
+    let projects = tab(&mut a, Tab::Tasks, BIG);
+    assert!(projects.words().contains("No active assignments recorded"));
     assert!(
-        projects.words().contains("WHAT WOULD SHOW UP HERE"),
-        "an empty projects screen has to say what would fill it"
+        projects.words().contains("Give Carl a task"),
+        "an empty task screen has to say how to create work"
     );
 
     let console = tab(&mut a, Tab::Carl, BIG);
@@ -402,7 +407,7 @@ fn the_workspace_does_not_let_the_screen_behind_it_show_through() {
         Tab::Carl,
         Tab::Agents,
         Tab::Diagnostics,
-        Tab::Projects,
+        Tab::Tasks,
     ] {
         for size in [BIG, SMALL] {
             let mut a = app();
@@ -541,4 +546,141 @@ fn an_idle_overview_does_not_repeat_the_agent_inventory() {
         assert!(!words.contains("CURRENT WORK"));
         assert!(!words.contains("no activity recorded"));
     }
+}
+
+#[test]
+fn diagnostics_default_focuses_on_problems_without_metric_noise() {
+    let mut a = app();
+    for d in &mut a.snapshot.diagnostics {
+        if d.health == crate::model::Health::Healthy && !crate::model::stale(d, a.snapshot.at) {
+            d.summary = "healthy-detail-sentinel".into();
+        }
+    }
+    let frame = tab(&mut a, Tab::Diagnostics, SMALL);
+    assert!(
+        !frame.says("healthy-detail-sentinel"),
+        "healthy component details crowd out problems"
+    );
+    assert!(frame.says("Show all components and measurements"));
+    assert!(frame.says("UNKNOWN"), "missing readings must stay visible");
+}
+
+#[test]
+fn navigation_uses_tasks_instead_of_projects() {
+    let mut a = app();
+    let frame = tab(&mut a, Tab::Overview, SMALL);
+    assert!(frame.says("TO-DO"), "agents need a task list in navigation");
+    assert!(!frame.says("PROJECTS"));
+}
+
+#[test]
+fn portrait_and_small_landscape_keep_navigation_and_content_readable() {
+    for size in [
+        Vec2::new(400.0, 800.0),
+        Vec2::new(800.0, 400.0),
+        Vec2::new(600.0, 900.0),
+        Vec2::new(900.0, 600.0),
+    ] {
+        for which in Tab::ALL {
+            let mut a = app();
+            let frame = tab(&mut a, which, size);
+            assert!(
+                frame.collisions().is_empty(),
+                "{which:?} {size:?}: {}",
+                describe_pairs(&frame.collisions())
+            );
+            assert!(
+                frame.cut_off().is_empty(),
+                "{which:?} {size:?}: {}",
+                describe(&frame.cut_off())
+            );
+            assert!(frame.says(which.label()));
+        }
+    }
+}
+
+#[test]
+fn narrow_selected_agent_and_diagnostics_details_stay_readable() {
+    for which in [Tab::Agents, Tab::Diagnostics] {
+        let mut a = app();
+        a.select_agent("evan");
+        a.diagnostic_details = true;
+        let frame = tab(&mut a, which, Vec2::new(600.0, 900.0));
+        assert!(
+            frame.collisions().is_empty(),
+            "{which:?}: {}",
+            describe_pairs(&frame.collisions())
+        );
+        assert!(
+            frame.cut_off().is_empty(),
+            "{which:?}: {}",
+            describe(&frame.cut_off())
+        );
+    }
+}
+
+#[test]
+fn task_list_includes_unaffiliated_tasks_and_names_the_owner() {
+    let mut a = app();
+    let task = &mut a.snapshot.tasks[0];
+    task.project = None;
+    task.goal = "Prove the repaired task renders".into();
+    task.owner = "evan".into();
+    let frame = tab(&mut a, Tab::Tasks, SMALL);
+    assert!(frame.says("Prove the repaired task renders"));
+    assert!(frame.says("Owner: evan"));
+    assert!(frame.says("in hand"));
+    assert!(!frame.says("PROJECTS"));
+}
+
+#[test]
+fn short_window_keeps_carl_send_button_visible() {
+    let mut a = app();
+    let frame = tab(&mut a, Tab::Carl, Vec2::new(800.0, 400.0));
+    let send = frame.find("SEND");
+    assert!(
+        send.iter().any(|p| p.visible().is_some_and(
+            |r| r.bottom() <= frame.screen.bottom() && r.height() >= p.rect.height() - 1.0
+        )),
+        "Send is off screen: {}",
+        describe(&send)
+    );
+}
+
+#[test]
+fn narrow_disconnected_panel_keeps_warning_and_content_readable() {
+    let mut a = app();
+    a.link = Link::Disconnected {
+        why: "backend closed the connection".into(),
+    };
+    let frame = tab(&mut a, Tab::Overview, Vec2::new(400.0, 800.0));
+    assert!(
+        frame.collisions().is_empty(),
+        "{}",
+        describe_pairs(&frame.collisions())
+    );
+    assert!(frame.cut_off().is_empty(), "{}", describe(&frame.cut_off()));
+    assert!(frame.says("NOT LIVE"));
+}
+
+#[test]
+fn task_list_shows_scheduled_review_work_without_a_delegated_task() {
+    let mut a = app();
+    a.snapshot.tasks.clear();
+    for agent in &mut a.snapshot.agents {
+        agent.status = AgentStatus::Idle;
+    }
+    let evan = a
+        .snapshot
+        .agents
+        .iter_mut()
+        .find(|a| a.name == "evan")
+        .unwrap();
+    evan.status = AgentStatus::AwaitingReview;
+    evan.task = None;
+    evan.last_activity = Some("Holoprojector repair awaits review".into());
+    let frame = tab(&mut a, Tab::Tasks, SMALL);
+    assert!(frame.says("Holoprojector repair awaits review"));
+    assert!(frame.says("Owner: evan"));
+    assert!(!frame.says("No active assignments recorded"));
 }

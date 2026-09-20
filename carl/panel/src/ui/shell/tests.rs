@@ -51,7 +51,7 @@ fn the_overview_badge_is_never_smaller_than_the_screens_it_summarises() {
     let v = vitals::read(&a.snapshot);
 
     let overview = rail::wants_attention(&a, Tab::Overview, &v);
-    for tab in [Tab::Carl, Tab::Agents, Tab::Projects] {
+    for tab in [Tab::Carl, Tab::Agents, Tab::Tasks] {
         assert!(
             overview >= rail::wants_attention(&a, tab, &v),
             "{tab:?} has something the overview does not count"
