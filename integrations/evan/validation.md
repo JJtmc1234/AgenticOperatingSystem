@@ -109,3 +109,17 @@ After installing the supervisor fix, a controlled restart of the idle real army
 started ten fresh processes with zero failed resumes. The normal shutdown records
 remain in the journal. The check sent no model prompts. Its local result is
 `omarchy-aos-session-restart.json` in migration logs.
+
+
+## Scheduled operation after deployment
+
+Five automatic polls completed during the timed service observation. Finished runs
+advanced from 24 to 29 while model worker calls stayed at three and the prepared
+repair count stayed at one. The live panel subscription observed a transition
+from review to working and back to review, without an army sequence on those frames.
+The later poll completed between observations and emitted no changed workflow frame.
+The GUI stayed closed. After the controlled restart settled, no further army crash
+or automatic service restart was recorded. The local observation and summary files
+are `omarchy-aos-service-observation.jsonl`, `omarchy-aos-live-workflow.jsonl` and
+`omarchy-aos-validation-summary.json` in migration logs. The observation includes
+planned deployment reloads and samples service state every 30 seconds.
