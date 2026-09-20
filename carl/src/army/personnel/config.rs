@@ -23,6 +23,8 @@ pub enum Model {
     Opus,
     #[serde(rename = "claude-fable-5")]
     Fable,
+    #[serde(rename = "claude-fable-5-1")]
+    Fable51,
     #[serde(rename = "claude-sonnet-5")]
     Sonnet,
     #[serde(rename = "claude-haiku-4-5")]
@@ -35,6 +37,7 @@ impl Model {
         match self {
             Self::Opus => "claude-opus-5",
             Self::Fable => "claude-fable-5",
+            Self::Fable51 => "claude-fable-5-1",
             Self::Sonnet => "claude-sonnet-5",
             Self::Haiku => "claude-haiku-4-5",
         }
@@ -119,6 +122,7 @@ mod tests {
         );
         assert_eq!(Model::Opus.id(), "claude-opus-5");
         assert_eq!(Model::Fable.id(), "claude-fable-5");
+        assert_eq!(Model::Fable51.id(), "claude-fable-5-1");
     }
 
     #[test]
@@ -128,9 +132,20 @@ mod tests {
 
     #[test]
     fn a_config_round_trips() {
-        let before = Config::default();
-        let text = serde_json::to_string_pretty(&before).unwrap();
-        assert_eq!(serde_json::from_str::<Config>(&text).unwrap(), before);
+        for model in [
+            Model::Opus,
+            Model::Fable,
+            Model::Fable51,
+            Model::Sonnet,
+            Model::Haiku,
+        ] {
+            let before = Config {
+                model,
+                ..Config::default()
+            };
+            let text = serde_json::to_string_pretty(&before).unwrap();
+            assert_eq!(serde_json::from_str::<Config>(&text).unwrap(), before);
+        }
     }
 
     #[test]

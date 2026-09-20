@@ -4,9 +4,9 @@ JJ requested stronger models for important agents on 2026 09 19.
 
 | Role | Selected model |
 | --- | --- |
-| Carl, chief | `claude-fable-5` |
-| Adrian, engineering lead | `claude-fable-5` |
-| Serena, security lead | `claude-fable-5` |
+| Carl, chief | `claude-fable-5-1` |
+| Adrian, engineering lead | `claude-fable-5-1` |
+| Serena, security lead | `claude-fable-5-1` |
 | Evan, Iris, Mason, Nora, Olivia, Miles, Rowan | `claude-opus-5` |
 | Evan's separate repair workflow | `claude-opus-5` |
 
@@ -14,8 +14,10 @@ Persistent selections live in `~/.carl/army/NAME/config.json`. The repair select
 lives in `~/.carl/evan/config.json`. The army was restarted while idle and all ten
 process argument lists were checked. No global Claude default was changed.
 
-A bounded tool-free Fable check returned OK. Its usage report included both Fable 5
-and Opus 4.8. This confirms availability, not that provider fallback never occurs.
+A bounded tool-free Fable 5.1 check succeeded before this upgrade. Its usage report
+listed only `claude-fable-5-1`, with a reported cost of $0.04560275. This confirms
+that call used the selected model, not that future provider fallback cannot occur.
+The earlier Fable 5 check included an Opus 4.8 fallback.
 [Claude model configuration](https://code.claude.com/docs/en/model-config) documents
 model selection and fallback behavior.
 
