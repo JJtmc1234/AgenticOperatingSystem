@@ -1,14 +1,14 @@
 """Read a prepared repair without starting workers or publishing anything."""
-import json
 from pathlib import Path
 from iris_workflow.repository import contains_credential
 from .source import git, verify_prepared
+from .journal import read as read_events
+from .status import running
 
 
 def show(home, repo, number):
     home=Path(home)
-    journal=home/'events.jsonl'
-    events=[json.loads(line) for line in journal.read_text().splitlines()] if journal.exists() else []
+    events=read_events(home,active=running(home))
     prepared=next((event for event in reversed(events) if event['kind']=='prepared'
                    and event['repo']==repo and event['number']==number),None)
     if not prepared:

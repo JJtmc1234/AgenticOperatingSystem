@@ -1,6 +1,6 @@
 # Omarchy validation
 
-On 2026 09 19, all 44 Evan tests passed on Nexus with `EVAN_SANDBOX_TESTS=1`.
+On 2026 09 20, all 46 Evan tests passed on Nexus with `EVAN_SANDBOX_TESTS=1`.
 This exercised repair preparation, local commits, test isolation and timeout cleanup.
 Input integrity regressions failed before the fix and passed afterward. Edited, deleted
 and linked inputs are rejected after every command. Generated test output is allowed.
@@ -61,3 +61,9 @@ It confirms no extra model call or PR creation occurs while reporting the block.
 Shared transport error labels now name Evan for his failures, timeouts and lock conflicts.
 Three regressions failed before the fix and passed afterward. All 92 Iris tests also
 passed against the shared changes. Secret filtering remains covered.
+
+
+The review reader regressions reproduced missing sequence acceptance and failure
+on an active partial append. Both passed after sharing the bounded status reader.
+The entire 46 test Evan suite passed with real Bubblewrap execution, along with
+92 Iris tests. Reading a review preserved the journal bytes unchanged.

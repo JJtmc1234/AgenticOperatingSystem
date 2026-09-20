@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import unittest
 from unittest.mock import patch
 from fixtures import Fixture, REPO
@@ -48,3 +49,25 @@ class ReviewTests(Fixture,unittest.TestCase):
         with patch('sys.argv',['aos-evan','--home',str(self.home),'review','--repo',REPO,'--issue','1']), contextlib.redirect_stdout(output):
             self.assertEqual(main(),0)
         self.assertIn('## Patch',output.getvalue())
+
+    def test_review_rejects_a_journal_with_a_missing_sequence(self):
+        self.prepare()
+        journal=self.home/'events.jsonl'
+        events=[json.loads(line) for line in journal.read_text().splitlines()]
+        events.pop(0)
+        journal.write_text(''.join(json.dumps(event)+'\n' for event in events))
+        with self.assertRaisesRegex(ValueError,'journal is unreadable'):
+            show(self.home,REPO,1)
+
+    def test_review_ignores_only_an_incomplete_append_during_a_running_workflow(self):
+        from iris_workflow.ledger import Ledger
+        self.prepare()
+        with Ledger(self.home) as ledger:
+            ledger.append('run_started',publish=False)
+            with (self.home/'events.jsonl').open('ab') as journal:
+                journal.write(b'{"seq":')
+            before=(self.home/'events.jsonl').read_bytes()
+            self.assertIn('Independent review',show(self.home,REPO,1))
+            self.assertEqual((self.home/'events.jsonl').read_bytes(),before)
+        with self.assertRaisesRegex(ValueError,'journal is unreadable'):
+            show(self.home,REPO,1)

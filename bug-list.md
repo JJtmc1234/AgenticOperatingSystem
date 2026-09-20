@@ -1472,3 +1472,13 @@ lock conflicts. `test_evan_model_failure_names_evan_and_keeps_sensitive_details_
 `test_overlapping_evan_run_does_not_claim_iris_is_running` failed before the change.
 The ledger now accepts an owner label, and the transport uses its existing parent
 identity. Evan supplies his own label. Secret filtering and timeout redaction remain.
+
+
+## Evan review accepting incomplete journal history
+
+The review command did not validate event sequence numbers and failed on a partial
+append during an active run. `test_review_rejects_a_journal_with_a_missing_sequence`
+and `test_review_ignores_only_an_incomplete_append_during_a_running_workflow` failed
+before the shared reader was added. Review and status now use the same bounded,
+read-only journal parser. Only a final incomplete record while the kernel lock is
+held is ignored. Completed corrupt records and interrupted appends remain errors.
