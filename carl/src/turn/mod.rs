@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 
 pub mod code;
 mod exchange;
+mod screen;
 use exchange::Exchange;
 
 /// The full form, where what gets recorded and what gets sent can differ.
@@ -68,6 +69,7 @@ pub fn respond_full(
         said,
         sent,
         author,
+        memory_source: None,
         extra: None,
     }
     .run(|p| {
@@ -107,6 +109,7 @@ pub fn stream(
         // microphone. A note written from here with no source reads later as if nobody said
         // it.
         author: Some(crate::brief::OWNER.to_string()),
+        memory_source: None,
         extra,
     }
     .run(|p| {
@@ -174,6 +177,7 @@ pub fn stream_in(
         said,
         sent,
         author: said_by.map(str::to_owned),
+        memory_source: None,
         // Static instructions belong to the process, which already has them.
         extra: None,
     }
@@ -217,14 +221,16 @@ pub fn look_in(
 /// Take a picture of the screen, then ask about it.
 pub fn look(home: &Path, thread: &ThreadId, question: &str, area: Area) -> Result<Answer> {
     let sent = shot(home, question, area)?;
-    respond_full(
-        &Runner::default(),
-        home,
-        thread,
-        question,
-        Some(&sent),
-        None,
-    )
+    let runner = screen::runner(home)?;
+    screen::exchange(home, thread, question, &sent).run(|p| {
+        runner.ask(&Turn {
+            session: &p.session,
+            resume: p.resume,
+            prompt: p.prompt,
+            extra_system: Some(&p.all_in_system()),
+            workdir: &p.workdir,
+        })
+    })
 }
 
 /// Takes the picture and writes the prompt that goes with it.
@@ -298,6 +304,7 @@ mod tests {
             said: "streamed question",
             sent: None,
             author: None,
+            memory_source: None,
             extra: None,
         }
         .run(|p| {

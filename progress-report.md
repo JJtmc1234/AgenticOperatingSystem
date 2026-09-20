@@ -212,3 +212,9 @@ Validation: 1239 backend and integration tests passed, with one preexisting manu
 test ignored. The panel passed 223 library tests and one CLI test. Formatting and strict
 Clippy checks passed for both crates. Release binaries built successfully. Tests run
 without launching the desktop panel after JJ asked to keep it closed.
+
+One shot screenshot turns now preserve JJ as the question author while labeling remembered
+observations as Carl's interpretation. They also use the configured JJ permissions and
+chief tool scope. Both new regressions failed before the fixes. The updated backend suite
+passed 1241 tests, with the same one manual migration test ignored. Strict Clippy,
+formatting and the release build passed. No screen was captured for these tests.

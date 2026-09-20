@@ -66,6 +66,8 @@ pub struct Exchange<'a> {
     /// which would be noise in the record.
     pub sent: Option<&'a str>,
     pub author: Option<String>,
+    /// Provenance for inferred notes when it differs from the person asking.
+    pub memory_source: Option<&'a str>,
     /// Extra instructions for this way of asking, on top of the identity every turn gets.
     ///
     /// Carries the spoken brief on voice turns and nothing on typed ones, because the rule
@@ -116,10 +118,13 @@ impl Prepared<'_> {
 impl Exchange<'_> {
     /// Records the question, prepares the turn, runs `ask`, records the outcome.
     pub fn run(self, ask: impl FnOnce(&Prepared<'_>) -> crate::Result<Answer>) -> Result<Answer> {
-        // Kept before the author is handed to the log, which consumes it. Notes written this
-        // turn are attributed to whoever is speaking, since memory is one pile and everybody
-        // who can reach Carl writes into it.
-        let speaker = self.author.clone().unwrap_or_default();
+        // Screen interpretations carry their own provenance while the human keeps credit
+        // for the question. Ordinary conversational notes retain the speaker as their source.
+        let speaker = self
+            .memory_source
+            .map(str::to_owned)
+            .or_else(|| self.author.clone())
+            .unwrap_or_default();
 
         let mut log = Log::open(self.home.join("conversations.jsonl"))
             .context("cannot open the conversation record")?;
@@ -350,6 +355,7 @@ mod tests {
                 said: "Please check mail",
                 sent: None,
                 author: None,
+                memory_source: None,
                 extra: None,
             }
             .run(|p| {

@@ -510,3 +510,14 @@ The full suite also exposed a test fixture lock outliving its descriptor because
 PTY tests can inherit it between fork and exec. The workflow lock test now explicitly
 unlocks its owned descriptor before asserting the same interrupted workflow behavior.
 No assertion was removed or relaxed.
+
+## Screenshot memory provenance and permissions
+
+Archived Carl issue 46. The one shot screenshot surface recorded notes with no source.
+`screenshot_notes_identify_an_inference_and_preserve_the_human_question_author` failed
+with a bare note before adding explicit screen interpretation provenance, separately
+from JJ's authorship of the question. No real screen or model call is needed by the test.
+
+The same surface constructed a default runner and bypassed the configured permissions
+and chief scope. `screenshot_runner_obeys_jjs_permission_mode_and_chief_scope` failed
+before using the shared surface runner. Both regressions were observed before the fix.
