@@ -17,6 +17,9 @@ pub fn draw(app: &mut App, ui: &mut Ui, view: &AgentView) {
         .cloned();
 
     let Some(task) = task else {
+        if super::workflow::draw(app, ui, view) {
+            return;
+        }
         widgets::card(ui, 86.0, widgets::Card::default(), |ui| {
             widgets::state_chip(ui, Mark::Hollow, "NO TASK IN HAND", theme::UNKNOWN);
             ui.add_space(4.0);

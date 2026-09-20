@@ -6,7 +6,7 @@ Input integrity regressions failed before the fix and passed afterward. Edited, 
 and linked inputs are rejected after every command. Generated test output is allowed.
 
 The shared Iris transport passed 92 tests. Carl and the panel passed formatting,
-Clippy with warnings denied and 1423 Rust tests, with one ignored. Parallel tests had
+Clippy with warnings denied and 1427 Rust tests, with one ignored. Parallel tests had
 transient executable file busy errors. The sequential suite passed unchanged.
 
 ## First real repair
@@ -67,3 +67,23 @@ The review reader regressions reproduced missing sequence acceptance and failure
 on an active partial append. Both passed after sharing the bounded status reader.
 The entire 46 test Evan suite passed with real Bubblewrap execution, along with
 92 Iris tests. Reading a review preserved the journal bytes unchanged.
+
+
+## Broader Holoprojector validation
+
+On 2026 09 20 a separate operator check exported the exact baseline `440e260` and
+prepared commit `fbcbe9a` into disposable Bubblewrap environments. Source, Python
+3.12.14 and the existing dependency packages were mounted read only. Network,
+host home and credentials were absent. Import paths confirmed that tests used
+`/work/src`, not the editable host checkout. Pytest plugin autoload was disabled.
+
+The baseline full suite passed 216 tests with one skipped. The repaired full suite
+passed 223 tests and 26 subtests with one skipped. The skip requires a display.
+The repaired app also completed 120 headless frames with a fixed 0.016 second
+step. Its Carl command path accepted `pause the pyramid`, and the final state
+reported the pyramid paused. These checks did not open a graphical window.
+
+This supplements the original targeted workflow evidence. It does not change
+Evan's configured test policy or retroactively alter his journal. Publication
+remains disabled. Raw local output is saved in the migration logs as
+`omarchy-evan-full-validation.json`.

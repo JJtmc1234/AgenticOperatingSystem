@@ -21,7 +21,7 @@ fn workflow_completion_reaches_a_live_panel_without_changing_army_sequence() {
     let (mut live, first) = LivePanel::open(&backend.socket()).unwrap();
     let sequence = first.seq;
     assert!(first.diagnostics.iter().any(|d| d.component == COMPONENT));
-    let event = serde_json::json!({"kind":"run_finished","report":{"rows":[{
+    let event = serde_json::json!({"seq":1,"kind":"run_finished","report":{"rows":[{
         "repo":"JJtmc1234/Holoprojector","issue":2,"status":"Prepared. Publication disabled."
     }]}});
     std::fs::write(root.join("events.jsonl"), format!("{event}\n")).unwrap();

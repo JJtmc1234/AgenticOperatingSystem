@@ -1482,3 +1482,21 @@ and `test_review_ignores_only_an_incomplete_append_during_a_running_workflow` fa
 before the shared reader was added. Review and status now use the same bounded,
 read-only journal parser. Only a final incomplete record while the kernel lock is
 held is ignored. Completed corrupt records and interrupted appends remain errors.
+
+
+## Evan review work displayed as an empty task
+
+The agent inspector showed no task in hand beneath Evan's awaiting review status.
+`a_prepared_repair_has_an_action_instead_of_the_empty_task_card` failed before the
+workflow card was connected. The inspector now shows the observed repair and a
+copyable review command. The regression paints both desktop and laptop layouts,
+checking for clipped or overlapping text. No command is executed by copying it.
+
+## Corrupt repair history presented as healthy
+
+The panel reader accepted missing sequence numbers and reports without row statuses.
+`a_gap_in_evans_journal_cannot_claim_a_repair_is_ready` and
+`a_malformed_workflow_report_is_unknown_not_idle` failed before validation was added.
+These observations now remain unknown. The copyable review command is emitted only
+for a valid repository name and positive issue number, covered by
+`a_review_command_uses_only_valid_repository_and_issue_arguments`.

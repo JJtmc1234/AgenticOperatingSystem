@@ -12,7 +12,17 @@ fn home(events: &[serde_json::Value]) -> tempfile::TempDir {
     .unwrap();
     std::fs::write(
         root.join("events.jsonl"),
-        events.iter().map(|v| format!("{v}\n")).collect::<String>(),
+        events
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                let mut event = value.clone();
+                if event.get("seq").is_none() {
+                    event["seq"] = json!(index + 1);
+                }
+                format!("{event}\n")
+            })
+            .collect::<String>(),
     )
     .unwrap();
     dir
@@ -74,4 +84,43 @@ fn a_held_workflow_lock_means_working_and_an_unheld_file_does_not() {
     );
     drop(file);
     assert_eq!(reading(dir.path()).health, Health::Blocked);
+}
+
+#[test]
+fn a_gap_in_evans_journal_cannot_claim_a_repair_is_ready() {
+    let dir = home(&[json!({"seq":2,"kind":"run_finished","report":{"rows":[{
+        "repo":"JJtmc1234/Holoprojector","issue":2,"status":"Prepared. Publication disabled."
+    }]}})]);
+    assert_eq!(reading(dir.path()).health, Health::Unknown);
+}
+
+#[test]
+fn a_malformed_workflow_report_is_unknown_not_idle() {
+    let dir = home(&[json!({"seq":1,"kind":"run_finished","report":{"rows":[{
+        "repo":"JJtmc1234/Holoprojector","issue":2
+    }]}})]);
+    assert_eq!(reading(dir.path()).health, Health::Unknown);
+}
+
+#[test]
+fn a_review_command_uses_only_valid_repository_and_issue_arguments() {
+    for (repo, issue, expected) in [
+        ("JJtmc1234/Holoprojector", 2, true),
+        ("JJtmc1234/repo;touch /tmp/wrong", 2, false),
+        ("--help/repo", 2, false),
+        ("JJtmc1234/Holoprojector", 0, false),
+    ] {
+        let dir = home(&[json!({"kind":"run_finished","report":{"rows":[{
+            "repo":repo,"issue":issue,"status":"Prepared. Publication disabled."
+        }]}})]);
+        let found = reading(dir.path());
+        let command = found.metrics.iter().find(|m| m.name == "review_command");
+        assert_eq!(command.is_some(), expected);
+        if let Some(command) = command {
+            assert_eq!(
+                command.value,
+                Reading::Text("carl evan review --repo JJtmc1234/Holoprojector --issue 2".into())
+            );
+        }
+    }
 }

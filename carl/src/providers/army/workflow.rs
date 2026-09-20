@@ -5,6 +5,8 @@ use std::path::Path;
 
 #[path = "workflow_io.rs"]
 mod io;
+#[path = "workflow_report.rs"]
+mod report;
 use io::{bounded, busy};
 
 pub const COMPONENT: &str = "army.workflow.evan";
@@ -70,10 +72,13 @@ pub fn read(home: &Path) -> Diagnostic {
         return unknown();
     };
     let mut last = None;
-    for line in text.lines() {
+    for (index, line) in text.lines().enumerate() {
         let Ok(event) = serde_json::from_str::<Value>(line) else {
             return unknown();
         };
+        if event["seq"].as_u64() != Some(index as u64 + 1) {
+            return unknown();
+        }
         match event["kind"].as_str() {
             Some("run_started" | "run_finished") => last = Some(event),
             Some(_) => {}
@@ -101,49 +106,5 @@ pub fn read(home: &Path) -> Diagnostic {
     let Some(rows) = event["report"]["rows"].as_array() else {
         return unknown();
     };
-    let blocked = rows.iter().find(|r| {
-        r["status"]
-            .as_str()
-            .is_some_and(|s| s.starts_with("Blocked."))
-    });
-    let ready: Vec<_> = rows
-        .iter()
-        .filter(|r| {
-            r["status"]
-                .as_str()
-                .is_some_and(|s| s.starts_with("Prepared."))
-        })
-        .collect();
-    if let Some(row) = blocked {
-        return diagnostic(
-            "blocked",
-            Health::Blocked,
-            format!("Evan repair blocked: {}", subject(row)),
-        );
-    }
-    if let Some(row) = ready.first() {
-        return diagnostic(
-            "review",
-            Health::Healthy,
-            format!(
-                "{} repair(s) ready for review: {}",
-                ready.len(),
-                subject(row)
-            ),
-        );
-    }
-    diagnostic(
-        "idle",
-        Health::Healthy,
-        "Evan has no local repairs waiting for review",
-    )
-}
-
-fn subject(row: &Value) -> String {
-    let repo = row["repo"].as_str().unwrap_or("unknown repository");
-    let issue = row["issue"]
-        .as_u64()
-        .map(|n| format!(" #{n}"))
-        .unwrap_or_default();
-    format!("{repo}{issue}").chars().take(240).collect()
+    report::read(rows).unwrap_or_else(unknown)
 }

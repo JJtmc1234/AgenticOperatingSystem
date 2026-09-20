@@ -19,6 +19,7 @@ use super::widgets::{self, Mark};
 
 mod intervention;
 mod task;
+mod workflow;
 
 pub fn draw(app: &mut App, ui: &mut Ui) {
     let Some(name) = app.agent.clone() else {

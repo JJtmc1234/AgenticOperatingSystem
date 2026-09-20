@@ -58,6 +58,10 @@ It does not start workers, fetch remote source, change the journal or publish a 
 It refuses a checkout changed since preparation so old test evidence is not presented
 as verification of new edits. Missing prepared work is reported without creating state.
 
+In the command panel, select Evan to see the repair workflow card. Prepared work
+provides **Copy review command**. Paste that command into a terminal to inspect
+the evidence. The panel keeps conversational tasks and repair work distinct.
+
 ## Selection and scheduling
 
 The five minute timer detects new issues. Unchanged failed work becomes eligible again after
