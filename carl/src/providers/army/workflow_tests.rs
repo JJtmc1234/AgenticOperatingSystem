@@ -124,3 +124,19 @@ fn a_review_command_uses_only_valid_repository_and_issue_arguments() {
         }
     }
 }
+
+#[test]
+fn queued_or_retrying_repairs_do_not_look_like_an_empty_workflow() {
+    for status in [
+        "Queued. Evan daily model budget exhausted. Work remains queued.",
+        "Waiting for two hour retry or changed issue or source.",
+        "Blocked. Prepared checkout changed. Saved verification no longer describes it.",
+    ] {
+        let dir = home(&[json!({"kind":"run_finished","report":{"rows":[{
+            "repo":"JJtmc1234/Holoprojector","issue":2,"status":status
+        }]}})]);
+        let found = reading(dir.path());
+        assert_eq!(found.health, Health::Blocked);
+        assert!(found.summary.contains(status));
+    }
+}

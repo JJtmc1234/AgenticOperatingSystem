@@ -1500,3 +1500,12 @@ The panel reader accepted missing sequence numbers and reports without row statu
 These observations now remain unknown. The copyable review command is emitted only
 for a valid repository name and positive issue number, covered by
 `a_review_command_uses_only_valid_repository_and_issue_arguments`.
+
+
+## Waiting Evan repairs shown as idle
+
+Queued work and a failed repair waiting for its retry interval fell through to the
+empty workflow status. Blocked repairs also lost their reason in the summary.
+`queued_or_retrying_repairs_do_not_look_like_an_empty_workflow` failed before the
+fix. These states now show blocked work with the actual bounded reason, while
+prepared repairs still provide the review command.

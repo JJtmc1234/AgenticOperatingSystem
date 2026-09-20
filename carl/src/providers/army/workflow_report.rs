@@ -11,9 +11,11 @@ pub(super) fn read(rows: &[Value]) -> Option<Diagnostic> {
         return None;
     }
     let blocked = rows.iter().find(|r| {
-        r["status"]
-            .as_str()
-            .is_some_and(|s| s.starts_with("Blocked."))
+        r["status"].as_str().is_some_and(|s| {
+            ["Blocked.", "Queued.", "Waiting for "]
+                .iter()
+                .any(|prefix| s.starts_with(prefix))
+        })
     });
     let ready: Vec<_> = rows
         .iter()
@@ -27,7 +29,16 @@ pub(super) fn read(rows: &[Value]) -> Option<Diagnostic> {
         return Some(diagnostic(
             "blocked",
             Health::Blocked,
-            format!("Evan repair blocked: {}", subject(row)),
+            format!(
+                "{}: {}",
+                subject(row),
+                row["status"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(500)
+                    .collect::<String>()
+            ),
         ));
     }
     if let Some(row) = ready.first() {
