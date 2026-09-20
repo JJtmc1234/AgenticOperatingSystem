@@ -338,7 +338,7 @@ mod tests {
         }
     }
 
-    /// JJ asked for at least ten. Twenty two is the roster, and this fails if somebody thins
+    /// JJ asked for at least ten. This guards the legacy roster if somebody thins
     /// it out without meaning to.
     #[test]
     fn the_army_is_actually_an_army() {

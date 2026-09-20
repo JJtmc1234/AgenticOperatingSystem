@@ -539,3 +539,20 @@ and long words take the fact lookup path. Both failed before those compatibility
 `forgetting_a_fact_removes_both_legacy_and_current_copies` also failed before a fact lookup
 removed both matching representations. This prevents the old copy from bringing back a
 fact after the new copy was forgotten. Unrelated legacy contents remain protected.
+
+## Reclaiming an orphan had no direct supervisor regression
+
+Archived Carl issue 40 identified a coverage gap between deciding to reclaim a process and
+actually ending it. `a_tick_reclaims_orphans_without_duplicate_processes_or_lost_sessions`
+uses disposable processes and checks both established and unestablished sessions. It also
+checks that the next tick keeps the replacement rather than starting another process.
+Removing the reclaim arm's cleanup call made the test fail with the orphan still alive.
+Restoring the existing implementation made it pass. Production behavior was already correct.
+
+## Workflow bridge fixtures raced concurrent process tests
+
+The full suite caught `evan_bridge_preserves_failure_status_and_diagnostics` failing with
+ExecutableFileBusy. Evan and Iris tests wrote executable scripts while other tests could
+fork and briefly inherit their writer descriptors. Both bridge fixtures now use checked in
+scripts through temporary paths containing spaces. All argument, diagnostic and exit status
+assertions remain unchanged. The tests never invoke the actual workflow or send messages.

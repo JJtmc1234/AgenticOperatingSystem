@@ -1,0 +1,5 @@
+#!/bin/sh
+# Static fixture so parallel process tests cannot inherit a writer to this executable.
+printf 'report\n'
+printf 'failed\n' >&2
+exit 23

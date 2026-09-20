@@ -225,3 +225,10 @@ contents and removes both matching old and current copies without removing unrel
 Five regressions failed before the corresponding changes. Validation: 1246 backend tests
 and 224 panel tests passed, plus strict workspace Clippy, formatting and release builds.
 The current panel guide documents the display rationale and remaining project compatibility.
+
+Added a real process regression for orphan reclamation, including session preservation and
+idempotent later ticks. Removing its cleanup call failed the regression, and restoring it
+passed. A full suite run exposed an executable writer race in the Evan bridge fixture.
+Evan and Iris now use static test scripts with all assertions preserved. The final backend
+suite passed 1247 tests, with the same one ignored manual test. Strict Clippy and formatting
+passed. These last changes add coverage and correct comments without changing live behavior.

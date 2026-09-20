@@ -1,0 +1,3 @@
+#!/bin/sh
+# Static fixture so parallel process tests cannot inherit a writer to this executable.
+printf '%s\n' "$@"

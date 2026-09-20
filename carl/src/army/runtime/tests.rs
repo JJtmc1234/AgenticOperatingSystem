@@ -13,6 +13,9 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 
+#[path = "reclaim_tests.rs"]
+mod reclaim;
+
 /// How many agents a founded home holds.
 ///
 /// Taken from the table rather than written out. These tests are about what the supervisor does

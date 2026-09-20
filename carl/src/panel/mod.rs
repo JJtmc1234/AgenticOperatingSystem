@@ -29,10 +29,10 @@
 //! Agents cannot reach it at all, since they run with no home directory bound and the path does
 //! not exist for them.
 //!
-//! **What is not built here.** No diagnostics collectors and no project scanning: the shapes
-//! exist and the lists come back empty, because Carl measures neither yet and a made up
-//! milestone is worse than a missing one. No editor and no terminal. Those belong to the other
-//! two processes, and `docs/panel-v1.md` is the contract they build against.
+//! **Providers supply measurements and workspace tools.** Diagnostics come from the army and
+//! system collectors. Compatibility project records are still readable through their provider.
+//! The workspace provider owns editor and terminal sessions. This backend joins those facts
+//! into the wire contract. See `docs/panel-current.md` for the current user interface.
 
 pub mod client;
 pub mod command;
