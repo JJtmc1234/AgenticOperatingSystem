@@ -53,6 +53,7 @@ pub struct Kept {
     pub seen: Option<String>,
 }
 
+pub(crate) use names::legacy_note_name;
 /// A short, stable filename for a note.
 ///
 /// Named from the note itself rather than from the clock, so writing the same fact twice
@@ -61,20 +62,8 @@ pub struct Kept {
 ///
 /// Shared with forgetting on purpose. If naming and forgetting disagreed by one character,
 /// `[forget]` would silently do nothing and the wrong note would stay.
-pub fn note_name(note: &str) -> String {
-    let slug = note
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .to_lowercase()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .take(6)
-        .collect::<Vec<_>>()
-        .join("-");
-
-    if slug.is_empty() { String::new() } else { slug }
-}
+pub use names::note_name;
+mod names;
 
 /// Splits an answer into what to say and what to keep.
 ///

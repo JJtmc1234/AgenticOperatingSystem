@@ -521,3 +521,21 @@ from JJ's authorship of the question. No real screen or model call is needed by 
 The same surface constructed a default runner and bypassed the configured permissions
 and chief scope. `screenshot_runner_obeys_jjs_permission_mode_and_chief_scope` failed
 before using the shared surface runner. Both regressions were observed before the fix.
+
+## Memory facts overwrote matching prefixes or exceeded the filename limit
+
+Archived Carl issues 29 and 30. Notes used only their first six words as the filename,
+so unrelated facts with that prefix overwrote each other. A long word could exceed the
+store's 64 byte name limit and fail to save. `different_facts_with_the_same_first_six_words_keep_separate_notes`
+and `long_fact_names_fit_the_memory_store_and_are_stable` both failed before the fix.
+Short names stay unchanged. Truncated names now include a digest of the complete normalized
+fact and remain within the filename limit. Existing notes are not rewritten or deleted.
+
+`forgetting_a_legacy_long_fact_checks_its_contents_before_removing_it` and
+`a_single_long_word_can_be_forgotten_as_a_fact` exposed compatibility gaps after the naming
+change. Forgetting now verifies the complete legacy fact before removing its short name,
+and long words take the fact lookup path. Both failed before those compatibility fixes.
+
+`forgetting_a_fact_removes_both_legacy_and_current_copies` also failed before a fact lookup
+removed both matching representations. This prevents the old copy from bringing back a
+fact after the new copy was forgotten. Unrelated legacy contents remain protected.

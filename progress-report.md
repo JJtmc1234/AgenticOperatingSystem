@@ -218,3 +218,10 @@ observations as Carl's interpretation. They also use the configured JJ permissio
 chief tool scope. Both new regressions failed before the fixes. The updated backend suite
 passed 1241 tests, with the same one manual migration test ignored. Strict Clippy,
 formatting and the release build passed. No screen was captured for these tests.
+
+Memory notes now distinguish facts with matching opening words and fit the 64 byte filename
+limit. Existing short names remain unchanged. Forgetting by fact checks complete legacy
+contents and removes both matching old and current copies without removing unrelated facts.
+Five regressions failed before the corresponding changes. Validation: 1246 backend tests
+and 224 panel tests passed, plus strict workspace Clippy, formatting and release builds.
+The current panel guide documents the display rationale and remaining project compatibility.

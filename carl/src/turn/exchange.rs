@@ -34,6 +34,7 @@ fn forget_note(memory: &Memory, named: &str) -> anyhow::Result<bool> {
     // to Memory is a validation error rather than a miss, which would turn "no such note"
     // into a failure and hide the real outcome.
     let could_be_a_filename = !bare.is_empty()
+        && bare.len() <= 64
         && bare
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
@@ -44,10 +45,28 @@ fn forget_note(memory: &Memory, named: &str) -> anyhow::Result<bool> {
 
     // Otherwise as a fact, put through the same naming rule that wrote it.
     let slug = crate::remember::note_name(bare);
-    if !slug.is_empty() && memory.forget(&slug)? {
-        return Ok(true);
+    let removed = !slug.is_empty() && memory.forget(&slug)?;
+    // Older notes used only six words. Check the complete stored fact before removing a
+    // legacy name, since another fact may share that prefix.
+    let legacy = crate::remember::legacy_note_name(bare);
+    if !legacy.is_empty() && legacy.len() <= 64 && legacy != slug {
+        let path = memory.dir().join(format!("{legacy}.md"));
+        match std::fs::read_to_string(path) {
+            Ok(contents) => {
+                let fact = contents
+                    .split("\n\n(said by ")
+                    .next()
+                    .unwrap_or_default()
+                    .trim();
+                if crate::remember::note_name(fact) == slug {
+                    return Ok(memory.forget(&legacy)? || removed);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
     }
-    Ok(false)
+    Ok(removed)
 }
 
 pub fn now() -> u64 {
@@ -400,6 +419,47 @@ mod tests {
             forget_note(&memory, "jj-prefers-two-sentence-answers.md").unwrap(),
             "by the filename he was shown"
         );
+    }
+
+    #[test]
+    fn forgetting_a_legacy_long_fact_checks_its_contents_before_removing_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let memory = Memory::open(dir.path()).unwrap();
+        let original = "JJ wants the next dashboard to show agent work";
+        let other = "JJ wants the next dashboard to hide unused metrics";
+        memory
+            .write_from("jj-wants-the-next-dashboard-to", original, "JJ")
+            .unwrap();
+        assert!(!forget_note(&memory, other).unwrap());
+        assert!(forget_note(&memory, original).unwrap());
+        assert!(memory.notes().unwrap().is_empty());
+    }
+
+    #[test]
+    fn forgetting_a_fact_removes_both_legacy_and_current_copies() {
+        let dir = tempfile::tempdir().unwrap();
+        let memory = Memory::open(dir.path()).unwrap();
+        let fact = "JJ wants the next dashboard to show agent work";
+        memory
+            .write_from("jj-wants-the-next-dashboard-to", fact, "JJ")
+            .unwrap();
+        memory
+            .write_from(&crate::remember::note_name(fact), fact, "JJ")
+            .unwrap();
+        assert!(forget_note(&memory, fact).unwrap());
+        assert!(memory.notes().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_single_long_word_can_be_forgotten_as_a_fact() {
+        let dir = tempfile::tempdir().unwrap();
+        let memory = Memory::open(dir.path()).unwrap();
+        let fact = "a".repeat(300);
+        memory
+            .write(&crate::remember::note_name(&fact), &fact)
+            .unwrap();
+        assert!(forget_note(&memory, &fact).unwrap());
+        assert!(memory.notes().unwrap().is_empty());
     }
 
     /// Forgetting something that was never kept must say so rather than claim success, or

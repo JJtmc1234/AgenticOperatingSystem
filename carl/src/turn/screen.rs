@@ -40,10 +40,10 @@ mod tests {
                 })
             })
             .unwrap();
-        let note = std::fs::read_to_string(
-            home.path()
-                .join("memory/the-screenshot-appears-to-show-a.md"),
-        )
+        let note = std::fs::read_to_string(home.path().join("memory").join(format!(
+            "{}.md",
+            crate::remember::note_name("The screenshot appears to show a factory")
+        )))
         .unwrap();
         assert!(note.contains("Carl interpreting JJ's screenshot"), "{note}");
         assert!(
