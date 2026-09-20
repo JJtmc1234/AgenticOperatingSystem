@@ -684,3 +684,19 @@ fn task_list_shows_scheduled_review_work_without_a_delegated_task() {
     assert!(frame.says("Owner: evan"));
     assert!(!frame.says("No active assignments recorded"));
 }
+
+#[test]
+fn unmeasured_components_do_not_pose_as_faults_requiring_action() {
+    let mut a = app();
+    a.snapshot
+        .diagnostics
+        .retain(|d| d.health == crate::model::Health::Unknown);
+    assert!(!a.snapshot.diagnostics.is_empty());
+    let frame = tab(&mut a, Tab::Diagnostics, SMALL);
+    assert!(frame.says("No reported faults"));
+    assert!(frame.says("Unmeasured components"));
+    assert!(
+        !frame.says("Investigate"),
+        "measurement gaps should expand before showing actions"
+    );
+}

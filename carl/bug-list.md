@@ -402,3 +402,12 @@ The room service units also pointed at the historical AOS/carl checkout and allo
 only 600 seconds for a permission hook that can wait 660 seconds. The executable
 path checks and existing timeout checks in `portal/check-services.sh` failed against
 those units. Both units now use the active checkout and allow 960 seconds.
+
+## Unmeasured diagnostics looked like work needing attention
+
+The default diagnostic cards treated unavailable readings as urgent investigation work.
+The live system has no completed handover latency samples and no readable thermal sensor,
+which are measurement gaps rather than reported faults. Missing readings remain visible
+in an expandable group, while the attention count covers faults and stale healthy samples.
+`unmeasured_components_do_not_pose_as_faults_requiring_action` failed before the change.
+The existing missing reading visibility test still passes without removing its assertion.
