@@ -1,7 +1,8 @@
 # the command panel
 
-A fullscreen operations interface for the army. Four tabs, one adapter boundary, and no state
-model of its own.
+The command panel is a resizable app for conversations, agent work and actionable problems.
+See [the current panel guide](panel-current.md) for the September 2026 behavior. The design
+and integration history below describes the original implementation.
 
 ## the framework, and why
 
@@ -29,11 +30,12 @@ crates, which is why the panel is its own member rather than a feature of `carl`
 ## how to launch
 
 ```
-cargo run -p carl-panel                          fullscreen, mock data
-cargo run -p carl-panel -- --windowed            windowed, for working on it
-cargo run -p carl-panel -- --tour --frames 300   drives every tab and exits
-cargo run -p carl-panel -- --seconds 62          runs the whole scripted minute
-cargo run -p carl-panel -- --toggle              flips a running panel and exits
+cargo run -p carl-panel                         # resizable window, live backend
+cargo run -p carl-panel -- --fullscreen          # explicit fullscreen
+cargo run -p carl-panel -- --mock                # explicit demonstration data
+cargo run -p carl-panel -- --mock --tour --frames 300
+cargo run -p carl-panel -- --mock --seconds 62
+cargo run -p carl-panel -- --toggle              # toggle, or launch if absent
 ```
 
 The root `cargo build` and `cargo test` still cover only `carl`, because `default-members` is
@@ -67,7 +69,7 @@ would send the flip somewhere no panel would ever appear.
 are already looking at the window is worse than one that says it needs a line of setup, because
 the first kind is discovered while Factorio is fullscreen and the panel will not come.
 
-Restoring keeps the tab, the selected agent, the selected project, the open workspace, both
+Restoring keeps the tab, the selected agent, compatibility project state, the open workspace, both
 half typed boxes, and whether the conversation was pinned to the bottom. That set is a struct,
 `app::Kept`, so the test asserts on all of it at once rather than on a list somebody will
 forget to extend.

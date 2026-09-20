@@ -295,7 +295,7 @@ Same question, twice each, interleaved so load could not flatter either side.
 First token dropped from 15s to 2.8s as well, which was not expected. Claude thinks less hard
 about an answer that has to fit in two sentences.
 
-The brief lives in `voice_brief.rs` and is only added to spoken turns. `carl ask` in a
+The brief lives in `src/brief.rs` and is only added to spoken turns. `carl ask` in a
 terminal deliberately does not get it, because two sentences is the wrong shape for something
 you are reading.
 

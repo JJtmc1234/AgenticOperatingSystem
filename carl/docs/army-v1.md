@@ -11,7 +11,8 @@ JJ  ->  Carl  ->  Adrian  ->  Mason  ->  Nora
 human   chief     lead        lead       worker
 ```
 
-Five agents. Not twenty two. The generic roster in `src/army/roster.rs` is the older unnamed
+This original diagram shows five participants. The current organization is defined in
+`src/army/org.rs`. The generic roster in `src/army/roster.rs` is the older unnamed
 squad and the campaign path still uses it, but nothing new should be built on it.
 
 ## what already existed, and what changed
@@ -62,8 +63,8 @@ Three rules are in the types rather than in a brief, because a brief is a reques
 ```rust
 pub struct TaskId(String)                      // Serialize, from /dev/urandom
 pub struct Verification { must: Vec<String> }  // refuses an empty list
-pub enum Status { Assigned, InHand, Submitted, ChangesRequested, Accepted, Abandoned }
-pub struct Task { id, goal, verification, status, owner, created_by, parent, attempts, workspace }
+pub enum Status { Assigned, InHand, Submitted, ChangesRequested, Blocked, Accepted, Abandoned }
+pub struct Task { id, goal, verification, status, owner, created_by, parent, attempts, workspace, project }
 
 pub const MAX_ATTEMPTS: u32 = 3;
 
