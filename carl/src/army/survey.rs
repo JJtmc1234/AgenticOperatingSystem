@@ -207,6 +207,7 @@ pub fn lifecycle_word(lifecycle: &Lifecycle) -> &'static str {
 pub fn line_of(record: &event::Record) -> String {
     use event::Event as E;
     let what = match &record.event {
+        E::AgentSessionEstablished { name, .. } => format!("{name} established a conversation"),
         E::Delegated { to, goal, task, .. } => format!("handed {task} to {to}. {goal}"),
         E::Moved { task, from, to } => format!("moved {task} from {from} to {to}"),
         E::Submitted { task, .. } => format!("submitted {task}"),

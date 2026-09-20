@@ -130,8 +130,10 @@ fn a_replaced_process_keeps_the_same_agent_and_the_same_conversation() {
     let people = army(d.path());
     let nora = id_of(&people, "nora");
 
-    let mut sup = supervisor(d.path(), &stays_up());
+    let mut sup = supervisor(d.path(), &stand_in("agent-does-as-told"));
     sup.tick(&people, 1000).unwrap();
+    sup.deliver(&nora, "hello", std::time::Duration::from_secs(2))
+        .unwrap();
     let first = sup.roll().get(&nora).unwrap().clone();
     let first_pid = first.lifecycle.pid().unwrap();
 
@@ -406,8 +408,10 @@ fn a_process_replaced_under_a_kept_conversation_is_recorded_as_exactly_that() {
     let people = army(d.path());
     let nora = id_of(&people, "nora");
 
-    let mut sup = supervisor(d.path(), &stays_up());
+    let mut sup = supervisor(d.path(), &stand_in("agent-does-as-told"));
     sup.tick(&people, 1000).unwrap();
+    sup.deliver(&nora, "hello", std::time::Duration::from_secs(2))
+        .unwrap();
     drop(sup);
 
     let mut sup = supervisor(d.path(), &stays_up());
@@ -415,7 +419,12 @@ fn a_process_replaced_under_a_kept_conversation_is_recorded_as_exactly_that() {
 
     assert_eq!(
         trail(d.path(), &nora),
-        ["agent_started", "agent_crashed", "agent_started"],
+        [
+            "agent_started",
+            "agent_session_established",
+            "agent_crashed",
+            "agent_started"
+        ],
         "started, went down with its supervisor, came back"
     );
 
@@ -678,10 +687,18 @@ fn the_window_ending_lets_an_agent_start_again_on_the_same_conversation() {
     let d = tempfile::tempdir().unwrap();
     let people = all_sleeping(d.path(), crate::army::personnel::Hours::night());
     let nora = id_of(&people, "nora");
-    let mut sup = supervisor(d.path(), &stays_up());
+    let mut sup = supervisor(d.path(), &stand_in("agent-does-as-told"));
 
     let night = at_local_hour(3);
     sup.tick(&people, night).unwrap();
+    for name in people.names() {
+        sup.deliver(
+            &id_of(&people, name),
+            "hello",
+            std::time::Duration::from_secs(2),
+        )
+        .unwrap();
+    }
     let before = sup.roll().get(&nora).unwrap().session.clone();
     sup.keep_hours(&people, night).unwrap();
 
@@ -735,10 +752,12 @@ fn an_agent_woken_inside_its_window_is_left_up_until_the_window_ends() {
     let d = tempfile::tempdir().unwrap();
     let people = all_sleeping(d.path(), crate::army::personnel::Hours::night());
     let nora = id_of(&people, "nora");
-    let mut sup = supervisor(d.path(), &stays_up());
+    let mut sup = supervisor(d.path(), &stand_in("agent-does-as-told"));
 
     let night = at_local_hour(1);
     sup.tick(&people, night).unwrap();
+    sup.deliver(&nora, "hello", std::time::Duration::from_secs(2))
+        .unwrap();
     sup.keep_hours(&people, night).unwrap();
 
     let woke = sup

@@ -23,3 +23,9 @@ model selection and fallback behavior.
 
 Evan keeps the existing limits of $0.50 per call, $1.50 per run and $5 per UTC day.
 Those workflow limits do not govern the persistent conversational agents.
+
+
+The lead upgrade exposed an existing idle-session restart defect. The supervisor
+now records a conversation as established only after a completed answer. Starting
+an idle Claude process alone does not create a transcript. This change preserves
+used session IDs and avoids resuming newly launched sessions that received no work.

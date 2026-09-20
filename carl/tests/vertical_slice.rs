@@ -366,6 +366,14 @@ fn an_objective_goes_from_carl_to_a_worker_and_an_accepted_result_comes_back() {
 fn killing_the_worker_never_finishes_its_task() {
     let mut slice = Slice::founded(&stand_in("agent-does-as-told"));
     slice.supervisor.tick(&slice.people, 1_000).unwrap();
+    slice
+        .supervisor
+        .deliver(
+            &slice.id("nora"),
+            "hello",
+            std::time::Duration::from_secs(2),
+        )
+        .unwrap();
 
     let lead_task = task("mason", "nora", "write the file", "result.txt says done");
     slice.board.delegate("mason", &lead_task).unwrap();
@@ -391,7 +399,12 @@ fn killing_the_worker_never_finishes_its_task() {
 
     assert_eq!(
         slice.runtime_trail("nora"),
-        ["agent_started", "agent_crashed", "agent_started"],
+        [
+            "agent_started",
+            "agent_session_established",
+            "agent_crashed",
+            "agent_started"
+        ],
         "started, crashed, started again"
     );
 

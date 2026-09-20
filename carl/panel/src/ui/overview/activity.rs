@@ -122,6 +122,7 @@ fn kind_of(event: &Event) -> &'static str {
         Event::AgentWoken { .. } => "WOKEN",
         Event::ContinuityChanged { .. } => "LOST ITS THREAD",
         Event::Granted { .. } => "GRANTED",
+        Event::AgentSessionEstablished { .. } => "CONVERSATION",
     }
 }
 
@@ -187,6 +188,9 @@ pub fn describe(event: &Event) -> String {
             format!("{name} came back without its conversation. {why}")
         }
         Event::Granted { to, what, .. } => format!("{to} was allowed to {what}"),
+        Event::AgentSessionEstablished { name, .. } => {
+            format!("{name} has a conversation to resume")
+        }
     }
 }
 

@@ -156,8 +156,10 @@ impl Supervisor {
     pub fn take(home: impl Into<PathBuf>, program: impl Into<PathBuf>) -> Result<Self> {
         let home = home.into();
         let _lock = Lock::take(&home)?;
+        let mut roll = Roll::open(&home)?;
+        super::restore::established(&home, &mut roll)?;
         Ok(Self {
-            roll: Roll::open(&home)?,
+            roll,
             journal: Journal::open(home.join("run").join("events.jsonl"))?,
             home,
             program: program.into(),
@@ -438,6 +440,22 @@ impl Supervisor {
             },
         )?;
         notes.answered(&answer.text, answer.interrupted);
+        if !answer.interrupted
+            && let Some(mut record) = self.roll.get(agent).cloned()
+            && !record.established
+            && let Some(session) = record.session.clone()
+        {
+            self.journal.append(
+                ACTOR,
+                Event::AgentSessionEstablished {
+                    agent: agent.clone(),
+                    name,
+                    session,
+                },
+            )?;
+            record.established = true;
+            self.roll.save(&home, record)?;
+        }
 
         match answer.interrupted {
             true => Err(crate::Error::Claude(format!(
@@ -484,12 +502,15 @@ impl Supervisor {
             }
             Next::Reclaim { pid, started } => {
                 end(pid, started);
-                Ok(
-                    match self.start(people, name, record, Start::Resume, now)? {
-                        Outcome::Started(_) => Outcome::Reclaimed,
-                        other => other,
-                    },
-                )
+                let how = if record.established {
+                    Start::Resume
+                } else {
+                    Start::Fresh
+                };
+                Ok(match self.start(people, name, record, how, now)? {
+                    Outcome::Started(_) => Outcome::Reclaimed,
+                    other => other,
+                })
             }
             Next::Start(how) => self.start(people, name, record, how, now),
         }
@@ -613,12 +634,9 @@ impl Supervisor {
             _ => SessionId::fresh()?,
         };
         let resume = how == Start::Resume && record.session.is_some();
-        // A fresh or renewed id has proved nothing. Carrying the old flag over would let the
-        // next attempt resume a conversation that has never been written.
-        // A pinned id is one claude creates as it starts, so it is established from here. A
-        // resume changes nothing: whether that conversation exists is exactly what is in doubt.
+        // An idle CLI process writes no transcript. Delivery establishes the conversation.
         if !resume {
-            record.established = true;
+            record.established = false;
         }
 
         let workdir = people.folder(name);

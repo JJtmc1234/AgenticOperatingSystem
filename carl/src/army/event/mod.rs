@@ -116,6 +116,12 @@ pub enum Event {
     ///
     /// JJ has absolute authority, so this is never refused. It is only ever made visible.
     Intervened { what: Intervention },
+    /// A delivered message produced a completed answer, establishing a resumable session.
+    AgentSessionEstablished {
+        agent: AgentId,
+        name: String,
+        session: SessionId,
+    },
     /// A process was started for an agent, and what survived into it.
     ///
     /// The supervisor is the only writer of this and the four below it. They are the only events
@@ -327,6 +333,7 @@ impl Event {
             Event::Intervened { .. } => "intervened",
             Event::Notified { .. } => "notified",
             Event::AgentStarted { .. } => "agent_started",
+            Event::AgentSessionEstablished { .. } => "agent_session_established",
             Event::AgentCrashed { .. } => "agent_crashed",
             Event::AgentStartFailed { .. } => "agent_start_failed",
             Event::AgentStopped { .. } => "agent_stopped",
@@ -344,7 +351,8 @@ impl Event {
     /// answering neither is one about the organisation rather than about anybody in particular.
     pub fn agent(&self) -> Option<&AgentId> {
         match self {
-            Event::AgentStarted { agent, .. }
+            Event::AgentSessionEstablished { agent, .. }
+            | Event::AgentStarted { agent, .. }
             | Event::AgentCrashed { agent, .. }
             | Event::AgentStartFailed { agent, .. }
             | Event::AgentStopped { agent, .. }
@@ -378,6 +386,7 @@ impl Event {
             // being true.
             Event::Refused { .. }
             | Event::Notified { .. }
+            | Event::AgentSessionEstablished { .. }
             | Event::AgentStarted { .. }
             | Event::AgentCrashed { .. }
             | Event::AgentStartFailed { .. }

@@ -134,20 +134,11 @@ pub struct Runtime {
     /// Consecutive starts that did not stick. Reset by a process that stayed up.
     #[serde(default)]
     pub attempts: u32,
-    /// Whether a process using `session` ever lived long enough to have created it.
+    /// Whether this session has returned a completed answer.
     ///
-    /// The difference between a conversation and an intention to have one. `--resume` on an id
-    /// claude never wrote fails immediately, which the supervisor counts as a failed start, so
-    /// an unestablished session makes every attempt fail the same way forever.
-    ///
-    /// That is not hypothetical. On 2026 08 28 all ten agents reached this state at once: the
-    /// renewal at three failures minted a fresh id, the process died before writing anything,
-    /// and attempts four and five resumed an id that had never existed. Every recorded session
-    /// in the army was one no conversation matched.
-    ///
-    /// Defaulted, so a record written before this existed loads as not established. That is the
-    /// conservative direction: one fresh start, which then establishes it, rather than trusting
-    /// an id whose history is unknown.
+    /// Starting an idle CLI process creates no transcript. A completed delivery records
+    /// the establishment in the journal before this flag is saved. Older records still
+    /// load, and a failed resume clears their optimistic establishment claim.
     #[serde(default)]
     pub established: bool,
     /// Woken deliberately, and not to be put back until its window ends.

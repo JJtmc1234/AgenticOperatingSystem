@@ -42,10 +42,13 @@ mod continuity;
 mod lock;
 mod policy;
 mod record;
+mod restore;
 pub mod revive;
 mod store;
 mod supervisor;
 
+#[cfg(test)]
+mod session_tests;
 #[cfg(test)]
 mod tests;
 

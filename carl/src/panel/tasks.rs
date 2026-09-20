@@ -120,7 +120,8 @@ pub fn fold(records: &[Record]) -> Vec<TaskView> {
             | Event::ContinuityChanged { .. }
             // A grant is about a task and is still not a change to it. Showing it as a status
             // would put a permission in the column that says how far the work has got.
-            | Event::Granted { .. } => {}
+            | Event::Granted { .. }
+            | Event::AgentSessionEstablished { .. } => {}
         }
     }
 

@@ -1509,3 +1509,29 @@ empty workflow status. Blocked repairs also lost their reason in the summary.
 `queued_or_retrying_repairs_do_not_look_like_an_empty_workflow` failed before the
 fix. These states now show blocked work with the actual bounded reason, while
 prepared repairs still provide the review command.
+
+
+## Resuming conversations that an idle process never created
+
+Restarting Nexus's army produced ten failed resumes before fresh sessions recovered.
+A disposable check with Claude Code confirmed that a process given no message wrote
+no transcript. Resuming its ID exited with `No conversation found` and zero model usage.
+The supervisor nevertheless marked every launched process as an established session.
+
+`an_idle_process_does_not_establish_a_conversation_for_restart` and
+`an_answer_establishes_the_conversation_before_it_can_be_resumed` failed before the
+fix. New sessions stay unestablished until a completed answer is recorded, followed
+by the runtime state update. Used conversations still resume with their same IDs.
+Existing continuity tests now actually deliver a message before expecting a resume.
+`an_interrupted_first_delivery_does_not_claim_a_completed_conversation` covers a
+first request that times out. Abandoned IDs and agent memory remain available.
+Older optimistic records can require one failed resume before the existing recovery
+path clears their flag. This change prevents fresh idle sessions repeating that mistake.
+
+
+The session journal event also recovers an interrupted runtime cache write.
+`an_establishment_record_survives_a_crash_before_the_runtime_cache_is_saved`
+failed before recovery was added. Recovery requires matching session identity and
+no later runtime event for that agent. Later failures, different sessions and
+unreadable history cannot restore stale authority, covered by
+`later_failures_other_sessions_and_unreadable_history_cannot_establish_a_session`.
