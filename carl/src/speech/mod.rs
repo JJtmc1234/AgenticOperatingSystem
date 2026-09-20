@@ -338,9 +338,7 @@ impl Speaking {
 
 impl Drop for Speaking {
     fn drop(&mut self) {
-        if !self.done() {
-            self.stop();
-        }
+        self.stop();
     }
 }
 
@@ -395,3 +393,6 @@ mod tests {
         assert!(v().say("").is_ok(), "empty text must not try to run piper");
     }
 }
+
+#[cfg(test)]
+mod cleanup_tests;

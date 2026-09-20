@@ -372,19 +372,21 @@ impl Task {
 /// approved. The rule lives here rather than in whoever assigns work, because a worker holding
 /// two tasks is the sort of thing each caller would check slightly differently.
 ///
+/// Assigned tasks may wait in the queue. Once started, a task keeps the worker through
+/// submission, requested changes and blockers until it is accepted or abandoned.
 /// `held` is every task that worker owns, however you are storing them.
 pub fn may_take_on(worker: &str, held: &[Task]) -> Result<()> {
     let busy: Vec<&Task> = held
         .iter()
-        .filter(|t| t.owner == worker && t.status == Status::InHand)
+        .filter(|t| t.owner == worker && t.status != Status::Assigned && !t.status.settled())
         .collect();
 
     match busy.first() {
         None => Ok(()),
         Some(t) => Err(Error::Refused(format!(
-            "{worker} already has {} in hand. A worker takes one task at a time, and the next \
-             only once that one is approved.",
-            t.id
+            "{worker} already has {} ({}). A worker takes one task at a time. The current task \
+             must be accepted or abandoned before another is started.",
+            t.id, t.status
         ))),
     }
 }
@@ -571,8 +573,7 @@ mod tests {
         assert!(err.contains("already has"), "{err}");
         assert!(err.contains("one task at a time"), "{err}");
 
-        // Submitted and waiting on review does not count as in hand, because she is not
-        // working on it and is free to be given the next one once it is approved.
+        // Review must finish before another task can be assigned.
         first.advance("nora", Status::Submitted).unwrap();
         first.advance("mason", Status::Accepted).unwrap();
         assert!(may_take_on("nora", std::slice::from_ref(&first)).is_ok());

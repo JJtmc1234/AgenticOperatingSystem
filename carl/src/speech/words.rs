@@ -10,8 +10,11 @@
 /// and dismal to listen to, and a spoken reply that recites a URL character by character is
 /// worse than one that skips it.
 pub fn speakable(raw: &str) -> String {
+    speakable_from(raw, false)
+}
+
+pub(super) fn speakable_from(raw: &str, mut in_code: bool) -> String {
     let mut out = Vec::new();
-    let mut in_code = false;
 
     for line in raw.lines() {
         let t = line.trim();

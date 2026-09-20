@@ -27,7 +27,7 @@ pub enum Heard {
 /// Spellings whisper produces for "Carl". Ordered longest first so "hey carl" is preferred
 /// over a shorter accidental match inside it.
 const NAMES: &[&str] = &[
-    "carl", "karl", "carle", "carol", "kall", "call", "cal", "kar",
+    "carle", "carol", "carl", "karl", "kall", "call", "cal", "kar",
 ];
 
 const END_PHRASES: &[&str] = &[
@@ -66,8 +66,13 @@ fn find_wake(text: &str) -> Option<(usize, usize)> {
     for name in NAMES {
         for lead in ["hey ", "hi ", "ok ", "okay ", "hey there "] {
             let phrase = format!("{lead}{name}");
-            if let Some(at) = text.find(&phrase) {
-                return Some((at, at + phrase.len()));
+            for (at, _) in text.match_indices(&phrase) {
+                let end = at + phrase.len();
+                let begins_word = at == 0 || text[..at].ends_with(' ');
+                let ends_word = end == text.len() || text[end..].starts_with(' ');
+                if begins_word && ends_word {
+                    return Some((at, end));
+                }
             }
         }
     }

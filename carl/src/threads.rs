@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result, ThreadId};
 
+mod storage;
+
 /// A Claude Code session id. Must be a valid UUID, because `--session-id` requires one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionId(String);
@@ -112,6 +114,8 @@ impl Registry {
     /// the next run finds the same session rather than starting a second conversation for a
     /// thread that already has one.
     pub fn session_for(&mut self, thread: &ThreadId, now: u64) -> Result<(SessionId, bool)> {
+        let _lock = storage::lock_directory(&self.path)?;
+        self.threads = Self::open(&self.path)?.threads;
         if let Some(existing) = self.threads.get(thread) {
             return Ok((existing.session.clone(), false));
         }
@@ -131,6 +135,8 @@ impl Registry {
     }
 
     pub fn record_turn(&mut self, thread: &ThreadId) -> Result<()> {
+        let _lock = storage::lock_directory(&self.path)?;
+        self.threads = Self::open(&self.path)?.threads;
         if let Some(entry) = self.threads.get_mut(thread) {
             entry.turns += 1;
             entry.last_at = std::time::SystemTime::now()
@@ -198,6 +204,7 @@ mod tests {
             r.record_turn(&t).unwrap();
             // record_turn stamps with the clock, so the ordering is set by hand here.
             r.threads.get_mut(&t).unwrap().last_at = at;
+            r.save().unwrap();
         }
 
         let names: Vec<String> = r

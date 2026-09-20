@@ -28,6 +28,8 @@ pub struct TaskTrail {
     pub accepted: bool,
     pub emergency: bool,
     pub first_at: u64,
+    pub delegated_at: Option<u64>,
+    pub first_submitted_at: Option<u64>,
     pub last_at: u64,
 }
 
@@ -105,8 +107,7 @@ impl Folded {
     pub fn handback_seconds(&self) -> Vec<u64> {
         self.tasks
             .iter()
-            .filter(|t| t.attempts > 0)
-            .map(TaskTrail::elapsed)
+            .filter_map(|t| t.first_submitted_at?.checked_sub(t.delegated_at?))
             .collect()
     }
 }
@@ -140,6 +141,8 @@ pub fn fold(records: &[Record]) -> Folded {
             accepted: false,
             emergency: false,
             first_at: record.at,
+            delegated_at: None,
+            first_submitted_at: None,
             last_at: record.at,
         });
         trail.last_at = record.at;
@@ -151,9 +154,14 @@ pub fn fold(records: &[Record]) -> Folded {
                 // A handover is the start of the clock even when an earlier event mentioned
                 // the task, because that is when somebody became responsible for it.
                 trail.first_at = record.at;
+                trail.delegated_at = Some(record.at);
+                trail.first_submitted_at = None;
             }
             Event::Moved { to, .. } => trail.status = Some(to.clone()),
-            Event::Submitted { attempt, .. } => trail.attempts = trail.attempts.max(*attempt),
+            Event::Submitted { attempt, .. } => {
+                trail.attempts = trail.attempts.max(*attempt);
+                trail.first_submitted_at.get_or_insert(record.at);
+            }
             Event::Reviewed { accepted, .. } => {
                 if *accepted {
                     trail.accepted = true;

@@ -198,3 +198,17 @@ See [the evidence](integrations/iris/verification-20260917.md) for live results 
 Fresh draft reviews then checked all repaired cases across eight repositories and returned no new
 verified findings. The completed validation reserved $18 of its approved $20 allowance. Scheduled
 activity after the UTC reset uses the unchanged ordinary daily allowance.
+
+## Carl backlog repair, September 20, 2026
+
+Audited the archived Carl issues against the current runtime. Fixed surviving problems
+in conversation registry concurrency, Unicode permission prompts, voice process cleanup,
+streamed code speech, wake names, handover timing, CPU accounting, worker capacity and
+editor line ending diffs. JJ now has an explicit human inspector card. Evan reports keep
+ready repairs visible alongside blockers and refuse to present unknown states as idle.
+
+Each fix has a regression observed failing against the previous implementation.
+Validation: 1239 backend and integration tests passed, with one preexisting manual migration
+test ignored. The panel passed 223 library tests and one CLI test. Formatting and strict
+Clippy checks passed for both crates. Release binaries built successfully. Tests run
+without launching the desktop panel after JJ asked to keep it closed.

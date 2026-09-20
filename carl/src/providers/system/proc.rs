@@ -50,11 +50,12 @@ pub fn parse_cpu_times(stat: &str) -> Option<CpuTimes> {
     if fields.len() < 5 {
         return None;
     }
-    // user nice system idle iowait irq softirq steal ...
+    // user nice system idle iowait irq softirq steal
+    // Guest counters repeat time already included in user and nice.
     // Idle counts iowait too, because a core waiting on a disk is not doing work.
     let idle = fields[3] + fields[4];
     Some(CpuTimes {
-        total: fields.iter().sum(),
+        total: fields.iter().take(8).sum(),
         idle,
     })
 }

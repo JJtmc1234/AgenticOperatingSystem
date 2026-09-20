@@ -753,3 +753,14 @@ fn an_agents_current_task_skips_finished_history() {
     assert!(frame.says("current assignment to inspect"));
     assert!(!frame.says("obsolete completed assignment"));
 }
+
+#[test]
+fn selecting_jj_shows_human_authority_instead_of_an_empty_inspector() {
+    let mut a = app();
+    a.snapshot.agents.retain(|agent| agent.name != "jj");
+    a.select_agent("jj");
+    let frame = tab(&mut a, Tab::Agents, SMALL);
+    assert!(frame.says("Human authority"));
+    assert!(!frame.says("NO TASK IN HAND"));
+    assert!(!frame.says("MESSAGE AGENT"));
+}

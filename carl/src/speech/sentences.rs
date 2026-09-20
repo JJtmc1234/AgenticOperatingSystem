@@ -48,8 +48,7 @@ impl Sentences {
     /// Everything left over, once the answer is complete.
     pub fn rest(&mut self) -> Option<String> {
         let tail = std::mem::take(&mut self.buf);
-        self.in_code = false;
-        let said = speakable(&tail);
+        let said = super::words::speakable_from(&tail, std::mem::take(&mut self.in_code));
         (!said.is_empty()).then_some(said)
     }
 

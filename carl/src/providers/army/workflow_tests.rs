@@ -82,6 +82,9 @@ fn a_held_workflow_lock_means_working_and_an_unheld_file_does_not() {
             .iter()
             .any(|m| m.value == Reading::Text("working".into()))
     );
+    // Parallel PTY tests may briefly inherit the descriptor between fork and exec.
+    // Release the lock explicitly so that inherited copies cannot prolong this fixture.
+    assert_eq!(unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) }, 0);
     drop(file);
     assert_eq!(reading(dir.path()).health, Health::Blocked);
 }
@@ -139,4 +142,27 @@ fn queued_or_retrying_repairs_do_not_look_like_an_empty_workflow() {
         assert_eq!(found.health, Health::Blocked);
         assert!(found.summary.contains(status));
     }
+}
+
+#[test]
+fn unknown_evan_report_status_does_not_claim_an_idle_healthy_workflow() {
+    for status in ["", "Preparing", "Fixed", "unexpected response"] {
+        let dir = home(&[json!({"kind":"run_finished","report":{"rows":[{
+            "repo":"JJtmc1234/Holoprojector","issue":2,"status":status
+        }]}})]);
+        assert_eq!(reading(dir.path()).health, Health::Unknown, "{status:?}");
+    }
+}
+
+#[test]
+fn a_blocked_issue_does_not_hide_another_prepared_repairs_review_action() {
+    let dir = home(&[json!({"kind":"run_finished","report":{"rows":[
+        {"repo":"JJtmc1234/other","issue":1,"status":"Blocked. Existing tests fail."},
+        {"repo":"JJtmc1234/Holoprojector","issue":2,"status":"Prepared. Publication disabled."}
+    ]}})]);
+    let found = reading(dir.path());
+    assert_eq!(found.health, Health::Blocked);
+    assert!(found.summary.contains("Existing tests fail"));
+    assert!(found.summary.contains("Holoprojector #2"));
+    assert!(found.metrics.iter().any(|m| m.name == "review_command"));
 }

@@ -429,3 +429,84 @@ when no delegated task existed. A current assignment could therefore hide a read
 `an_evans_assignment_does_not_hide_his_separate_repair_review` failed before the change.
 The same compact workflow card now appears in To-do and the inspector alongside real tasks.
 A workflow is counted once and never inserted into the conversational task journal.
+
+## Evan reports hid ready repairs and treated unknown states as idle
+
+A report containing both blocked and prepared issues displayed only the blocker.
+`a_blocked_issue_does_not_hide_another_prepared_repairs_review_action` failed before
+the report retained the prepared repair summary and its review command. Blocked work
+still determines the overall health, so a ready repair cannot clear an actual blocker.
+
+An unrecognized status also fell through to healthy idle.
+`unknown_evan_report_status_does_not_claim_an_idle_healthy_workflow` reproduced that
+false claim. Unknown report vocabulary now produces an unavailable status.
+
+## Carried over Carl issues in the current AOS implementation
+
+Archived Carl issue 42. A fallback tool payload longer than 200 bytes was sliced inside
+a Unicode character. `a_long_unicode_tool_payload_is_denied_without_panicking` reproduced
+the panic before truncation was moved to a character boundary. The hook now returns its
+ordinary deny response when no backend can answer.
+
+Archived Carl issue 45. Selecting JJ returned an empty inspector because the backend
+correctly excludes humans from the agent snapshot.
+`selecting_jj_shows_human_authority_instead_of_an_empty_inspector` failed before the fix.
+JJ now has a human authority card, and a missing agent gets an explicit unavailable reading.
+
+Archived Carl issue 41. Handover latency included review and later submissions.
+`handover_latency_ends_at_first_submission_not_review_or_resubmission` reproduced 7000
+seconds where the first handback took 100. The fold now retains delegation and first
+submission times separately from total lifetime.
+`a_submission_without_a_recorded_delegation_has_no_measured_latency` prevents a missing
+delegation from becoming a fabricated zero second handover. Both failed before the fix.
+
+Archived Carl issue 47. CPU totals counted guest time twice.
+`guest_cpu_time_is_counted_once_in_total_and_busy_fraction` failed before summing only the
+first eight fields. Linux accounts guest time in user and nice already, as shown in
+[account_guest_time](https://github.com/torvalds/linux/blob/master/kernel/sched/cputime.c).
+The fixture now reports 60 percent busy instead of the inflated fraction.
+
+The same issue identified a task capacity check that only counted tasks in hand.
+`unfinished_started_tasks_keep_the_workers_capacity` failed for submitted work before the
+check was corrected. Submitted, changes requested and blocked work now reserve the worker
+until acceptance or abandonment. Assigned tasks remain queued, preserving the public API's
+existing queue tests and its distinction between lining up work and starting it.
+
+Archived Carl issue 43. Each conversation registry rewrote its original snapshot after
+answering, losing threads or turns saved by another process in the meantime. Mutators now
+lock the containing directory, reload the current registry, and save while still locked.
+The lock is held only for the file operation and survives the atomic registry rename.
+`finishing_an_answer_preserves_a_thread_created_by_another_registry`,
+`stale_registries_reuse_the_same_new_session_and_preserve_turn_counts`, and
+`concurrent_registry_writers_preserve_every_session` all failed against the previous code.
+The recency fixture now saves its manually assigned times before a mutation reloads them.
+
+## Voice bugs carried over from the archived Carl backlog
+
+Issue 37. Completed playback skipped cleanup of the Piper child.
+`dropping_finished_playback_reaps_piper_even_when_it_is_still_running` failed before
+Drop always cleaned up both owned children. The test uses silent disposable processes
+and covers a synthesizer that has exited and one still running after playback ends.
+
+Issue 38. The final fragment of a streamed code block lost its fence state.
+`a_stream_ending_at_or_inside_a_code_fence_does_not_repeat_or_read_code` failed before
+the trailing speech conversion inherited that state. An ending fence is no longer
+announced again, and interrupted code is not read aloud.
+
+Issue 39. The shorter Carl spelling matched inside Carle and left a stray letter.
+`the_longer_wake_name_leaves_no_letter_in_the_question` failed before matching complete
+wake words. `a_wake_name_inside_an_unrelated_name_does_not_start_a_conversation` also
+failed for Carlton. Both now pass without changing the supported wake spellings.
+
+## Invisible line ending changes in the editor
+
+Archived Carl issue 44. Line splitting discarded both a final newline and CRLF, leaving
+an empty diff header even though the editor buffer differed from the saved file.
+`adding_or_removing_the_final_newline_shows_the_changed_line` and
+`changing_crlf_to_lf_visibly_identifies_the_line_ending` both failed before preserving
+line terminators for comparison and rendering readable labels for their differences.
+
+The full suite also exposed a test fixture lock outliving its descriptor because parallel
+PTY tests can inherit it between fork and exec. The workflow lock test now explicitly
+unlocks its owned descriptor before asserting the same interrupted workflow behavior.
+No assertion was removed or relaxed.

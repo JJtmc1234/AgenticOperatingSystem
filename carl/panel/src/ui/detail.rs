@@ -25,7 +25,19 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
         waiting(ui);
         return;
     };
+    if super::vitals::is_human(&name) {
+        widgets::fitted_card(ui, widgets::Card::default(), |ui| {
+            ui.label(RichText::new(widgets::proper(&name)).font(theme::title()));
+            ui.label(RichText::new("Human authority").font(theme::heading()));
+            ui.label("JJ owns the system and has the final say on agent work and approvals.");
+            ui.label("Use Carl to assign work, or select an agent to inspect their assignment.");
+        });
+        return;
+    }
     let Some(view) = app.snapshot.agent(&name).cloned() else {
+        ui.label(format!(
+            "Status unavailable for {name}. Waiting for a backend reading."
+        ));
         return;
     };
     let now = app.snapshot.at;

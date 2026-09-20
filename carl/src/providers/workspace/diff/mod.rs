@@ -127,40 +127,8 @@ pub fn buffer_vs_disk(on_disk: &str, buffer: &str) -> String {
     simple_diff(on_disk, buffer)
 }
 
-/// A readable difference between two pieces of text.
-///
-/// Trims the identical start and end, then shows what is left as removed and added blocks.
-pub fn simple_diff(before: &str, after: &str) -> String {
-    if before == after {
-        return String::new();
-    }
-
-    let old: Vec<&str> = before.lines().collect();
-    let new: Vec<&str> = after.lines().collect();
-
-    let head = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-
-    // The tail is measured on what is left after the head, so a short file cannot have the
-    // same line counted at both ends.
-    let most = old.len().min(new.len()) - head;
-    let tail = old
-        .iter()
-        .rev()
-        .zip(new.iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count()
-        .min(most);
-
-    let mut out = String::new();
-    out.push_str(&format!("@@ line {} @@\n", head + 1));
-    for line in &old[head..old.len() - tail] {
-        out.push_str(&format!("-{line}\n"));
-    }
-    for line in &new[head..new.len() - tail] {
-        out.push_str(&format!("+{line}\n"));
-    }
-    out
-}
+mod text;
+pub use text::simple_diff;
 
 #[cfg(test)]
 mod tests;

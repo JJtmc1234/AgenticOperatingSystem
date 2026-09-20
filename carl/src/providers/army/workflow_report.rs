@@ -4,10 +4,10 @@ use crate::providers::health::{Diagnostic, Health, Metric, Reading};
 use serde_json::Value;
 
 pub(super) fn read(rows: &[Value]) -> Option<Diagnostic> {
-    if rows
-        .iter()
-        .any(|row| row["status"].as_str().is_none() || row["repo"].as_str().is_none())
-    {
+    if rows.iter().any(|row| {
+        !row["status"].as_str().is_some_and(known_status)
+            || !row["repo"].as_str().is_some_and(|repo| !repo.is_empty())
+    }) {
         return None;
     }
     let blocked = rows.iter().find(|r| {
@@ -26,7 +26,7 @@ pub(super) fn read(rows: &[Value]) -> Option<Diagnostic> {
         })
         .collect();
     if let Some(row) = blocked {
-        return Some(diagnostic(
+        let mut found = diagnostic(
             "blocked",
             Health::Blocked,
             format!(
@@ -39,7 +39,18 @@ pub(super) fn read(rows: &[Value]) -> Option<Diagnostic> {
                     .take(500)
                     .collect::<String>()
             ),
-        ));
+        );
+        if let Some(prepared) = ready.first() {
+            found.summary.push_str(&format!(
+                " {} repair(s) ready for review: {}",
+                ready.len(),
+                subject(prepared)
+            ));
+            if let Some(command) = review_command(prepared) {
+                found = found.with(Metric::new("review_command", Reading::Text(command), ""));
+            }
+        }
+        return Some(found);
     }
     if let Some(row) = ready.first() {
         let mut found = diagnostic(
@@ -90,4 +101,18 @@ fn review_command(row: &Value) -> Option<String> {
     }
     let issue = row["issue"].as_u64().filter(|n| *n > 0)?;
     Some(format!("carl evan review --repo {repo} --issue {issue}"))
+}
+
+fn known_status(status: &str) -> bool {
+    [
+        "Blocked.",
+        "Queued.",
+        "Waiting for ",
+        "Prepared.",
+        "Already submitted for review.",
+        "Submitted for review.",
+        "Idle.",
+    ]
+    .iter()
+    .any(|prefix| status.starts_with(prefix))
 }
