@@ -6,7 +6,7 @@ Input integrity regressions failed before the fix and passed afterward. Edited, 
 and linked inputs are rejected after every command. Generated test output is allowed.
 
 The shared Iris transport passed 92 tests. Carl and the panel passed formatting,
-Clippy with warnings denied and 1427 Rust tests, with one ignored. Parallel tests had
+Clippy with warnings denied and 1433 Rust tests, with one ignored. Parallel tests had
 transient executable file busy errors. The sequential suite passed unchanged.
 
 ## First real repair
@@ -87,3 +87,10 @@ This supplements the original targeted workflow evidence. It does not change
 Evan's configured test policy or retroactively alter his journal. Publication
 remains disabled. Raw local output is saved in the migration logs as
 `omarchy-evan-full-validation.json`.
+
+
+On the same validation pass, the supervisor's session establishment changes passed
+the full Rust workspace suite with 1433 tests and one ignored. A live Claude CLI
+probe confirmed that an idle process writes no transcript and that resuming its
+unused ID fails without a model call. Runtime tests cover idle restart, used
+conversation continuity, interrupted delivery and recovery from a stale state file.
