@@ -19,6 +19,7 @@ pub mod shell;
 pub mod tasks;
 pub mod vitals;
 pub mod widgets;
+pub(crate) mod workflow;
 pub mod workspace;
 
 #[cfg(test)]

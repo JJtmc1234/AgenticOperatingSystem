@@ -421,3 +421,11 @@ unfinished task owned by the selected agent, including when an old task ID is st
 `finished_assignments_do_not_show_as_an_agents_current_task` and
 `an_agents_current_task_skips_finished_history` failed before the selection was corrected.
 The existing prepared repair action test also includes a completed assignment now.
+
+## A delegated assignment hid Evan's separate repair workflow
+
+The task list deduplicated everything by agent, and the inspector displayed a repair only
+when no delegated task existed. A current assignment could therefore hide a ready repair.
+`an_evans_assignment_does_not_hide_his_separate_repair_review` failed before the change.
+The same compact workflow card now appears in To-do and the inspector alongside real tasks.
+A workflow is counted once and never inserted into the conversational task journal.

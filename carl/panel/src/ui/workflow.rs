@@ -4,18 +4,26 @@ use carl::providers::health::Reading;
 use eframe::egui::{RichText, Ui};
 
 use crate::ui::widgets;
-use crate::{app::App, model::AgentView, theme};
+use crate::{app::App, theme};
 
-pub(super) fn draw(app: &App, ui: &mut Ui, view: &AgentView) -> bool {
-    if view.name != "evan" {
-        return false;
-    }
-    let Some(found) = app
+pub(crate) fn active(app: &App) -> Option<&crate::model::Diagnostic> {
+    let found = app
         .snapshot
         .diagnostics
         .iter()
-        .find(|d| d.component == COMPONENT)
-    else {
+        .find(|d| d.component == COMPONENT)?;
+    let phase = found
+        .metrics
+        .iter()
+        .find_map(|metric| match &metric.value {
+            Reading::Text(value) if metric.name == "phase" => Some(value.as_str()),
+            _ => None,
+        })?;
+    (!matches!(phase, "idle" | "unconfigured")).then_some(found)
+}
+
+pub(crate) fn draw(app: &App, ui: &mut Ui) -> bool {
+    let Some(found) = active(app) else {
         return false;
     };
     let text = |name: &str| {
@@ -24,15 +32,9 @@ pub(super) fn draw(app: &App, ui: &mut Ui, view: &AgentView) -> bool {
             _ => None,
         })
     };
-    let Some(phase) = text("phase") else {
-        return false;
-    };
-    if matches!(phase, "idle" | "unconfigured") {
-        return false;
-    }
     widgets::fitted_card(ui, widgets::Card::default(), |ui| {
         ui.label(
-            RichText::new("REPAIR WORKFLOW")
+            RichText::new("EVAN REPAIR WORKFLOW")
                 .font(theme::label())
                 .color(theme::COLD),
         );

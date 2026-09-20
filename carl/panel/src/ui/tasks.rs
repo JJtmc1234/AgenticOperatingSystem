@@ -25,12 +25,16 @@ pub fn ordered(tasks: &[TaskView]) -> Vec<&TaskView> {
 pub fn draw(app: &mut App, ui: &mut Ui) {
     let tasks = app.snapshot.tasks.clone();
     let rows = ordered(&tasks);
+    let repair_active = super::workflow::active(app).is_some();
     let other_work: Vec<_> = super::overview::roster::active(&app.snapshot.agents)
         .into_iter()
+        .filter(|a| !(repair_active && a.name == "evan"))
         .filter(|a| !rows.iter().any(|t| !finished(t) && t.owner == a.name))
         .cloned()
         .collect();
-    let active = rows.iter().filter(|t| !finished(t)).count() + other_work.len();
+    let active = rows.iter().filter(|t| !finished(t)).count()
+        + other_work.len()
+        + usize::from(repair_active);
     widgets::section_count(ui, "ACTIVE TASKS", active, theme::DIM);
     if ui.button("Give Carl a task").clicked() {
         app.select_tab(Tab::Carl);
@@ -42,6 +46,7 @@ pub fn draw(app: &mut App, ui: &mut Ui) {
                 ui.label("Give Carl a task. Delegated tasks appear here with their owner and recorded status.");
             });
         }
+        super::workflow::draw(app, ui);
         for task in rows.iter().filter(|t| !finished(t)) {
             row(app, ui, task);
         }

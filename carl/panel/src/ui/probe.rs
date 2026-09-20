@@ -270,3 +270,6 @@ pub fn tab(app: &mut App, tab: crate::app::Tab, size: Vec2) -> Frame {
 }
 
 mod tests;
+
+#[cfg(test)]
+mod task_workflow_tests;

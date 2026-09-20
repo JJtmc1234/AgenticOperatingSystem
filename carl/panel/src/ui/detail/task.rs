@@ -22,8 +22,9 @@ pub fn draw(app: &mut App, ui: &mut Ui, view: &AgentView) {
         })
         .cloned();
 
+    let workflow_shown = view.name == "evan" && crate::ui::workflow::draw(app, ui);
     let Some(task) = task else {
-        if super::workflow::draw(app, ui, view) {
+        if workflow_shown {
             return;
         }
         widgets::card(ui, 86.0, widgets::Card::default(), |ui| {
