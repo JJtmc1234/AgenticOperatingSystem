@@ -3,7 +3,7 @@
 //! The rule that shapes this file: anything the army already defines is used as it is. An
 //! agent is `carl::army::org::Agent`, a task is `carl::army::task::Task`, an event is
 //! `carl::army::event::Record`. This module adds only the things the army genuinely has no
-//! type for, which are the live overlay on an agent, a project, and a diagnostic reading.
+//! type for, which are the live overlay on an agent and a diagnostic reading.
 //!
 //! Two definitions of `Task` is the failure this whole army spent a day avoiding, so the panel
 //! is not going to introduce a third.
@@ -24,7 +24,6 @@ use carl::panel::view::TaskView;
 // onto army state that has none. Re exporting keeps both distinctions all the way to the
 // screen, and means there is one definition of each rather than two that drift.
 pub use carl::providers::health::{Diagnostic, Health, Kind, Metric, Reading};
-pub use carl::providers::projects::{Achievement, Milestone, Project, ProjectView, Status};
 
 /// How the panel is currently getting its data.
 ///
@@ -241,7 +240,7 @@ pub struct Snapshot {
     /// `Task::assign`, which mints a fresh id and re-checks a delegation that already happened,
     /// so the panel would be drawing a task the army never issued.
     pub tasks: Vec<TaskView>,
-    pub projects: Vec<ProjectView>,
+
     pub diagnostics: Vec<Diagnostic>,
     pub conversation: Vec<Turn>,
     pub decisions: Vec<Decision>,
@@ -269,22 +268,6 @@ impl Snapshot {
 
     pub fn task(&self, id: &str) -> Option<&TaskView> {
         self.tasks.iter().find(|t| t.id == id)
-    }
-
-    pub fn project(&self, name: &str) -> Option<&ProjectView> {
-        self.projects.iter().find(|p| p.project.name == name)
-    }
-
-    /// Every task the backend says belongs to a project.
-    ///
-    /// The link is `TaskView::project`, which the record now carries. Nothing is matched by
-    /// name or guessed at from a goal, so a project with no tasks shows none rather than the
-    /// ones that happen to read like it.
-    pub fn tasks_in(&self, project: &carl::ProjectId) -> Vec<&TaskView> {
-        self.tasks
-            .iter()
-            .filter(|t| t.project.as_ref() == Some(project))
-            .collect()
     }
 
     /// Everything recorded about one task, newest last.

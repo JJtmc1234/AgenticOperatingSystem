@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::command::{Command, InterventionKind, WorkspaceRequest};
-use crate::model::{AgentStatus, AgentView, Decision, Diagnostic, Health, Link, Milestone};
+use crate::model::{AgentStatus, AgentView, Decision, Diagnostic, Health, Link};
 use crate::source::{MockPanelDataSource, PanelEvent};
 
 fn app() -> App {
@@ -68,7 +68,6 @@ fn hiding_and_showing_keeps_everything_worth_keeping() {
     let mut a = app();
     a.select_tab(Tab::Agents);
     a.select_agent("nora");
-    a.select_project("jjtorio");
     a.open_workspace(WorkspaceRequest::Terminal {
         cwd: "/home/jj/x".into(),
     });
@@ -86,7 +85,6 @@ fn hiding_and_showing_keeps_everything_worth_keeping() {
     assert_eq!(a.kept(), before, "nothing was lost across the toggle");
     assert_eq!(a.tab, Tab::Agents);
     assert_eq!(a.agent.as_deref(), Some("nora"));
-    assert_eq!(a.project.as_deref(), Some("jjtorio"));
     assert!(a.workspace.is_some());
     assert_eq!(a.draft, "half typed message");
 }
@@ -435,41 +433,6 @@ fn a_diagnostic_changes_live_in_place() {
     assert_eq!(row.health, Health::Degraded);
 }
 
-/// A milestone lands on the project it belongs to and nowhere else.
-#[test]
-fn a_milestone_arrives_live_on_its_own_project() {
-    let mut a = app();
-    let before = a.snapshot.project("jjtorio").unwrap().milestones.len();
-
-    a.apply(PanelEvent::MilestoneReached {
-        project: "jjtorio".into(),
-        milestone: Box::new(Milestone {
-            id: "m1".into(),
-            project: carl::ProjectId::new("jjtorio").unwrap(),
-            at: 999,
-            title: "Belt figures verified".into(),
-            detail: None,
-            evidence: None,
-            achievement: carl::providers::projects::Achievement::FeatureWorks,
-            source: carl::providers::projects::Source::Jj,
-        }),
-    });
-
-    assert_eq!(
-        a.snapshot.project("jjtorio").unwrap().milestones.len(),
-        before + 1
-    );
-    assert_eq!(
-        a.snapshot
-            .project("command panel")
-            .unwrap()
-            .milestones
-            .len(),
-        0,
-        "and not on anybody else"
-    );
-}
-
 /// The scripted timeline has to actually produce the transitions it promises, or the mock is
 /// a still picture and the live behaviour was never exercised.
 ///
@@ -489,7 +452,6 @@ fn the_mock_timeline_drives_every_transition_it_promises() {
     let mut seen_disconnect = false;
     let mut seen_reconnect = false;
     let mut seen_decision = false;
-    let mut seen_milestone = false;
 
     for _ in 0..70 {
         source.advance(Duration::from_secs(1));
@@ -512,9 +474,6 @@ fn the_mock_timeline_drives_every_transition_it_promises() {
             if matches!(event, PanelEvent::DecisionRaised(_)) {
                 seen_decision = true;
             }
-            if matches!(event, PanelEvent::MilestoneReached { .. }) {
-                seen_milestone = true;
-            }
             a.apply(event);
         }
     }
@@ -525,7 +484,6 @@ fn the_mock_timeline_drives_every_transition_it_promises() {
     assert!(seen_disconnect, "the link never dropped");
     assert!(seen_reconnect, "the link never came back");
     assert!(seen_decision, "carl never needed jj");
-    assert!(seen_milestone, "no milestone was ever reached");
 }
 
 #[test]

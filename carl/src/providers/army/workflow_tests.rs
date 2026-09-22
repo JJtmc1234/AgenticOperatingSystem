@@ -166,3 +166,41 @@ fn a_blocked_issue_does_not_hide_another_prepared_repairs_review_action() {
     assert!(found.summary.contains("Holoprojector #2"));
     assert!(found.metrics.iter().any(|m| m.name == "review_command"));
 }
+
+#[test]
+fn submitted_repairs_remain_visible_with_their_draft_pr() {
+    let url = "https://github.com/JJtmc1234/Holoprojector/pull/3";
+    let dir = home(&[json!({"kind":"run_finished","report":{"rows":[{
+        "repo":"JJtmc1234/Holoprojector","issue":2,"status":"Submitted for review.","pr":url
+    }]}})]);
+    let d = reading(dir.path());
+    assert!(d.summary.contains("Holoprojector #2"));
+    assert!(
+        d.metrics
+            .iter()
+            .any(|m| m.name == "pull_request_url" && m.value == Reading::Text(url.into()))
+    );
+    assert!(
+        d.metrics
+            .iter()
+            .any(|m| m.name == "phase" && m.value == Reading::Text("review".into()))
+    );
+}
+
+#[test]
+fn submitted_repairs_only_link_their_own_github_pull_request() {
+    for url in [
+        "https://evil.example/pull/1",
+        "javascript:alert(1)",
+        "https://github.com/other/repo/pull/1",
+        "https://github.com/JJtmc1234/Holoprojector/pull/0",
+        "https://github.com/JJtmc1234/Holoprojector/pull/3?redirect=bad",
+    ] {
+        let dir = home(&[json!({"kind":"run_finished","report":{"rows":[{
+            "repo":"JJtmc1234/Holoprojector","issue":2,"status":"Already submitted for review.","pr":url
+        }]}})]);
+        let found = reading(dir.path());
+        assert!(found.summary.contains("Holoprojector #2"));
+        assert!(!found.metrics.iter().any(|m| m.name == "pull_request_url"));
+    }
+}

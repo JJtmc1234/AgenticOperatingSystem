@@ -281,7 +281,7 @@ fn a_handover_with_nothing_to_check_is_not_rebuilt_into_a_task() {
                 goal: "something".into(),
                 parent: None,
                 must: Vec::new(),
-                project: None,
+
                 workspace: None,
                 objective: None,
             },

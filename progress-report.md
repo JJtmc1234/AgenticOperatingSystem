@@ -232,3 +232,35 @@ passed. A full suite run exposed an executable writer race in the Evan bridge fi
 Evan and Iris now use static test scripts with all assertions preserved. The final backend
 suite passed 1247 tests, with the same one ignored manual test. Strict Clippy and formatting
 passed. These last changes add coverage and correct comments without changing live behavior.
+
+## Hunter's current homework, September 22, 2026
+
+Issues 57 through 61 are implemented on `fix/finish-aos-homework`.
+The panel opens windowed and responds to portrait and short landscape sizes. Diagnostics
+show actionable faults and stale readings, with optional detail. The Projects feature is
+removed from the provider, task model, wire protocol and GUI. To-do displays recorded tasks,
+owners and states, including scheduled Evan work. Historical files remain untouched.
+Backend and GUI now share protocol version 2 and must be installed together.
+
+Evan supports an explicit one issue `submit` command for prepared, independently reviewed
+repairs. It rechecks the issue, policy, source and checkout before publishing a draft PR.
+Repeated or uncertain writes reconcile recorded publication without creating a duplicate.
+Recurring publication remains disabled. Submitted repairs remain visible for review.
+
+Validation passed: 1410 Carl and panel tests, with one existing manual migration test
+ignored, 323 root runtime tests, and 52 Evan tests including all seven real sandbox cases.
+Formatting, strict Clippy and release builds passed. Responsive tests ran without opening
+the desktop panel. Tests for the removed Projects feature were retired while task journal,
+permissions, nonmutating reads, ownership and restart guarantees remain covered.
+
+The installed `carl evan submit` command published the prepared Holoprojector issue 2
+repair as [draft PR 4](https://github.com/JJtmc1234/Holoprojector/pull/4).
+GitHub reports the exact prepared commit `fbcbe9a030ba6bcf526112860f3c462c58343bdd`,
+with only the keyboard map and regression test changed. Repeating the command returned
+the same PR and left the publication request count at one. No merge occurred.
+
+Matching release binaries are installed with previous copies saved. Backend, voice, Slack,
+army and Evan timer are active. The panel remains closed, disabled and configured not to
+restart. A real socket request confirms protocol 2, no Projects data, and Evan's draft PR
+in review state. An old protocol request is explicitly refused. This verifies the live
+backend and CLI, not a manually exercised desktop window or a guarantee of zero bugs.

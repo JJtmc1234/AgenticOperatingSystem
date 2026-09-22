@@ -144,7 +144,7 @@ pub fn hand_down(
             goal: task.goal.clone(),
             parent: None,
             must: task.verification.must.clone(),
-            project: None,
+
             workspace: None,
             objective: Some(objective_seq),
         },

@@ -19,7 +19,7 @@ fn main() {
                 goal: t.goal.clone(),
                 parent: None,
                 must: t.verification.must.clone(),
-                project: None,
+
                 workspace: None,
                 objective: None,
             },

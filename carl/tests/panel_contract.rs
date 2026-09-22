@@ -33,7 +33,7 @@ fn one_army_event(journal: &mut Journal, goal: &str) -> u64 {
                 goal: t.goal.clone(),
                 parent: None,
                 must: t.verification.must.clone(),
-                project: None,
+
                 workspace: None,
                 objective: None,
             },

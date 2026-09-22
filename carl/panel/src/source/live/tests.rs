@@ -21,7 +21,7 @@ fn task(id: &str, status: &str) -> TaskView {
         owner: "nora".into(),
         assigner: "mason".into(),
         parent: None,
-        project: carl::ProjectId::new("jjtorio").ok(),
+
         status: status.into(),
         attempts: 0,
         must: vec!["tests pass".into()],
@@ -611,7 +611,7 @@ fn wire_snapshot(seq: u64) -> carl::panel::view::PanelSnapshot {
         },
         agents: Vec::new(),
         tasks: Vec::new(),
-        projects: Vec::new(),
+
         diagnostics: Vec::new(),
     }
 }
@@ -638,7 +638,7 @@ fn a_task_delegated_while_the_panel_is_watching_joins_the_list_and_keeps_moving(
                 goal: "raise the belt rate".into(),
                 parent: None,
                 must: vec!["the throughput test passes".into()],
-                project: carl::ProjectId::new("jjtorio").ok(),
+
                 workspace: None,
                 objective: None,
             },
@@ -696,7 +696,7 @@ fn a_delegation_replayed_after_a_reconnect_is_still_one_task() {
         goal: "raise the belt rate".into(),
         parent: None,
         must: vec![],
-        project: None,
+
         workspace: None,
         objective: None,
     };

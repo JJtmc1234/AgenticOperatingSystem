@@ -16,10 +16,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (live, snapshot) = LivePanel::open(&socket)?;
     let mut live = live.quiet_after(Duration::from_millis(400));
     println!(
-        "snapshot seq {}  agents {}  projects {}  diagnostics {}",
+        "snapshot seq {}  agents {}  tasks {}  diagnostics {}",
         snapshot.seq,
         snapshot.agents.len(),
-        snapshot.projects.len(),
+        snapshot.tasks.len(),
         snapshot.diagnostics.len()
     );
 

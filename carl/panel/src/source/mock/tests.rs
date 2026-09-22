@@ -33,8 +33,8 @@ fn the_seed_task_went_through_the_real_chain() {
 
     assert_eq!(task.assigner, "mason");
     assert!(
-        task.project.is_some(),
-        "the fixture task belongs to a project"
+        !task.owner.is_empty(),
+        "the fixture task has an accountable owner"
     );
     assert_eq!(task.owner, "nora");
     assert!(

@@ -21,7 +21,7 @@ use crate::army::event::Record;
 
 /// The protocol version. Bumped when a frame changes shape in a way an older panel would
 /// misread, and not for adding a field an older panel ignores.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// Panel to backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -44,7 +44,10 @@ pub(crate) fn draw(app: &App, ui: &mut Ui) -> bool {
                 .font(theme::prose())
                 .color(theme::TEXT),
         );
-        if let Some(command) = text("review_command") {
+        if let Some(url) = text("pull_request_url") {
+            ui.add_space(8.0);
+            ui.hyperlink_to("Open draft PR", url);
+        } else if let Some(command) = text("review_command") {
             ui.add_space(8.0);
             ui.label(
                 RichText::new("Inspect the patch, test results and independent review.")
@@ -107,6 +110,29 @@ mod tests {
             assert!(frame.says("REPAIR WORKFLOW"));
             assert!(frame.says("Copy review command"));
             assert!(!frame.says("NO TASK IN HAND"));
+            assert!(
+                frame.collisions().is_empty(),
+                "{}",
+                probe::describe_pairs(&frame.collisions())
+            );
+            assert!(
+                frame.cut_off().is_empty(),
+                "{}",
+                probe::describe(&frame.cut_off())
+            );
+            app.snapshot
+                .diagnostics
+                .last_mut()
+                .unwrap()
+                .metrics
+                .push(Metric::new(
+                    "pull_request_url",
+                    Reading::Text("https://github.com/JJtmc1234/Holoprojector/pull/3".into()),
+                    "",
+                ));
+            let frame = probe::tab(&mut app, Tab::Agents, size);
+            assert!(frame.says("Open draft PR"));
+            assert!(!frame.says("Copy review command"));
             assert!(
                 frame.collisions().is_empty(),
                 "{}",

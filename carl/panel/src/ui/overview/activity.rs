@@ -55,18 +55,6 @@ pub fn recent(snapshot: &Snapshot, limit: usize) -> Vec<Beat> {
         });
     }
 
-    for p in &snapshot.projects {
-        for m in &p.milestones {
-            out.push(Beat {
-                at: m.at,
-                kind: "MILESTONE",
-                who: p.project.name.clone(),
-                what: m.title.clone(),
-                color: theme::GOOD,
-            });
-        }
-    }
-
     for turn in &snapshot.conversation {
         out.push(Beat {
             at: turn.at,

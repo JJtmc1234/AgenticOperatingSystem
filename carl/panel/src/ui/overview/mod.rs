@@ -9,8 +9,6 @@ mod attention;
 mod banner;
 mod feed;
 pub(crate) mod roster;
-pub mod work;
-pub use work::ordered as project_order;
 
 #[cfg(test)]
 mod tests;

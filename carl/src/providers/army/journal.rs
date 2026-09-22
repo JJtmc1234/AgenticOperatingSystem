@@ -227,7 +227,7 @@ mod tests {
                     goal: "make the balancer symmetric".into(),
                     parent: None,
                     must: vec!["it works".into()],
-                    project: None,
+
                     workspace: None,
                     objective: None,
                 },
@@ -284,7 +284,7 @@ mod tests {
                     goal: "g".into(),
                     parent: None,
                     must: vec!["it works".into()],
-                    project: None,
+
                     workspace: None,
                     objective: None,
                 },
@@ -334,7 +334,7 @@ mod tests {
                 goal: "g".into(),
                 parent: None,
                 must: vec!["it works".into()],
-                project: None,
+
                 workspace: None,
                 objective: None,
             },
@@ -385,7 +385,7 @@ mod tests {
                     goal: "g".into(),
                     parent: None,
                     must: vec!["it works".into()],
-                    project: None,
+
                     workspace: None,
                     objective: None,
                 },
@@ -460,7 +460,7 @@ mod tests {
                 goal: "g".into(),
                 parent: None,
                 must: vec!["it works".into()],
-                project: None,
+
                 workspace: None,
                 objective: None,
             },

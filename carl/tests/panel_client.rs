@@ -34,7 +34,7 @@ fn a_real_delegation(journal: &mut Journal) -> TaskId {
                 goal: t.goal.clone(),
                 parent: t.parent.clone(),
                 must: t.verification.must.clone(),
-                project: None,
+
                 workspace: None,
                 objective: None,
             },
@@ -69,7 +69,6 @@ fn a_snapshot_decodes_into_the_real_types() {
         nora.process.is_unknown(),
         "nothing measures it, so nothing claims it"
     );
-    assert!(snapshot.projects.is_empty());
 }
 
 #[test]

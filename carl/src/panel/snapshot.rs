@@ -100,10 +100,7 @@ pub fn build_from(people: &Personnel, records: &[Record], facts: &Facts) -> Resu
         },
         agents,
         tasks,
-        // From the providers, or empty when there are none. Empty is still never invented: a
-        // project with no recorded milestones has none, and a machine nobody sampled has no
-        // readings rather than zeroes.
-        projects: facts.projects.clone(),
+        // A machine nobody sampled has no readings rather than zeroes.
         diagnostics: facts.diagnostics.all().into_iter().cloned().collect(),
     })
 }

@@ -11,12 +11,10 @@ use carl::army::task::TaskId;
 
 use super::EPOCH;
 use crate::command::{Intervention, InterventionKind};
-use carl::ProjectId;
 use carl::providers::health::{Kind, Metric, Reading};
-use carl::providers::projects::{Achievement, Project, ProjectView, Source, Status};
 
 use crate::model::{
-    AgentStatus, AgentView, Decision, Delegation, Diagnostic, Health, Link, Milestone, ProcessState,
+    AgentStatus, AgentView, Decision, Delegation, Diagnostic, Health, Link, ProcessState,
 };
 use crate::source::PanelEvent;
 
@@ -203,17 +201,6 @@ pub fn timeline() -> Vec<(Duration, PanelEvent)> {
                     .with(Metric::new("used", Reading::Int(0), "MiB"))
                     .measured(EPOCH + 430),
                 ],
-            },
-        ),
-        (
-            secs(53),
-            PanelEvent::MilestoneReached {
-                project: "jjtorio".into(),
-                milestone: Box::new(milestone(
-                    EPOCH + 450,
-                    "Belt throughput figures verified against the game data",
-                    Some("express 45/s, fast 30/s, transport 15/s"),
-                )),
             },
         ),
         (
@@ -419,91 +406,5 @@ pub fn diagnostics(now: u64) -> Vec<Diagnostic> {
             "no sensor has been read",
             Kind::Sampled,
         ),
-    ]
-}
-
-/// A project id from a name known to be valid, since these are fixtures.
-fn pid(name: &str) -> ProjectId {
-    ProjectId::new(name).expect("the fixture ids are well formed")
-}
-
-/// A milestone in the canonical shape, with the fields the record carries.
-fn milestone(at: u64, title: &str, detail: Option<&str>) -> Milestone {
-    Milestone {
-        id: format!("m-{at}"),
-        project: pid("jjtorio"),
-        at,
-        title: title.to_string(),
-        detail: detail.map(str::to_string),
-        evidence: Some("run-tests.sh".into()),
-        achievement: Achievement::FeatureWorks,
-        source: Source::Lead("mason".into()),
-    }
-}
-
-/// The opening projects board.
-pub fn projects(now: u64) -> Vec<ProjectView> {
-    let mut jjtorio = Project::new(
-        pid("jjtorio"),
-        "jjtorio",
-        "A Factorio mod and the planning tools around it, so JJ can size a build from real \
-         numbers instead of guessing.",
-    );
-    jjtorio.status = Status::Active;
-    jjtorio.phase = "correcting the belt figures against the game data".into();
-    jjtorio.department = Some("coding".into());
-    jjtorio.next_objective = Some("Smelting ratios, same source, same proof".into());
-
-    let mut panel = Project::new(
-        pid("command-panel"),
-        "command panel",
-        "A fullscreen operations interface for the army, so JJ can see what everyone is doing \
-         without reading a journal file.",
-    );
-    panel.status = Status::Active;
-    panel.phase = "shell and four tabs against a live backend".into();
-    panel.department = Some("coding".into());
-    panel.blockers = vec!["The OpenGL backend draws glyphs black on this machine".into()];
-
-    let mut aos = Project::new(
-        pid("aos"),
-        "aos",
-        "The supervisor that will run the army as processes rather than as one program.",
-    );
-    aos.status = Status::Paused;
-    aos.phase = "planned".into();
-
-    vec![
-        ProjectView {
-            project: jjtorio,
-            // Newest first, which is the order the provider keeps and the pane draws.
-            milestones: vec![
-                milestone(
-                    now - 3_200,
-                    "Express belt rate corrected to 45 per second",
-                    Some("was 40, proven by the project's own runner"),
-                ),
-                milestone(now - 8_600, "Planner runs its own test suite", None),
-            ],
-            active_tasks: vec![carl::army::task::TaskId::quoted("t-belt-throughput")],
-            active_agents: vec!["nora".into()],
-            // One line of the milestone file that would not parse, so the pane has something
-            // to be honest about rather than only ever showing a clean list.
-            milestone_gaps: 1,
-        },
-        ProjectView {
-            project: panel,
-            milestones: Vec::new(),
-            active_tasks: Vec::new(),
-            active_agents: Vec::new(),
-            milestone_gaps: 0,
-        },
-        ProjectView {
-            project: aos,
-            milestones: Vec::new(),
-            active_tasks: Vec::new(),
-            active_agents: Vec::new(),
-            milestone_gaps: 0,
-        },
     ]
 }

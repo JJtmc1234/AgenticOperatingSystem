@@ -8,34 +8,18 @@
 
 use std::path::Path;
 
-use carl::ProjectId;
 use carl::army::event::{Event, Journal};
 use carl::army::personnel::found;
 use carl::army::task::{Status, Task};
 use carl::panel::client::PanelClient;
 use carl::providers::health::{Health, Kind, Metric, Reading};
-use carl::providers::projects::Projects;
-use carl::providers::projects::model::Project;
 
 mod common;
 use common::{Backend, verification};
 
-fn jjtorio() -> ProjectId {
-    ProjectId::new("jjtorio").unwrap()
-}
-
-/// A home with an army, a project, and one task linked to it.
+/// A home with an army and one recorded task.
 fn a_working_home(dir: &Path) -> Task {
     let people = found(dir, 1).unwrap();
-
-    let projects = Projects::open(dir);
-    projects
-        .save(&Project::new(
-            jjtorio(),
-            "JJtorio",
-            "make the mod start faster",
-        ))
-        .unwrap();
 
     let t = Task::assign(
         "mason",
@@ -43,8 +27,7 @@ fn a_working_home(dir: &Path) -> Task {
         "cache the prototype lookup",
         verification(),
     )
-    .unwrap()
-    .for_project(jjtorio());
+    .unwrap();
 
     let mut journal = Journal::open(people.journal_path()).unwrap();
     journal
@@ -56,7 +39,7 @@ fn a_working_home(dir: &Path) -> Task {
                 goal: t.goal.clone(),
                 parent: None,
                 must: t.verification.must.clone(),
-                project: t.project.clone(),
+
                 workspace: None,
                 objective: None,
             },
@@ -72,81 +55,38 @@ fn a_working_home(dir: &Path) -> Task {
 }
 
 #[test]
-fn a_project_shows_the_task_and_the_agent_actually_linked_to_it() {
+fn a_task_shows_its_recorded_owner_without_a_project() {
     let dir = tempfile::tempdir().unwrap();
     let t = a_working_home(dir.path());
     let backend = Backend::start(dir.path());
-
     let snapshot = PanelClient::connect(&backend.socket())
         .unwrap()
         .snapshot()
         .unwrap();
-
-    assert_eq!(snapshot.projects.len(), 1);
-    let view = &snapshot.projects[0];
-    assert_eq!(view.project.id, jjtorio());
-    assert_eq!(
-        view.active_tasks
-            .iter()
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>(),
-        vec![t.id.to_string()]
-    );
-    assert_eq!(
-        view.active_agents,
-        vec!["nora"],
-        "derived from the linked task"
-    );
-    assert!(
-        view.milestones.is_empty(),
-        "nothing recorded one, so there are none"
-    );
-
-    // And the task carries the link back the other way.
     let task = snapshot
         .tasks
         .iter()
         .find(|x| x.id == t.id.to_string())
         .unwrap();
-    assert_eq!(task.project, Some(jjtorio()));
+    assert_eq!(task.owner, "nora");
+    assert_eq!(task.assigner, "mason");
+    assert_eq!(task.status, "in hand");
+    assert_eq!(task.goal, t.goal);
 }
 
-/// A task nobody linked must not drift into the only project that exists.
+/// Tasks need no project store.
 #[test]
-fn an_unlinked_task_does_not_join_a_project_over_the_wire() {
+fn an_independent_task_survives_the_wire() {
     let dir = tempfile::tempdir().unwrap();
-    let people = found(dir.path(), 1).unwrap();
-    Projects::open(dir.path())
-        .save(&Project::new(jjtorio(), "JJtorio", "faster"))
-        .unwrap();
-
-    let t = Task::assign("mason", "nora", "an unrelated errand", verification()).unwrap();
-    let mut journal = Journal::open(people.journal_path()).unwrap();
-    journal
-        .append(
-            "mason",
-            Event::Delegated {
-                task: t.id.clone(),
-                to: "nora".into(),
-                goal: t.goal.clone(),
-                parent: None,
-                must: t.verification.must.clone(),
-                project: None,
-                workspace: None,
-                objective: None,
-            },
-        )
-        .unwrap();
-
+    let t = a_working_home(dir.path());
     let backend = Backend::start(dir.path());
     let snapshot = PanelClient::connect(&backend.socket())
         .unwrap()
         .snapshot()
         .unwrap();
-
-    assert!(snapshot.projects[0].active_tasks.is_empty());
-    assert!(snapshot.projects[0].active_agents.is_empty());
-    assert_eq!(snapshot.tasks[0].project, None);
+    assert_eq!(snapshot.tasks.len(), 1);
+    assert_eq!(snapshot.tasks[0].id, t.id.to_string());
+    assert!(!dir.path().join("projects").exists());
 }
 
 /// The distinction the collectors are careful about, checked after a JSON round trip.
@@ -254,39 +194,23 @@ fn no_agent_claims_a_process_because_a_claude_is_running_somewhere() {
 
 /// A restart must rebuild the link from the record, because that is where it lives.
 #[test]
-fn the_project_link_survives_a_restart() {
+fn the_task_owner_and_requirements_survive_a_restart() {
     let dir = tempfile::tempdir().unwrap();
-    let t = a_working_home(dir.path());
+    a_working_home(dir.path());
     let mut backend = Backend::start(dir.path());
-
     let before = PanelClient::connect(&backend.socket())
         .unwrap()
         .snapshot()
         .unwrap();
-
     backend.down();
     backend.up();
-
     let after = PanelClient::connect(&backend.socket())
         .unwrap()
         .snapshot()
         .unwrap();
-
-    assert_eq!(
-        after.projects[0].active_tasks,
-        before.projects[0].active_tasks
-    );
-    assert_eq!(after.projects[0].active_agents, vec!["nora"]);
-    assert_eq!(
-        after
-            .tasks
-            .iter()
-            .find(|x| x.id == t.id.to_string())
-            .unwrap()
-            .project,
-        Some(jjtorio()),
-        "rebuilt from the journal, which is the only place it was written"
-    );
+    assert_eq!(after.tasks, before.tasks);
+    assert_eq!(after.tasks[0].owner, "nora");
+    assert!(!after.tasks[0].must.is_empty());
 }
 
 /// A resync is replacement truth, not something to merge into what was already held.
@@ -299,7 +223,7 @@ fn a_resynced_snapshot_replaces_provider_state_rather_than_merging_it() {
     let backend = Backend::start(dir.path());
 
     let (mut live, first) = LivePanel::open(&backend.socket()).unwrap();
-    assert_eq!(first.projects[0].active_tasks.len(), 1);
+    assert_eq!(first.tasks.len(), 1);
 
     // Observe a new event before replacing the journal so this tests an established stream.
     let people = carl::army::personnel::Personnel::open(dir.path()).unwrap();
@@ -357,18 +281,10 @@ fn a_resynced_snapshot_replaces_provider_state_rather_than_merging_it() {
     };
 
     // The replacement is built from the record as it now is. The task that was linked is gone
-    // from it, and nothing carried the old project link forward.
+    // from it, and no stale assignment is carried forward.
     assert!(
         fresh.tasks.is_empty(),
         "the record no longer holds that task"
-    );
-    assert!(
-        fresh.projects[0].active_tasks.is_empty(),
-        "so the project has no active work, rather than the work it used to have"
-    );
-    assert!(
-        fresh.projects[0].active_agents.is_empty(),
-        "and nobody is shown working on it"
     );
     assert_eq!(live.last_seq(), fresh.seq);
 }

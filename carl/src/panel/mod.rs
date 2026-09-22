@@ -15,7 +15,7 @@
 //!   wire.rs      the frames, one JSON object per line, both directions
 //!   command.rs   what the panel may ask for, and how a JJ intervention is written down
 //!   tasks.rs     tasks rebuilt from the record, because they exist nowhere else
-//!   facts.rs     the provider backed half, and how projects join to tasks
+//!   facts.rs     sampled diagnostics and supervised processes
 //!   snapshot.rs  everything at one moment, from the three places that actually know
 //!   listen.rs    the socket, owner only, which is the authentication
 //!   client.rs    the typed client, so nothing above it deals in bytes
@@ -30,7 +30,7 @@
 //! not exist for them.
 //!
 //! **Providers supply measurements and workspace tools.** Diagnostics come from the army and
-//! system collectors. Compatibility project records are still readable through their provider.
+//! system collectors. Historical project files are left untouched and no longer read.
 //! The workspace provider owns editor and terminal sessions. This backend joins those facts
 //! into the wire contract. See `docs/panel-current.md` for the current user interface.
 
@@ -61,8 +61,7 @@ pub use live::{Health as Link, LivePanel, Update};
 pub use serve::Server;
 pub use snapshot::build;
 pub use view::{
-    AgentView, CarlView, DiagnosticView, Health, Maybe, PanelSnapshot, ProcessState, ProjectView,
-    TaskView,
+    AgentView, CarlView, DiagnosticView, Health, Maybe, PanelSnapshot, ProcessState, TaskView,
 };
 pub use wire::{Ask, Frame, PanelEvent, Reply, Request, VERSION};
 

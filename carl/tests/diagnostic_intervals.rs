@@ -34,7 +34,7 @@ fn handover_latency_ends_at_first_submission_not_review_or_resubmission() {
                 goal: "repair".into(),
                 parent: None,
                 must: vec![],
-                project: None,
+
                 workspace: None,
                 objective: None,
             },

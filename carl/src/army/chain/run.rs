@@ -294,7 +294,7 @@ impl Chain {
                 goal: task.goal.clone(),
                 parent: task.parent.clone(),
                 must: task.verification.must.clone(),
-                project: task.project.clone(),
+
                 objective: task.objective,
             },
         )?;

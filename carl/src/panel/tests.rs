@@ -47,7 +47,7 @@ fn a_real_run(journal: &mut Journal) -> Task {
                 goal: t.goal.clone(),
                 parent: t.parent.clone(),
                 must: t.verification.must.clone(),
-                project: None,
+
                 workspace: None,
                 objective: None,
             },
@@ -436,7 +436,7 @@ fn a_panel_connects_and_gets_the_real_organisation_over_the_socket() {
             );
             // No project has been created in this home, so there are none. Empty because nothing
             // was written rather than because nothing was asked.
-            assert!(snapshot.projects.is_empty(), "none were created");
+
             // Diagnostics are real now, and the two kinds have to stay apart on the wire.
             assert!(
                 !snapshot.diagnostics.is_empty(),
@@ -588,7 +588,10 @@ fn rubbish_on_the_socket_is_answered_rather_than_dropped() {
     // hopefully and misunderstood.
     panel.raw(r#"{"v":99,"id":"x","ask":"ping"}"#);
     match panel.next().body {
-        Reply::Refused { why } => assert!(why.contains("99") && why.contains('1'), "{why}"),
+        Reply::Refused { why } => assert!(
+            why.contains("99") && why.contains(&format!("protocol {VERSION}")),
+            "{why}"
+        ),
         other => panic!("wrong reply: {other:?}"),
     }
 

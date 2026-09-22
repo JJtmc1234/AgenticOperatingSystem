@@ -1,3 +1,6 @@
+> Historical version 1 contract. Projects was retired on September 22, 2026.
+> Use [protocol version 2](panel-v2.md) and the [current panel guide](panel-current.md).
+
 # Command Panel backend, v1
 
 > **Frozen.** See `docs/command-panel-v1.md` for what v1 is, its known limitations, and what

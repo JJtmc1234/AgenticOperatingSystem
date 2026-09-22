@@ -1,6 +1,6 @@
 # Current command panel
 
-Updated September 20, 2026. The panel is an app opened when wanted. Closing it leaves the
+Updated September 22, 2026. The panel is an app opened when wanted. Closing it leaves the
 background army, voice, Slack and repair timer running. On JJ's Omarchy machine the
 `carl-panel.service` unit is disabled. `carl-panel-backend.service` serves the local socket.
 The backend does not require an open window.
@@ -46,12 +46,24 @@ Evan's repair report can show a prepared repair alongside a blocked issue. Unkno
 vocabulary is unavailable rather than idle. Ready repairs do not clear blockers. The
 review command validates repository and issue arguments before displaying them.
 
-## Compatibility and limits
+## Retired Projects and protocol upgrade
 
-Old project records, protocol fields and provider APIs remain so stored data and older
-clients can still be read. Issue 61 is complete for navigation and the task view, but total
-removal of the backend project feature is still outstanding. No stored projects were deleted.
+The Projects store, provider API, milestone events, UI and task links are removed.
+The To-do list uses recorded assignments directly, including owners, requirements,
+blocked work, finished work and Evan repairs. Old journal lines containing `project`
+still load. Historical files under `~/.carl/projects` are left untouched and are not read.
+
+The panel protocol is version 2 because snapshots no longer contain `projects`.
+Install the backend and GUI together. Old protocol clients receive an explicit version
+mismatch instead of a partial snapshot. See [the current wire contract](panel-v2.md).
 
 The panel does not invent work to make idle agents look busy. An idle conversational agent
-and a separate ready repair can both be true. The service observation and regression tests
-verify those states without opening a desktop window.
+and a separate ready repair can both be true. Tests cover both without opening a window.
+
+## Submitting Evan's reviewed work
+
+Run `carl evan review --repo OWNER/REPO --issue NUMBER` to inspect the exact prepared
+commit and evidence. After reviewing it, `carl evan submit --repo OWNER/REPO --issue NUMBER`
+publishes that one repair as a draft PR. It rechecks the issue, source, repository policy
+and clean prepared checkout. It never merges and does not enable automatic publication.
+Changed inputs require revalidation. Repeated submissions reuse the recorded PR.

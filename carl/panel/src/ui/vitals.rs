@@ -34,8 +34,6 @@ pub struct Vitals {
     pub held: usize,
     pub unmeasured: usize,
     pub healthy: usize,
-    pub projects_active: usize,
-    pub projects_blocked: usize,
 }
 
 impl Vitals {
@@ -120,15 +118,6 @@ pub fn read(snapshot: &Snapshot) -> Vitals {
         }
     }
 
-    for p in &snapshot.projects {
-        if p.project.status == crate::model::Status::Active {
-            v.projects_active += 1;
-        }
-        if !p.project.blockers.is_empty() {
-            v.projects_blocked += 1;
-        }
-    }
-
     v
 }
 
@@ -145,7 +134,7 @@ pub fn is_human(name: &str) -> bool {
 pub struct Need {
     /// What kind of thing it is, for the small caps label on the left.
     pub kind: &'static str,
-    /// The subject: an agent, a component, a project.
+    /// The subject: an agent or a component.
     pub subject: String,
     /// What is actually wrong, in one line.
     pub detail: String,

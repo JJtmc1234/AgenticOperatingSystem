@@ -112,11 +112,6 @@ pub enum PanelEvent {
     },
     Delegated(Box<crate::model::Delegation>),
     DiagnosticChanged(Box<crate::model::Diagnostic>),
-    ProjectChanged(Box<crate::model::ProjectView>),
-    MilestoneReached {
-        project: String,
-        milestone: Box<crate::model::Milestone>,
-    },
     /// Fresh machine readings, and nothing else.
     ///
     /// Deliberately not a `Recorded` and deliberately carrying no sequence. Telemetry is the

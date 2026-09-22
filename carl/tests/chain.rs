@@ -223,7 +223,7 @@ fn the_record_can_say_who_did_what_to_which_task() {
                 goal: t.goal.clone(),
                 parent: None,
                 must: vec!["it works".into()],
-                project: None,
+
                 workspace: None,
                 objective: None,
             },

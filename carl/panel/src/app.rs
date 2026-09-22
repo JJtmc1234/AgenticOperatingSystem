@@ -90,7 +90,7 @@ impl Tab {
 pub struct Kept {
     pub tab: Tab,
     pub agent: Option<String>,
-    pub project: Option<String>,
+
     pub workspace: Option<Workspace>,
     pub draft: String,
     pub objective: String,
@@ -107,7 +107,7 @@ pub struct App {
 
     pub tab: Tab,
     pub agent: Option<String>,
-    pub project: Option<String>,
+
     pub workspace: Option<Workspace>,
 
     /// What JJ has typed and not sent.
@@ -173,7 +173,7 @@ impl App {
             link,
             tab: Tab::Overview,
             agent: None,
-            project: None,
+
             workspace: None,
             draft: String::new(),
             objective: String::new(),
@@ -298,10 +298,6 @@ impl App {
         if self.intervening.as_ref().is_some_and(|i| i.agent != name) {
             self.intervening = None;
         }
-    }
-
-    pub fn select_project(&mut self, name: &str) {
-        self.project = Some(name.to_string());
     }
 
     /// Opens something in the pane, through the facade.
@@ -542,7 +538,7 @@ impl App {
         Kept {
             tab: self.tab,
             agent: self.agent.clone(),
-            project: self.project.clone(),
+
             workspace: self.workspace.clone(),
             draft: self.draft.clone(),
             objective: self.objective.clone(),

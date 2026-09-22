@@ -20,9 +20,15 @@ pub(super) fn read(rows: &[Value]) -> Option<Diagnostic> {
     let ready: Vec<_> = rows
         .iter()
         .filter(|r| {
-            r["status"]
-                .as_str()
-                .is_some_and(|s| s.starts_with("Prepared."))
+            r["status"].as_str().is_some_and(|s| {
+                [
+                    "Prepared.",
+                    "Submitted for review.",
+                    "Already submitted for review.",
+                ]
+                .iter()
+                .any(|prefix| s.starts_with(prefix))
+            })
         })
         .collect();
     if let Some(row) = blocked {
@@ -46,14 +52,12 @@ pub(super) fn read(rows: &[Value]) -> Option<Diagnostic> {
                 ready.len(),
                 subject(prepared)
             ));
-            if let Some(command) = review_command(prepared) {
-                found = found.with(Metric::new("review_command", Reading::Text(command), ""));
-            }
+            found = actions(found, prepared);
         }
         return Some(found);
     }
     if let Some(row) = ready.first() {
-        let mut found = diagnostic(
+        let found = diagnostic(
             "review",
             Health::Healthy,
             format!(
@@ -62,16 +66,33 @@ pub(super) fn read(rows: &[Value]) -> Option<Diagnostic> {
                 subject(row)
             ),
         );
-        if let Some(command) = review_command(row) {
-            found = found.with(Metric::new("review_command", Reading::Text(command), ""));
-        }
-        return Some(found);
+        return Some(actions(found, row));
     }
     Some(diagnostic(
         "idle",
         Health::Healthy,
         "Evan has no local repairs waiting for review",
     ))
+}
+
+fn actions(mut found: Diagnostic, row: &Value) -> Diagnostic {
+    if let Some(command) = review_command(row) {
+        found = found.with(Metric::new("review_command", Reading::Text(command), ""));
+        if let (Some(repo), Some(url)) = (row["repo"].as_str(), row["pr"].as_str()) {
+            let prefix = format!("https://github.com/{repo}/pull/");
+            if url.strip_prefix(&prefix).is_some_and(|number| {
+                number.bytes().all(|c| c.is_ascii_digit())
+                    && number.parse::<u64>().is_ok_and(|n| n > 0)
+            }) {
+                found = found.with(Metric::new(
+                    "pull_request_url",
+                    Reading::Text(url.into()),
+                    "",
+                ));
+            }
+        }
+    }
+    found
 }
 
 fn subject(row: &Value) -> String {

@@ -296,7 +296,6 @@ fn the_console_has_one_obvious_input() {
 #[test]
 fn every_empty_state_says_something_rather_than_nothing() {
     let mut a = app();
-    a.snapshot.projects.clear();
     a.snapshot.tasks.clear();
     for agent in &mut a.snapshot.agents {
         agent.status = AgentStatus::Idle;
@@ -623,7 +622,6 @@ fn narrow_selected_agent_and_diagnostics_details_stay_readable() {
 fn task_list_includes_unaffiliated_tasks_and_names_the_owner() {
     let mut a = app();
     let task = &mut a.snapshot.tasks[0];
-    task.project = None;
     task.goal = "Prove the repaired task renders".into();
     task.owner = "evan".into();
     let frame = tab(&mut a, Tab::Tasks, SMALL);

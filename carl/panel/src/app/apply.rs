@@ -164,31 +164,6 @@ impl App {
                     None => self.snapshot.diagnostics.push(*d),
                 }
             }
-
-            PanelEvent::ProjectChanged(p) => {
-                match self
-                    .snapshot
-                    .projects
-                    .iter_mut()
-                    .find(|x| x.project.id == p.project.id)
-                {
-                    Some(slot) => *slot = *p,
-                    None => self.snapshot.projects.push(*p),
-                }
-            }
-
-            PanelEvent::MilestoneReached { project, milestone } => {
-                if let Some(p) = self
-                    .snapshot
-                    .projects
-                    .iter_mut()
-                    .find(|p| p.project.name == project)
-                {
-                    // Newest first, which is the order the provider keeps them in and the
-                    // order the pane draws.
-                    p.milestones.insert(0, *milestone);
-                }
-            }
         }
     }
 

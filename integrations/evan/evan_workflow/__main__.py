@@ -20,6 +20,9 @@ def main():
     review=commands.add_parser('review',help='Inspect a prepared local repair without publishing')
     review.add_argument('--repo',required=True)
     review.add_argument('--issue',type=int,required=True)
+    submit=commands.add_parser('submit',help='Publish one reviewed prepared repair as a draft PR')
+    submit.add_argument('--repo',required=True)
+    submit.add_argument('--issue',type=int,required=True)
     commands.add_parser('status')
     commands.add_parser('doctor')
     args=parser.parse_args()
@@ -34,6 +37,11 @@ def main():
             print(json.dumps(read(args.home),indent=2))
             return 0
         settings=config.load(args.home)
+        if args.command=='submit':
+            from .submit import submit
+            report=submit(args.home,settings,args.repo,args.issue)
+            print(json.dumps(report,indent=2))
+            return int(any(row['status'].startswith('Blocked.') for row in report['rows']))
         if args.command=='doctor':
             missing=[p for p in ('git','gh','claude','bwrap') if not shutil.which(p)]
             if missing:

@@ -16,23 +16,21 @@ use carl::army::personnel::found;
 use carl::panel::Facts;
 use carl::providers::diagnostics::{Diagnostics, Intervals};
 use carl::providers::health::Kind;
-use carl::providers::projects::Projects;
 
-fn a_home(dir: &Path) -> Projects {
+fn a_home(dir: &Path) {
     found(dir, 1).unwrap();
-    Projects::open(dir)
 }
 
 /// Sixty snapshots at one instant, which is one second of a panel at sixty frames.
 #[test]
 fn a_render_loop_worth_of_snapshots_probes_once_and_samples_once() {
     let dir = tempfile::tempdir().unwrap();
-    let projects = a_home(dir.path());
+    a_home(dir.path());
     let mut diagnostics = Diagnostics::new(dir.path());
 
     let at = 1_755_200_000;
     for _ in 0..60 {
-        let facts = Facts::gather_at(&mut diagnostics, &projects, &[], at);
+        let facts = Facts::gather_at(&mut diagnostics, at);
         assert!(
             !facts.diagnostics.all().is_empty(),
             "still answers every time"
@@ -50,7 +48,7 @@ fn a_render_loop_worth_of_snapshots_probes_once_and_samples_once() {
 #[test]
 fn the_limit_expires_rather_than_freezing_the_numbers() {
     let dir = tempfile::tempdir().unwrap();
-    let projects = a_home(dir.path());
+    a_home(dir.path());
     let intervals = Intervals {
         machine_secs: 2,
         probe_secs: 5,
@@ -58,11 +56,11 @@ fn the_limit_expires_rather_than_freezing_the_numbers() {
     let mut diagnostics = Diagnostics::new(dir.path()).every(intervals);
 
     let at = 1_755_200_000;
-    Facts::gather_at(&mut diagnostics, &projects, &[], at);
-    Facts::gather_at(&mut diagnostics, &projects, &[], at + 1);
+    Facts::gather_at(&mut diagnostics, at);
+    Facts::gather_at(&mut diagnostics, at + 1);
     assert_eq!(diagnostics.samples_taken(), 1, "one second is inside two");
 
-    Facts::gather_at(&mut diagnostics, &projects, &[], at + 2);
+    Facts::gather_at(&mut diagnostics, at + 2);
     assert_eq!(diagnostics.samples_taken(), 2, "and two seconds is not");
     assert_eq!(
         diagnostics.probes_taken(),
@@ -70,7 +68,7 @@ fn the_limit_expires_rather_than_freezing_the_numbers() {
         "the probe has its own, longer, limit"
     );
 
-    Facts::gather_at(&mut diagnostics, &projects, &[], at + 5);
+    Facts::gather_at(&mut diagnostics, at + 5);
     assert_eq!(diagnostics.probes_taken(), 2);
 }
 

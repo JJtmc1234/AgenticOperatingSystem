@@ -11,7 +11,6 @@
 
 use carl::providers::diagnostics::Intervals;
 use carl::providers::health::{Kind, Reading};
-use carl::providers::projects::{Achievement, NewMilestone, Project, ProjectId, Projects, Source};
 use carl::providers::{Diagnostics, Health, Snapshot};
 
 fn home() -> tempfile::TempDir {
@@ -159,61 +158,28 @@ fn no_read_operation_founds_an_army() {
 
 /// The project store and the diagnostics do not touch each other.
 #[test]
-fn the_project_store_is_independent_of_diagnostics() {
+fn legacy_project_files_are_independent_of_diagnostics() {
     let d = home();
-
     let before = snapshot_of(d.path());
     let before_ids: Vec<String> = before.components().iter().map(|c| c.to_string()).collect();
-
-    // Create a project and record something on it.
-    let projects = Projects::open(d.path());
-    let id = ProjectId::new("jjtorio").unwrap();
-    projects
-        .save(&Project::new(id.clone(), "JJtorio", "A mod that works"))
-        .unwrap();
-    projects
-        .record(NewMilestone {
-            project: id.clone(),
-            at: 100,
-            title: "the belts balance".into(),
-            detail: None,
-            evidence: Some("commit abc123".into()),
-            achievement: Achievement::FeatureWorks,
-            source: Source::Jj,
-        })
-        .unwrap();
-
-    // Diagnostics are unmoved by it.
+    let old = d.path().join("projects/old");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(old.join("project.json"), "old state").unwrap();
     let after = snapshot_of(d.path());
     let after_ids: Vec<String> = after.components().iter().map(|c| c.to_string()).collect();
+    assert_eq!(before_ids, after_ids);
     assert_eq!(
-        before_ids, after_ids,
-        "a project changed the diagnostics board"
+        std::fs::read_to_string(old.join("project.json")).unwrap(),
+        "old state"
     );
-
-    // And reading diagnostics did not disturb the project store.
-    assert_eq!(projects.list().unwrap().len(), 1);
-    assert_eq!(projects.milestones(&id).unwrap().len(), 1);
-    assert_eq!(projects.milestone_gaps(&id).unwrap(), 0);
 }
 
 /// Reading the project store on a machine with no projects creates nothing.
 #[test]
 fn no_read_operation_creates_a_project_store() {
     let d = home();
-    let projects = Projects::open(d.path());
-
-    assert!(projects.list().unwrap().is_empty());
-    let id = ProjectId::new("nothing-here").unwrap();
-    assert!(projects.get(&id).unwrap().is_none());
-    assert!(projects.view(&id).unwrap().is_none());
-    assert!(projects.milestones(&id).unwrap().is_empty());
-    assert!(projects.suggestions(&id).unwrap().is_empty());
-
-    assert!(
-        !d.path().join("projects").exists(),
-        "reading created the store"
-    );
+    snapshot_of(d.path());
+    assert!(!d.path().join("projects").exists());
 }
 
 /// The rate limit, which is the property that decides whether this is safe in a render loop.
@@ -318,19 +284,6 @@ fn no_read_only_provider_operation_writes_to_disk() {
     army.army_root();
     army.journal_path();
 
-    // The project store, every read path it has.
-    let projects = Projects::open(d.path());
-    let id = ProjectId::new("nothing-here").unwrap();
-    projects.list().unwrap();
-    projects.get(&id).unwrap();
-    projects.view(&id).unwrap();
-    projects.milestones(&id).unwrap();
-    projects.recent_milestones(&id, 5).unwrap();
-    projects.milestone_gaps(&id).unwrap();
-    projects.suggestions(&id).unwrap();
-    projects.root();
-    projects.folder(&id);
-
     // Workspace investigation, which is a lookup and must open nothing.
     let snapshot = diagnostics.snapshot_at(2_000);
     let workspace = carl::providers::workspace::Workspace::new();
@@ -406,44 +359,19 @@ fn unknown_readings_keep_their_detail() {
 /// A hole in a history has to be visible, or a panel shows a shorter timeline and calls it
 /// complete.
 #[test]
-fn a_damaged_milestone_history_reports_its_gap() {
+fn damaged_retired_milestones_are_not_read_or_rewritten() {
     let d = home();
-    let projects = Projects::open(d.path());
-    let id = ProjectId::new("jjtorio").unwrap();
-    projects
-        .save(&Project::new(id.clone(), "JJtorio", "A mod that works"))
-        .unwrap();
-
-    let record = |title: &str, at: u64| NewMilestone {
-        project: id.clone(),
-        at,
-        title: title.to_string(),
-        detail: None,
-        evidence: None,
-        achievement: Achievement::PhaseCompleted,
-        source: Source::Carl,
-    };
-    projects.record(record("one", 1)).unwrap();
-    projects.record(record("two", 2)).unwrap();
-
-    let path = d.path().join("projects/jjtorio/milestones.jsonl");
-    let whole = std::fs::read_to_string(&path).unwrap();
-    std::fs::write(&path, &whole[..whole.len() - 20]).unwrap();
-
-    // The damage is counted, and the next append still lands whole.
-    assert_eq!(projects.milestone_gaps(&id).unwrap(), 1);
-    projects.record(record("three", 3)).unwrap();
-
-    let reopened = Projects::open(d.path());
-    let titles: Vec<String> = reopened
-        .milestones(&id)
-        .unwrap()
-        .into_iter()
-        .map(|m| m.title)
-        .collect();
-    assert_eq!(titles, ["one", "three"], "the damage spread");
-    assert_eq!(reopened.milestone_gaps(&id).unwrap(), 1);
-    assert_eq!(reopened.view(&id).unwrap().unwrap().milestone_gaps, 1);
+    let old = d.path().join("projects/old");
+    std::fs::create_dir_all(&old).unwrap();
+    let path = old.join("milestones.jsonl");
+    std::fs::write(&path, "broken legacy line\n").unwrap();
+    let before = tree(d.path());
+    snapshot_of(d.path());
+    assert_eq!(tree(d.path()), before);
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap(),
+        "broken legacy line\n"
+    );
 }
 
 /// A component id is a key. It is never run, never a path, and never anything else.

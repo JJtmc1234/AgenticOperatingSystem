@@ -33,7 +33,6 @@ use crate::army::personnel::Personnel;
 use crate::army::task::TaskId;
 use crate::panel::view::PanelSnapshot;
 use crate::providers::Diagnostics;
-use crate::providers::projects::Projects;
 use crate::{Result, ThreadId};
 
 /// How often the journal is checked for new lines while a panel is subscribed.
@@ -252,13 +251,10 @@ pub fn talk(
 
 /// The whole world, army and providers together.
 ///
-/// The task fold happens once here and is handed to the providers, because the project join
-/// needs it and the snapshot needs it, and folding twice would be the same work for the same
-/// answer.
+/// The snapshot folds tasks from the journal. Providers contribute diagnostics and processes.
 fn everything(home: &Path, machine: &Mutex<Diagnostics>) -> Result<PanelSnapshot> {
     let people = Personnel::open(home)?;
     let records = event::read(people.journal_path())?;
-    let tasks = super::tasks::fold(&records);
 
     let facts = {
         // Held only while sampling. A slow read of /proc must not stop another panel taking a
@@ -266,7 +262,7 @@ fn everything(home: &Path, machine: &Mutex<Diagnostics>) -> Result<PanelSnapshot
         let mut machine = machine.lock().map_err(|_| {
             crate::Error::Refused("the diagnostics sampler panicked in another thread".into())
         })?;
-        Facts::gather(&mut machine, &Projects::open(home), &tasks).with_runtime(home)
+        Facts::gather(&mut machine).with_runtime(home)
     };
     snapshot::build_from(&people, &records, &facts)
 }

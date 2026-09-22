@@ -40,7 +40,6 @@ pub fn snapshot(wire: PanelSnapshot) -> Snapshot {
         agents,
         // Both are Process 3's canonical types on the wire and on the screen, so there is
         // nothing to map. The panel used to convert them and lost a distinction each time.
-        projects: wire.projects,
         diagnostics: wire.diagnostics,
         decisions: wire
             .carl

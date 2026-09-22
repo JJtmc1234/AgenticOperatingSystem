@@ -1,5 +1,4 @@
 //! Retiring Projects must preserve tasks and leave historical files untouched.
-use carl::army::event::{Event, Journal};
 use carl::army::personnel::found;
 use carl::panel::{client::PanelClient, snapshot};
 use serde_json::json;
@@ -11,14 +10,14 @@ use common::Backend;
 fn historical_project_fields_do_not_return_in_task_snapshots() {
     let dir = tempfile::tempdir().unwrap();
     let people = found(dir.path(), 1).unwrap();
-    let old: Event = serde_json::from_value(json!({
-        "event": "delegated", "task": "old-task", "to": "evan",
-        "goal": "Finish the reviewed repair", "must": ["regression passes"],
-        "project": "legacy-project", "workspace": "/tmp/allowed", "objective": 7
-    }))
-    .unwrap();
-    let mut journal = Journal::open(people.journal_path()).unwrap();
-    journal.append("adrian", old).unwrap();
+    let old = json!({
+        "seq": 1, "at": 100, "actor": "adrian", "event": "delegated",
+        "task": "old-task", "to": "evan", "goal": "Finish the reviewed repair",
+        "must": ["regression passes"], "project": "legacy-project",
+        "workspace": "/tmp/allowed", "objective": 7
+    });
+    std::fs::create_dir_all(people.journal_path().parent().unwrap()).unwrap();
+    std::fs::write(people.journal_path(), format!("{old}\n")).unwrap();
     let bytes = std::fs::read(people.journal_path()).unwrap();
     let snapshot = snapshot::build(dir.path()).unwrap();
     assert_eq!(snapshot.tasks.len(), 1);

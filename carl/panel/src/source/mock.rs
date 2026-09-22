@@ -237,7 +237,7 @@ fn opening_state() -> Snapshot {
         permissions: Vec::new(),
         agents,
         tasks: vec![task],
-        projects: script::projects(EPOCH),
+
         diagnostics: script::diagnostics(EPOCH),
         conversation: vec![
             Turn {
@@ -285,7 +285,7 @@ fn seed_task() -> TaskView {
         owner: "nora".into(),
         assigner: "mason".into(),
         parent: None,
-        project: carl::ProjectId::new("jjtorio").ok(),
+
         status: "in hand".into(),
         attempts: 0,
         must: vec![

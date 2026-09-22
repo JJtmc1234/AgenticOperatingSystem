@@ -1564,3 +1564,20 @@ Overview text before the fix and now checks all screens at portrait and landscap
 `narrow_disconnected_panel_keeps_warning_and_content_readable` reproduced the clipped warning.
 The default launch is windowed, fullscreen requires `--fullscreen`, and showing a hidden
 window no longer forces it into fullscreen.
+
+## Retired Projects still leaked into the task contract
+
+Issues 60 and 61. Projects had disappeared from navigation but remained in the provider,
+task model and wire snapshot. Those APIs and stores are now retired. Historical journal
+fields remain readable without restoring project state, and old project files are untouched.
+`historical_project_fields_do_not_return_in_task_snapshots` and
+`live_backend_ignores_legacy_project_files_without_changing_them` both failed before removal.
+Task ownership, requirements, journal recovery and nonmutating reads retain coverage.
+Project feature tests were retired with the feature rather than left as misleading fixtures.
+
+## Submitted Evan repairs looked idle
+
+Issue 58. Published repairs were recognized as valid reports but omitted from review state.
+`submitted_repairs_remain_visible_with_their_draft_pr` failed before the fix. Submitted work
+now remains ready for review with its verified repository's GitHub PR link. Invalid links
+are excluded by `submitted_repairs_only_link_their_own_github_pull_request`.

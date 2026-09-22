@@ -62,6 +62,21 @@ In the command panel, select Evan to see the repair workflow card. Prepared work
 provides **Copy review command**. Paste that command into a terminal to inspect
 the evidence. The panel keeps conversational tasks and repair work distinct.
 
+## Submitting one reviewed repair
+
+After inspecting `carl evan review`, run:
+
+```sh
+carl evan submit --repo JJtmc1234/Holoprojector --issue 2
+```
+
+This authorizes one prepared repair to become a draft PR. It does not change `publish`
+in the configuration or start model workers. The runtime checks that the issue, source,
+policy and clean prepared commit still match the saved verification. Changed inputs block
+submission and require a fresh draft run. The command never merges or closes issues.
+Repeated submission returns the recorded PR. Uncertain creation only reconciles an exact
+marker and commit, without trying another create. Status reports the resulting PR or blocker.
+
 ## Selection and scheduling
 
 The five minute timer detects new issues. Unchanged failed work becomes eligible again after

@@ -1,6 +1,6 @@
 //! The mapping is where honesty is either kept or quietly lost, so it is tested on its own.
 //!
-//! Diagnostics and projects are no longer mapped at all: they are Process 3's canonical types
+//! Diagnostics are not mapped: they are the provider's canonical types
 //! on the wire and on the screen. What is left here is the agent overlay, which is genuinely
 //! derived, and the snapshot joins the screen relies on.
 
@@ -40,7 +40,7 @@ fn task(id: &str, owner: &str, status: &str) -> TaskView {
         owner: owner.into(),
         assigner: "mason".into(),
         parent: None,
-        project: carl::ProjectId::new("jjtorio").ok(),
+
         status: status.into(),
         attempts: 1,
         must: vec!["tests pass".into()],
@@ -140,7 +140,7 @@ fn a_backend_snapshot_becomes_a_drawable_one() {
         },
         agents: vec![agent("nora", true)],
         tasks: vec![task("t1", "nora", "in hand")],
-        projects: Vec::new(),
+
         diagnostics: Vec::new(),
     };
 
@@ -165,8 +165,8 @@ fn a_backend_snapshot_becomes_a_drawable_one() {
 
 /// The link a project pane walks is the one the record carries, not a guess.
 #[test]
-fn a_task_belongs_to_the_project_the_record_names() {
-    let mut wire = PanelSnapshot {
+fn independent_tasks_keep_their_owners_and_identity() {
+    let wire = PanelSnapshot {
         seq: 1,
         at: 1,
         carl: CarlView {
@@ -176,16 +176,14 @@ fn a_task_belongs_to_the_project_the_record_names() {
             recent_delegations: Vec::new(),
         },
         agents: Vec::new(),
-        tasks: vec![task("t1", "nora", "in hand"), task("t2", "nora", "in hand")],
-        projects: Vec::new(),
+        tasks: vec![
+            task("t1", "nora", "in hand"),
+            task("t2", "evan", "assigned"),
+        ],
         diagnostics: Vec::new(),
     };
-    wire.tasks[1].project = None;
-
     let drawn = snapshot(wire);
-    let jjtorio = carl::ProjectId::new("jjtorio").unwrap();
-    let mine = drawn.tasks_in(&jjtorio);
-
-    assert_eq!(mine.len(), 1, "only the task the record put in the project");
-    assert_eq!(mine[0].id, "t1");
+    assert_eq!(drawn.tasks.len(), 2);
+    assert_eq!(drawn.task("t1").unwrap().owner, "nora");
+    assert_eq!(drawn.task("t2").unwrap().owner, "evan");
 }

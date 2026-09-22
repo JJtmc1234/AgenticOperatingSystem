@@ -171,7 +171,7 @@ fn main() -> eframe::Result<()> {
                     .filter(|d| d.health == carl_panel::model::Health::Unknown)
                     .count();
                 println!(
-                    "{elapsed:>3}s  link {:<16} nora {:<8} decisions {}  milestones {}  \
+                    "{elapsed:>3}s  link {:<16} nora {:<8} decisions {}  tasks {}  \
                      seq {}  sampled {}  unknown {unknown}",
                     app.link.label(),
                     app.snapshot
@@ -179,11 +179,7 @@ fn main() -> eframe::Result<()> {
                         .map(|a| a.status.label())
                         .unwrap_or("gone"),
                     app.snapshot.decisions.len(),
-                    app.snapshot
-                        .projects
-                        .iter()
-                        .map(|p| p.milestones.len())
-                        .sum::<usize>(),
+                    app.snapshot.tasks.len(),
                     app.last_seq(),
                     app.sampled_at
                         .map(|s| s.to_string())
@@ -205,12 +201,12 @@ fn main() -> eframe::Result<()> {
         {
             println!(
                 "drew {drawn} frames. tab {:?}, link {}, {} agents, {} diagnostics, \
-                 {} projects, {} conversation turns, {} decisions",
+                 {} tasks, {} conversation turns, {} decisions",
                 app.tab,
                 app.link.label(),
                 app.snapshot.agents.len(),
                 app.snapshot.diagnostics.len(),
-                app.snapshot.projects.len(),
+                app.snapshot.tasks.len(),
                 app.snapshot.conversation.len(),
                 app.snapshot.decisions.len(),
             );

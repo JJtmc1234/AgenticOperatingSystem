@@ -16,7 +16,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ProjectId;
 use crate::army::org::Rank;
 use crate::army::runtime::Continuity;
 
@@ -62,7 +61,6 @@ impl<T> From<Option<T>> for Maybe<T> {
 // it rather than true at an instant. Re-exporting keeps both distinctions all the way to the
 // wire.
 pub use crate::providers::health::{Diagnostic as DiagnosticView, Health, Kind, Metric, Reading};
-pub use crate::providers::projects::ProjectView;
 
 /// One agent, as the panel sees them.
 ///
@@ -171,12 +169,6 @@ pub struct TaskView {
     /// Who assigned it, and who therefore reviews it.
     pub assigner: String,
     pub parent: Option<String>,
-    /// Which project this task belongs to, from the record.
-    ///
-    /// `None` for a task nobody put in one, and for every task delegated before projects
-    /// existed. Those are the same on the wire and mean the same thing: nobody said.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<ProjectId>,
     pub status: String,
     pub attempts: u32,
     /// What must be observable before it is done. Empty only for a task delegated before the
@@ -234,6 +226,6 @@ pub struct PanelSnapshot {
     pub carl: CarlView,
     pub agents: Vec<AgentView>,
     pub tasks: Vec<TaskView>,
-    pub projects: Vec<ProjectView>,
+
     pub diagnostics: Vec<DiagnosticView>,
 }

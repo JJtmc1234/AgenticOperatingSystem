@@ -123,7 +123,6 @@ pub fn from_event(wire: &WireEvent, snapshot: &mut Snapshot, out: &mut Vec<Panel
             goal,
             parent,
             must,
-            project,
             ..
         } => {
             out.push(PanelEvent::Delegated(Box::new(crate::model::Delegation {
@@ -140,7 +139,7 @@ pub fn from_event(wire: &WireEvent, snapshot: &mut Snapshot, out: &mut Vec<Panel
                 owner: to.clone(),
                 assigner: wire.record.actor.clone(),
                 parent: parent.as_ref().map(|p| p.to_string()),
-                project: project.clone(),
+
                 // Assigned the moment it is handed over. Anything else comes from a later
                 // `moved`, which can now find it.
                 status: "assigned".to_string(),

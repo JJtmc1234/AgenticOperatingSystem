@@ -124,7 +124,7 @@ fn every_record_produces_a_sentence() {
             goal: "fix belts".into(),
             parent: None,
             must: vec![],
-            project: None,
+
             workspace: None,
             objective: None,
         },
@@ -198,10 +198,9 @@ fn a_long_turn_is_cut_and_says_it_was_cut() {
 fn the_mock_army_has_a_feed_on_the_first_frame() {
     let s = MockPanelDataSource::new().snapshot();
     let beats = recent(&s, 12);
-    assert!(
-        beats.len() >= 4,
-        "the opening snapshot should already show a conversation, a handover and milestones"
-    );
-    assert!(beats.iter().any(|b| b.kind == "MILESTONE"));
+    for kind in ["JJ SAID", "CARL SAID", "HANDED DOWN"] {
+        assert!(beats.iter().any(|b| b.kind == kind), "missing {kind}");
+    }
+    assert!(!beats.iter().any(|b| b.kind == "MILESTONE"));
     assert!(beats.iter().any(|b| b.kind == "HANDED DOWN"));
 }

@@ -100,7 +100,7 @@ impl Board {
         let goal = task.goal.clone();
         let must = task.verification.must.clone();
         let parent = task.parent.clone();
-        let project = task.project.clone();
+
         let workspace = task.workspace.clone();
         let objective = task.objective;
         let by = by.to_string();
@@ -135,7 +135,7 @@ impl Board {
                     goal,
                     parent,
                     must,
-                    project,
+
                     workspace,
                     objective,
                 },
@@ -343,7 +343,7 @@ pub fn rebuild(records: &[Record]) -> Vec<Task> {
                 goal,
                 parent,
                 must,
-                project,
+
                 workspace,
                 objective,
             } => {
@@ -367,7 +367,7 @@ pub fn rebuild(records: &[Record]) -> Vec<Task> {
                         created_by: record.actor.clone(),
                         parent: parent.clone(),
                         attempts: 0,
-                        project: project.clone(),
+
                         workspace: workspace.clone(),
                         objective: *objective,
                     },

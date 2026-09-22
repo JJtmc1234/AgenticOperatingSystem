@@ -160,6 +160,4 @@ fn the_mock_army_reports_what_the_fixture_actually_contains() {
     );
     assert_eq!(v.working, 1, "carl is the only one moving at the start");
     assert!(v.unmeasured >= 2, "the fixture carries deliberate gaps");
-    assert_eq!(v.projects_active, 2);
-    assert_eq!(v.projects_blocked, 1);
 }
